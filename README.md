@@ -4,7 +4,8 @@
 <br />
 <div align="center">
   <a href="#">
-    <img src="images/rory_logo.svg" alt="Logo" width="150" height="150">
+    <img src="images/rory_logo.png" alt="Logo">
+
   </a>
   <h3 align="center">Secure Clustering System</h3>
 
