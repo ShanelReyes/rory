@@ -1,0 +1,10 @@
+Flask==2.1.3
+scikit-learn==1.1.2
+numpy==1.23.2
+pandas==1.4.3
+requests==2.22.0
+python-dotenv>=1.0.0
+# git+https://github.com/ShanelReyes/rory#egg=rory
+--extra-index-url https://test.pypi.org/simple/ 
+mictlanx==0.0.35
+rory==0.0.12

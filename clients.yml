@@ -1,0 +1,40 @@
+version: "3"
+services:
+        scc-0:
+                image: secure-clustering-client:latest
+                container_name: scc-0
+                hostname: scc-0
+                environment:
+                        NODE_ID: "scc-0"               
+                        NODE_PORT: 3000
+                        NODE_HOST: "0.0.0.0"
+                        SECURE_CLUSTERING_MANAGER_HOSTNAME: "scm-0"
+                        SECURE_CLUSTERING_MANAGER_PORT: 6000
+                        MAX_WORKERS: 2
+                        TRACE_NAME: "trace_batch1"
+                        TRACE_EXTENSION: "csv"
+                        LOG_PATH: "/logs"
+                        SINK_PATH: "/sink"
+                        SOURCE_PATH: "/source"
+                        DEBUG: 0
+                        RELOAD: 0
+                        RUN_TRACE: 1
+                        BATCH_ID: 1
+                        STORAGE_SYSTEM_HOSTNAME: "ss"
+                        STORAGE_SYSTEM_PORT: 1026
+                        TESTING: 0
+                ports:
+                        - 3000:3000
+                networks:
+                        - test
+                volumes:
+                        - "/log:/logs"
+                        - "/test/experiments/source:/source"
+                        - "/test/experiments/sink/scc-0:/sink"
+networks:
+        test:
+                external: true
+                
+
+
+

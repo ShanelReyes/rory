@@ -1,0 +1,99 @@
+
+version: "3"
+services:
+        sr0:
+                image: nachocode/node-replicator:v3
+                container_name: sr0
+                hostname: sr0
+                environment:
+                        NODE_ID: "sr0"
+                        NODE_PORT: 1025
+                        NODE_HOST: "0.0.0.0"
+                        LOG_PATH: "/logs"
+                ports:
+                        - 1025:1025
+                networks:
+                        - test
+                volumes:
+                        - "/var/run/docker.sock:/var/run/docker.sock"
+                        - "/log:/logs"
+        ss:
+                image: nachocode/storage-node:0.0.2-rust
+                container_name: ss
+                hostname: ss
+                environment:
+                        NODE_ID: "ss"
+                        NODE_PORT: 6001
+                        NODE_HOSTNAME: "0.0.0.0"
+                        LOG_PATH: "/logs"
+                        SINK_PATH: "/sink"
+                ports:
+                        - 6001:6001
+                networks:
+                        - test
+                volumes:
+                        - "/log:/logs"
+                        - "/sink/mictlanx:/sink"
+        scm-0:
+                image: shanelreyes/secure-clustering:manager
+                container_name: scm-0
+                hostname: scm-0
+                depends_on: 
+                        - sr0
+                        - ss
+                environment:
+                        NODE_ID: "scm-0"               
+                        NODE_PORT: 6000
+                        NODE_HOST: "0.0.0.0"
+                        DEBUG: 0
+                        RELOAD: 0
+                        SECURE_REPLICATOR_HOSTNAME: "sr0"
+                        SECURE_REPLICATOR_PORT: 1025
+                        SECURE_REPLICATOR_API_VERSION: 2
+                        # 
+                        NODE_PREFIX: "scw-"
+                        INIT_WORKERS: 2
+                        DOCKER_IMAGE_NAME: "shanelreyes/secure-clustering"
+                        DOCKER_IMAGE_TAG: "worker"
+                        # 
+                        LOG_PATH: "/logs"
+                        TESTING: 0
+                        STORAGE_SYSTEM_HOSTNAME: "ss"
+                        STORAGE_SYSTEM_PORT: 6001
+                        MAX_RETRIES: 1000
+                ports:
+                        - 6000:6000
+                networks:
+                        - test
+                volumes:
+                        - "/log:/logs"
+        scd-0:
+                image: shanelreyes/secure-clustering:dataowner
+                container_name: scd-0
+                hostname: scd-0
+                environment:
+                        NODE_ID: "scd-0"               
+                        NODE_PORT: 3000
+                        NODE_HOST: "0.0.0.0"
+                        DEBUG: 0
+                        RELOAD: 0 
+                        LOG_PATH: "/logs"
+                        TESTING: 0
+                        STORAGE_SYSTEM_HOSTNAME: "ss"
+                        STORAGE_SYSTEM_PORT: 6001
+                        MAX_RETRIES: 1000
+                ports:
+                        - 3000:3000
+                networks:
+                        - test
+                volumes:
+                        - "/log:/logs"
+
+
+networks:
+        test:
+                external: true
+                
+
+
+

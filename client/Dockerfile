@@ -1,0 +1,17 @@
+#FROM python:3
+FROM python:3.8-slim
+WORKDIR /app
+RUN apt update
+RUN apt install -y git
+RUN apt install -y gcc
+RUN apt install -y python3-dev
+RUN apt install -y gfortran
+RUN apt install -y musl-dev
+RUN apt install -y libmagic-dev
+RUN python -m pip install --upgrade pip
+ENV FLASK_APP="main"
+ENV FLASK_ENV="production"
+COPY ./requirements.txt .
+RUN pip install  -r requirements.txt
+COPY ./src .
+CMD [ "python","-u","/app/main.py"]
