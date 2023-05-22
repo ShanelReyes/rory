@@ -4,7 +4,7 @@
 <br />
 <div align="center">
   <a href="#">
-    <img src="images/logo.jpg" alt="Logo" width="150" height="150">
+    <img src="images/rory_logo.svg" alt="Logo" width="150" height="150">
   </a>
   <h3 align="center">Secure Clustering System</h3>
 
@@ -39,7 +39,7 @@
 ## Software Architecture
 <div align="center">
   <a href="#">
-    <img src="images/architecture.png" alt="Logo" width="600" height="350">
+    <img src="images/diagramageneral.png" alt="diagramDmaas" width="600" height="350">
   </a>
 
 </div>
@@ -68,7 +68,7 @@ This is an example of how to list things you need to use the software and how to
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/nachocodexx/SecureClusteringSystem
+   git clone https://github.com/ShanelReyes/rory.git
    ```
 2. Install Python packages
    ```sh
