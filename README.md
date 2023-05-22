@@ -4,7 +4,7 @@
 <br />
 <div align="center">
   <a href="#">
-    <img src="images/rory_logo.png" alt="Logo">
+    <img src="images/rory_logo.png" alt="Logo" width="120">
 
   </a>
   <h3 align="center">Secure Clustering System</h3>
@@ -40,7 +40,8 @@
 ## Software Architecture
 <div align="center">
   <a href="#">
-    <img src="images/diagramageneral.png" alt="diagramDmaas" width="600" height="350">
+    <img src="images/diagramageneral.png" alt="diagramDmaas" width="400">
+  
   </a>
 
 </div>
