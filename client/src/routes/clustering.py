@@ -13,6 +13,7 @@ from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.cryptosystem.FDHOpe import Fdhope
 from rory.core.utils.constants import Constants
 from rory.core.validation_index.metrics import internal_validation_indexes,external_validation_indexes
+from rory.core.interfaces.logger_metrics import LoggerMetrics
 # 
 from mictlanx.v3.client import Client 
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
@@ -40,11 +41,21 @@ def skmeans():
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
+        # get_logger_metrics    = lambda o,a,e,s : LoggerMetrics(operation_type=o, matrix_id=plainTextMatrixId, arrival_time=a, end_time=e, service_time=s)
 
+        encrypt_arrival_time  = time.time()
         outsourced = dataowner.outsourcedData(  # The data is sent to the dataowner to start the encryption
             plaintext_matrix = plaintextMatrix,
             algorithm        = algorithm
         )    
+        encrypt_end_time     = time.time() 
+        encrypt_service_time = encrypt_end_time - encrypt_arrival_time
+        encrypt_logger_metrics = LoggerMetrics(operation_type="ENCRYPT",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.encrypted_matrix_time) 
+        udm_logger_metrics = LoggerMetrics(operation_type="UDM_GENERATION",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.udm_time) 
+        
+        logger.info(str(encrypt_logger_metrics))
+        logger.info(str(udm_logger_metrics))
+
         encryptedMatrixId           = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId                       = "{}-UDM".format(plainTextMatrixId) # The iudm id is built
 
@@ -54,6 +65,7 @@ def skmeans():
         UDM_put_payload = PutNDArrayPayload(key = UDMId, ndarray = outsourced.UDM)
         UDM_put_response              = STORAGE_CLIENT.put_ndarray(UDM_put_payload,update=True) # The udm array is placed in the storage system
         managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        
         get_worker_start_time = time.time()
         mr = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
@@ -62,7 +74,11 @@ def skmeans():
                 "Start-Get-Worker-Time":str(get_worker_start_time) # Si quieres lo quitas, pero mira...
             }
         )
-        get_worker_end_time = time.time() - get_worker_start_time
+        get_worker_end_time = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        get_worker_logger_metrics = LoggerMetrics(operation_type="GET_WORKER",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time= get_worker_start_time, end_time= get_worker_end_time, service_time=get_worker_service_time)
+        logger.info(str(get_worker_logger_metrics))
+
         stringResponse      = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse        = json.loads(stringResponse) # Pass the response to json
         worker              = SecureClusteringWorker( #Allows to establish the connection with the worker
@@ -74,7 +90,9 @@ def skmeans():
         status         = Constants.ClusteringStatus.START #Set the status to start
         workerResponse = None 
         # time.sleep(100)
+        interaction_arrival_time = time.time()
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
+            inner_interaction_arrival_time = time.time()
             run1_headers = {
                 "Step-Index":"1",
                 "Clustering-Status": str(status),
@@ -120,14 +138,25 @@ def skmeans():
             else: 
                 status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime       = time.time() # Get the time when it ends
-
+            inner_interaction_service_time = endTime-inner_interaction_arrival_time
+            inner_interaction_logger_metrics = LoggerMetrics(operation_type="INNER_INTERACTION",
+                                                             matrix_id=plainTextMatrixId,
+                                                             algorithm=algorithm,
+                                                             arrival_time=inner_interaction_arrival_time,
+                                                             end_time=endTime,
+                                                             service_time= inner_interaction_service_time)
+            logger.info(str(inner_interaction_logger_metrics))
             print("_"*10)
+        
+        interaction_end_time = time.time()
+        interaction_service_time = interaction_end_time - interaction_arrival_time 
+        interaction_logger_metrics = LoggerMetrics(operation_type="INTERACTIONS",matrix_id=plainTextMatrixId,algorithm=algorithm, arrival_time=interaction_arrival_time, end_time=interaction_end_time, service_time= interaction_service_time)
+        logger.info(str(interaction_logger_metrics))
+
         response_time = endTime - arrivalTime 
-        logger.info("SKMEANS {} {} {}".format(#Show the final result in a logger
-            plainTextMatrixId,
-            service_time_worker,
-            response_time
-        ))
+
+        logger_metrics = LoggerMetrics(operation_type=algorithm,matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=arrivalTime, end_time= endTime, service_time=response_time)
+        logger.info(str(logger_metrics))
 
         return Response(
             response = json.dumps({
@@ -160,10 +189,12 @@ def kmeans():
         MAX_ITERATIONS             = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",100)))
         requestId                  = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path       = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
-        plaintextMatrix            = pd.read_csv(plaintextMatrix_path, header=None).values
-        
+        plaintextMatrix            = pd.read_csv(plaintextMatrix_path, header=None).values   
+        # 
         put_payload = PutNDArrayPayload(key=plainTextMatrixId, ndarray=plaintextMatrix)
         plaintextMatrix_put_response = STORAGE_CLIENT.put_ndarray(payload=put_payload,update=True).unwrap()
+        
+        get_worker_arrival_time = time.time()
         managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
         mr = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
@@ -171,6 +202,11 @@ def kmeans():
                 "Start-Request-Time": str(arrivalTime)
             }
         )
+        get_worker_end_time = time.time()
+        get_worker_service_time = get_worker_end_time - get_worker_arrival_time 
+        get_worker_logger_metrics = LoggerMetrics(operation_type="GET_WORKER", matrix_id=plainTextMatrixId, algorithm=algorithm, arrival_time=get_worker_arrival_time, end_time=get_worker_end_time,service_time=get_worker_service_time)
+        logger.info(str(get_worker_logger_metrics) )
+
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
         worker         = SecureClusteringWorker( #Allows to establish the connection with the worker
@@ -179,23 +215,28 @@ def kmeans():
             session    = s,
             algorithm  = algorithm
         )
+
+        interaction_arrival_time = time.time()
         workerResponse = worker.run(
             headers={
                 "Plaintext-Matrix-Id": plainTextMatrixId,
                 "K": str(k),
             }
         )
+        interaction_end_time = time.time()
+        interaction_service_time = interaction_end_time - interaction_arrival_time 
+        interaction_logger_metrics = LoggerMetrics(operation_type="INTERACTIONS",matrix_id=plainTextMatrixId,algorithm=algorithm, arrival_time=interaction_arrival_time, end_time=interaction_end_time, service_time= interaction_service_time)
+        logger.info(str(interaction_logger_metrics))
+
         stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
         jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = workerResponse.headers.get("Service-Time",0) # Extract the time at which it started]]
         response_time        = endTime - arrivalTime # Get the service time
 
-        logger.info("KMEANS {} {} {}".format(#Show the final result in a logger
-            plainTextMatrixId,
-            worker_service_time,
-            response_time
-        ))
+        logger_metrics = LoggerMetrics(operation_type=algorithm, matrix_id=plainTextMatrixId, algorithm=algorithm, arrival_time=arrivalTime, end_time=endTime, service_time=response_time)
+        logger.info(str(logger_metrics))
+
         return Response(
             response = json.dumps({
                 "labelVector" : jsonWorkerResponse.get("labelVector",[]),
@@ -232,10 +273,20 @@ def dbskmeans():
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
         
+        encrypt_arrival_time = time.time()
         outsourced = dataowner.outsourcedData(  # The data is sent to the dataowner to start the encryption
             plaintext_matrix = plaintextMatrix,
             algorithm = algorithm
-        )    
+        )  
+        encrypt_end_time     = time.time() 
+        encrypt_service_time = encrypt_end_time - encrypt_arrival_time
+        encrypt_logger_metrics = LoggerMetrics(operation_type="ENCRYPT",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.encrypted_matrix_time) 
+        udm_logger_metrics = LoggerMetrics(operation_type="UDM_GENERATION",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.udm_time) 
+        
+        logger.info(str(encrypt_logger_metrics))
+        logger.info(str(udm_logger_metrics))
+
+
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-encrypted-UDM".format(plainTextMatrixId) # The iudm id is built
         encrypted_matrix_put_payload = PutNDArrayPayload(key=encryptedMatrixId,ndarray=outsourced.encrypted_matrix)
@@ -243,6 +294,7 @@ def dbskmeans():
         udm_put_payload = PutNDArrayPayload(key=UDMId,ndarray=outsourced.UDM)
         _                 = STORAGE_CLIENT.put_ndarray(payload=udm_put_payload,update=True).unwrap() # The udm array is placed in the storage system
         managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        
         get_worker_start_time = time.time()
         mr = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
@@ -250,7 +302,11 @@ def dbskmeans():
                 "Start-Request-Time": str(arrivalTime)
             }
         )
-        get_worker_end_time = time.time() - get_worker_start_time
+        get_worker_end_time = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        get_worker_logger_metrics = LoggerMetrics(operation_type="GET_WORKER",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time= get_worker_start_time, end_time= get_worker_end_time, service_time=get_worker_service_time)
+        logger.info(str(get_worker_logger_metrics))
+
         stringResponse      = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse        = json.loads(stringResponse) # Pass the response to json
         worker              = SecureClusteringWorker( #Allows to establish the connection with the worker
@@ -261,7 +317,10 @@ def dbskmeans():
         )
         status           = Constants.ClusteringStatus.START #Set the status to start
         workerResponse   = None 
+        interaction_arrival_time = time.time()
+
         while (status   != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
+            inner_interaction_arrival_time = time.time()
             run1_headers = {
                     "Step-Index":"1",
                     "Clustering-Status": str(status),
@@ -314,25 +373,36 @@ def dbskmeans():
             else: 
                 status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime       = time.time() # Get the time when it ends
-            service_time  = workerResponse.headers.get("Service-Time",0) 
-            response_time = endTime - arrivalTime 
+            inner_interaction_service_time = endTime-inner_interaction_arrival_time
+            inner_interaction_logger_metrics = LoggerMetrics(operation_type="INNER_INTERACTION",
+                                                             matrix_id=plainTextMatrixId,
+                                                             algorithm=algorithm,
+                                                             arrival_time=inner_interaction_arrival_time,
+                                                             end_time=endTime,
+                                                             service_time= inner_interaction_service_time)
+            logger.info(str(inner_interaction_logger_metrics))
 
-            logger.info("DBSKMEANS {} {} {}".format(#Show the final result in a logger
-                plainTextMatrixId,
-                service_time,
-                response_time
-            ))
+        interaction_end_time = time.time()
+        interaction_service_time = interaction_end_time - interaction_arrival_time 
+        interaction_logger_metrics = LoggerMetrics(operation_type="INTERACTIONS",matrix_id=plainTextMatrixId,algorithm=algorithm, arrival_time=interaction_arrival_time, end_time=interaction_end_time, service_time= interaction_service_time)
+        logger.info(str(interaction_logger_metrics))
 
-            return Response(
-                response = json.dumps({
-                    "labelVector" : jsonWorkerResponse.get("labelVector",[]),
-                    "serviceTime" : service_time,
-                    "responseTime": str(response_time),
-                    "algorithm"   : algorithm
-                }),
-                status   = 200,
-                headers  = {}
-            )
+        response_time = endTime - arrivalTime 
+
+        logger_metrics = LoggerMetrics(operation_type=algorithm,matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=arrivalTime, end_time= endTime, service_time=response_time)
+        logger.info(str(logger_metrics))
+
+
+        return Response(
+            response = json.dumps({
+                "labelVector" : jsonWorkerResponse.get("labelVector",[]),
+                "serviceTime" : service_time_worker,
+                "responseTime": str(response_time),
+                "algorithm"   : algorithm
+            }),
+            status   = 200,
+            headers  = {}
+        )
     except Exception as e:
         return Response(response = None, status= 500, headers={"Error-Message":str(e)})
     
@@ -357,11 +427,19 @@ def dbsnnc():
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
 
+        encrypt_arrival_time = time.time()
         outsourced = dataowner.outsourcedData(  # The data is sent to the dataowner to start the encryption
             plaintext_matrix = plaintextMatrix,
             algorithm        = algorithm,
             threshold        = threshold
         )
+        encrypt_end_time     = time.time() 
+        encrypt_service_time = encrypt_end_time - encrypt_arrival_time
+        encrypt_logger_metrics = LoggerMetrics(operation_type="ENCRYPT",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.encrypted_matrix_time) 
+        udm_logger_metrics = LoggerMetrics(operation_type="UDM_GENERATION",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.udm_time) 
+        
+        logger.info(str(encrypt_logger_metrics))
+        logger.info(str(udm_logger_metrics))
 
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-encrypted-UDM".format(plainTextMatrixId) # The iudm id is built
@@ -371,12 +449,19 @@ def dbsnnc():
         udm_put_payload = PutNDArrayPayload(key = UDMId, ndarray = outsourced.UDM)
         _ = STORAGE_CLIENT.put_ndarray(payload=udm_put_payload,update=True).unwrap() # The udm array is placed in the storage system
         managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        
+        get_worker_start_time = time.time()
         mr = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm": algorithm,
                 "Start-Request-Time": str(arrivalTime)
             }
         )
+        get_worker_end_time = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        get_worker_logger_metrics = LoggerMetrics(operation_type="GET_WORKER",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time= get_worker_start_time, end_time= get_worker_end_time, service_time=get_worker_service_time)
+        logger.info(str(get_worker_logger_metrics))
+
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
         worker         = SecureClusteringWorker( #Allows to establish the connection with the worker
@@ -385,6 +470,8 @@ def dbsnnc():
             session    = s,
             algorithm  = algorithm
         )
+
+        interaction_arrival_time = time.time()
         workerResponse = worker.run(
             headers={
                 "Plaintext-Matrix-Id": plainTextMatrixId,
@@ -392,17 +479,21 @@ def dbsnnc():
                 "Encrypted-Threshold": str(outsourced.encrypted_threshold),
             }
         )
+        interaction_end_time = time.time()
+        interaction_service_time = interaction_end_time - interaction_arrival_time 
+        interaction_logger_metrics = LoggerMetrics(operation_type="INTERACTIONS",matrix_id=plainTextMatrixId,algorithm=algorithm, arrival_time=interaction_arrival_time, end_time=interaction_end_time, service_time= interaction_service_time)
+        logger.info(str(interaction_logger_metrics))
+
         stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
         jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = workerResponse.headers.get("Service-Time",0) # Extract the time at which it started]]
         response_time        = endTime - arrivalTime # Get the service time
 
-        logger.info("DBSNNC {} {} {}".format(#Show the final result in a logger
-            plainTextMatrixId,
-            worker_service_time,
-            response_time
-        ))
+        response_time = endTime - arrivalTime 
+
+        logger_metrics = LoggerMetrics(operation_type=algorithm,matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=arrivalTime, end_time= endTime, service_time=response_time)
+        logger.info(str(logger_metrics))
 
         return Response(
             response = json.dumps({
