@@ -6,6 +6,7 @@ import time, json
 from logger.Logger import create_logger
 from mictlanx.client import Client as StorageClient
 from interfaces.dataowner_response import DataownerResponse
+from rory.core.interfaces.logger_metrics import LoggerMetrics
 
 
 NODE_ID             = os.environ.get("NODE_ID","client-0") 
@@ -74,13 +75,8 @@ def dataownerClustering():
             service_time  = response.headers.get("Service-Time",0) 
             response_time = endTime - arrivalTime 
 
-            LOGGER.info("{} {} {} {} {}".format(#Show the final result in a logger
-                algorithm.upper(),
-                plaintextMatrixId,
-                k,
-                service_time,
-                response_time
-            ))
+            logger_metrics = LoggerMetrics(operation_type=algorithm,matrix_id=plaintextMatrixId,algorithm=algorithm,arrival_time=arrivalTime, end_time= endTime, service_time=response_time)
+            LOGGER.info(str(logger_metrics))
 
 def dataOwnerMetrics():
     for row_index,row in trace.iterrows():
@@ -105,7 +101,7 @@ def dataOwnerMetrics():
         endTime       = time.time() # Get the time when it ends
         service_time  = response.headers.get("Service-Time",0) 
         response_time = endTime - arrivalTime 
-
+        
         LOGGER.info("{} {} {} {} {}".format(#Show the final result in a logger
             algorithm.upper(),
             plaintextMatrixId,

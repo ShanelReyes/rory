@@ -15,7 +15,7 @@ load_dotenv()
 NODE_ID                            = os.environ.get("NODE_ID","scw-0") 
 PORT                               = int(os.environ.get("NODE_PORT",9000))
 NODE_INDEX                         = int(os.environ.get("NODE_INDEX",0))
-IP_ADDR                               = os.environ.get("NODE_IP_ADDR","0.0.0.0")
+IP_ADDR                            = os.environ.get("NODE_IP_ADDR","0.0.0.0")
 HOST_PORT                          = os.environ.get("HOST_PORT",PORT + NODE_INDEX)
 # __________________________________________________
 
@@ -113,7 +113,7 @@ def started_completed():
       LOGGER.error(str(e))
       raise e
   result = retry_call(__inner, tries=MAX_RETRIES, delay=1,backoff=1)
-  print("RESILT", result)
+  print("RESULT", result)
   LOGGER.debug("WORKER_STARTED_RESPONSE {}".format(result))
   # print("WORKER")
 

@@ -3,6 +3,7 @@ import json
 from threading import Lock,Semaphore
 from flask import Blueprint,current_app,request,abort,Response
 from rory.core.interfaces.clusteringmanagerrequest import ClusteringRequestManager
+from rory.core.interfaces.logger_metrics import LoggerMetrics
 
 clustering = Blueprint("clustering",__name__,  url_prefix = "/clustering")
 sem        = Semaphore(1)
@@ -12,14 +13,14 @@ sem        = Semaphore(1)
 def test():
     try:
         sem.acquire()
-        arrivalTime      = time.time()        
-        logger           = current_app.config["logger"]
-        lb               = current_app.config["lb"] # Get the load balancing 
-        workers          = current_app.config.get("workers",{}) # Get the current bins (skmeans / dbskmeans nodes)
-        workers          = list( filter( lambda x: x[1].isStarted, workers.items()))
-        headers          = request.headers
-        algorithm        = headers.get("Algorithm")
-        startRequestTime = headers.get("Start-Request-Time",0)
+        arrivalTime        = time.time()        
+        logger             = current_app.config["logger"]
+        lb                 = current_app.config["lb"] # Get the load balancing 
+        workers            = current_app.config.get("workers",{}) # Get the current bins (skmeans / dbskmeans nodes)
+        workers            = list( filter( lambda x: x[1].isStarted, workers.items()))
+        headers            = request.headers
+        algorithm          = headers.get("Algorithm")
+        startRequestTime   = headers.get("Start-Request-Time",0)
         getWorkerStartTime = headers.get("Get-Worker-Start-Time",0)
         latency            = arrivalTime - getWorkerStartTime
 
@@ -35,10 +36,20 @@ def test():
                 workers        = current_app.config["workers"]
                 worker         = workers[workerId]
                 workerPort     = worker.port
-                serviceTime    = time.time() - arrivalTime
+                endTime        = time.time()
+                serviceTime    = endTime - arrivalTime
                 OPERATION_NAME = "CLUSTERING"
                 LATENCY        = arrivalTime - float(startRequestTime)
-                logger.info("{},{},{},{},{}".format(OPERATION_NAME,algorithm,workerId,serviceTime,LATENCY))
+                
+                logger_metrics = LoggerMetrics(
+                    operation_type = OPERATION_NAME,
+                    matrix_id      = workerId,
+                    algorithm      = algorithm,
+                    arrival_time   = arrivalTime, 
+                    end_time       = endTime, 
+                    service_time   = serviceTime)
+                logger.info(str(logger_metrics)+",{}".format(LATENCY))
+
                 sem.release()
                 return Response(
                     response = json.dumps({"workerId":workerId, "workerPort": workerPort}),
