@@ -9,7 +9,8 @@ from rory.core.clustering.secure.distributed.skmeans import SKMeans
 from rory.core.clustering.secure.distributed.dbskmeans import DBSKMeans
 from mictlanx.v3.client import Client
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
-
+from rory.core.interfaces.logger_metrics import LoggerMetrics
+# 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
 """
@@ -26,6 +27,7 @@ def skmeans_1(requestHeaders) -> Response:
     isStartStatus         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
     k                     = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
     m                     = int(requestHeaders.get("M",3))
+    algorithm             = Constants.ClusteringAlgorithms.SKMEANS
     plainTextMatrixID     = requestHeaders.get("Plaintext-Matrix-Id")
     encryptedMatrixId     = requestHeaders.get("Encrypted-Matrix-Id","")
     UDMId                 = "{}-UDM".format(plainTextMatrixID) 
@@ -49,8 +51,9 @@ def skmeans_1(requestHeaders) -> Response:
             __Cent_j = None #There is no Cent_j
         else: 
             Cent_j_response = STORAGE_CLIENT.get_ndarray(key = Cent_iId).unwrap() #Cent_J is extracted from the storage system
-            __Cent_j          = Cent_j_response.value
+            __Cent_j        = Cent_j_response.value
         
+        run1_start_time = time.time()
         S1,Cent_i,Cent_j,label_vector = skmeans.run1( # The first part of the skmeans is done
             status          = status,
             k               = k,
@@ -58,7 +61,19 @@ def skmeans_1(requestHeaders) -> Response:
             encryptedMatrix = encryptedMatrix, 
             UDM             = UDMMatrix,
             Cent_j          = __Cent_j
-        )        
+        )
+        run1_end_time       = time.time() 
+        run1_service_time   = run1_start_time - run1_end_time
+        run1_logger_metrics = LoggerMetrics(
+            operation_type = "GET_WORKER",
+            matrix_id      = plainTextMatrixID,
+            algorithm      = algorithm,
+            arrival_time   = run1_start_time, 
+            end_time       = run1_end_time, 
+            service_time   = run1_service_time
+        )
+        logger.info(str(run1_logger_metrics))
+
         centI_put_payload = PutNDArrayPayload(key = Cent_iId, ndarray = np.array(Cent_i))
         _  = STORAGE_CLIENT.put_ndarray(centI_put_payload,update=True).unwrap() # Saving Cent_i to storage
         centJ_put_payload = PutNDArrayPayload(key = Cent_jId, ndarray = np.array(Cent_j))
