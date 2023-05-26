@@ -14,7 +14,6 @@ from rory.core.security.cryptosystem.FDHOpe import Fdhope
 from rory.core.utils.constants import Constants
 from rory.core.validation_index.metrics import internal_validation_indexes,external_validation_indexes
 from rory.core.interfaces.logger_metrics import LoggerMetrics
-# 
 from mictlanx.v3.client import Client 
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
 
@@ -245,8 +244,8 @@ def kmeans():
             algorithm      = algorithm, 
             arrival_time   = get_worker_arrival_time, 
             end_time       = get_worker_end_time,
-            service_time   = get_worker_service_time,
-            m_value        = m)
+            service_time   = get_worker_service_time
+            )
         logger.info(str(get_worker_logger_metrics) )
 
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
@@ -273,8 +272,7 @@ def kmeans():
             algorithm      = algorithm, 
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time, 
-            service_time   = interaction_service_time,
-            m_value        = m
+            service_time   = interaction_service_time
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -290,8 +288,7 @@ def kmeans():
             algorithm      = algorithm, 
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
-            service_time   = response_time,
-            m_value        = m)
+            service_time   = response_time)
         logger.info(str(logger_metrics))
 
         return Response(
