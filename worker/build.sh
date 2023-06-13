@@ -1,1 +1,1 @@
-docker build -f Dockerfile -t secure-clustering:worker .
+docker build -f Dockerfile -t shanelreyes/rory:worker .

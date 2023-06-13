@@ -4,7 +4,6 @@ from os.path import exists
 
 index = Blueprint("index",__name__,url_prefix="/")
 
-
 """
 Description:
     Read files from a specific path

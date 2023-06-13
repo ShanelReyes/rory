@@ -8,11 +8,20 @@ from mictlanx.client import Client as StorageClient
 from interfaces.dataowner_response import DataownerResponse
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 
+NODE_ID             = os.environ.get("NODE_ID","rory-dataowner-0") 
+CLIENT_ID           = "rory-client-0"
 
-NODE_ID             = os.environ.get("NODE_ID","client-0") 
-LOG_PATH            = os.environ.get("LOG_PATH","/log")
-CLIENT_ID           = "client-0"
-SOURCE_PATH         = "/source/"
+#CREAR FOLDERS
+#SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
+#SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
+#LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
+#os.makedirs(SINK_FOLDER,  exist_ok = True)
+#os.makedirs(SOURCE_FOLDER,exist_ok = True)
+#os.makedirs(LOG_FOLDER,   exist_ok = True)
+
+LOG_PATH            = os.environ.get("LOG_PATH","/rory/dataowner-0/log")
+
+SOURCE_PATH         = "/rory/client-0/data/source/"
 DATA_OWNER_BASE_URL = "localhost"
 DATA_OWNER_PORT     = 3000
 DATASET_EXTENSION   = "csv"
@@ -38,11 +47,11 @@ identity     = lambda x:x
 
 def dataownerClustering():
     for row_index,row in trace.iterrows():
-        arrivalTime = time.time()
-        isKmeans    = row["KMEANS"]    == 1
-        isSkmeans   = row["SKMEANS"]   == 1
-        isDbskmeans = row["DBSKMEANS"] == 1
-        isDbsnnc    = row["DBSNNC"]    == 1
+        arrivalTime   = time.time()
+        isKmeans      = row["KMEANS"]    == 1
+        isSkmeans     = row["SKMEANS"]   == 1
+        isDbskmeans   = row["DBSKMEANS"] == 1
+        isDbsnnc      = row["DBSNNC"]    == 1
         unfiltered_xs = [isKmeans, isSkmeans, isDbskmeans, isDbsnnc]
         unfiltered_xs = list(zip(list(range(0,len(algorithms))),unfiltered_xs))
         
@@ -70,18 +79,29 @@ def dataownerClustering():
 
             response      = DataownerResponse.fromResponse(response)
             labelVectorId = "{}_{}_k{}".format(plaintextMatrixId,algorithm,k)
-            _             = STORAGE_CLIENT.put_ndarray(id = labelVectorId, matrix = response.labelVector)
+            _             = STORAGE_CLIENT.put_ndarray(
+                key     = labelVectorId, 
+                ndarray = response.labelVector,
+                update  = True
+            )
             endTime       = time.time() # Get the time when it ends
             service_time  = response.headers.get("Service-Time",0) 
             response_time = endTime - arrivalTime 
 
-            logger_metrics = LoggerMetrics(operation_type=algorithm,matrix_id=plaintextMatrixId,algorithm=algorithm,arrival_time=arrivalTime, end_time= endTime, service_time=response_time)
+            logger_metrics = LoggerMetrics(
+                operation_type = algorithm,
+                matrix_id      = plaintextMatrixId,
+                algorithm      = algorithm,
+                arrival_time   = arrivalTime, 
+                end_time       = endTime, 
+                service_time   = response_time
+            )
             LOGGER.info(str(logger_metrics))
 
 def dataOwnerMetrics():
     for row_index,row in trace.iterrows():
         arrivalTime = time.time()
-        algorithm = "metrics"
+        algorithm   = "metrics"
         #algorithm = "dbsnnc"
         url               = generate_url(algorithm)
         plaintextMatrixId = row["PLAINTEXT_MATRIX_ID"]

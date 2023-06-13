@@ -61,13 +61,21 @@ def skmeans_1(requestHeaders) -> Response:
             UDM             = UDMMatrix,
             Cent_j          = __Cent_j
         )
-        
-        centI_put_payload = PutNDArrayPayload(key = Cent_iId, ndarray = np.array(Cent_i))
-        _  = STORAGE_CLIENT.put_ndarray(centI_put_payload,update=True).unwrap() # Saving Cent_i to storage
-        centJ_put_payload = PutNDArrayPayload(key = Cent_jId, ndarray = np.array(Cent_j))
-        _  = STORAGE_CLIENT.put_ndarray(centJ_put_payload,update=True).unwrap() # Saving Cent_j to storage
-        encrypted_shiftmatrix_put_payload = PutNDArrayPayload(key = encryptedShiftMatrixId, ndarray = np.array(S1))
-        _  = STORAGE_CLIENT.put_ndarray(encrypted_shiftmatrix_put_payload,update=True).unwrap() # Saving S1 matrix to storage
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = Cent_iId, 
+            ndarray = np.array(Cent_i),
+            update  = True
+        ).unwrap() # Saving Cent_i to storage
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = Cent_jId, 
+            ndarray = np.array(Cent_j),
+            update  = True
+        ).unwrap() # Saving Cent_j to storage
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = encryptedShiftMatrixId, 
+            ndarray = np.array(S1),
+            update  = True
+        ).unwrap() # Saving S1 matrix to storage
         
         endTime                                      = time.time()
         serviceTime                                  = endTime - arrivalTime
@@ -165,8 +173,12 @@ def skmeans_2(requestHeaders):
                 attributes  = attibutes_shape[1],
                 shiftMatrix = shiftMatrix,
             )
-            udm_put_payload = PutNDArrayPayload( key = UDM_id, ndarray = np.array(_UDM))
-            _                               = STORAGE_CLIENT.put_ndarray(udm_put_payload).unwrap() # UDM is extracted from the storage system
+            #udm_put_payload = PutNDArrayPayload( key = UDM_id, ndarray = np.array(_UDM))
+            _ = STORAGE_CLIENT.put_ndarray(
+                key     = UDM_id, 
+                ndarray = np.array(_UDM),
+                update  = True
+            ).unwrap() # UDM is extracted from the storage system
             endTime2                        = time.time()
             serviceTime2                    = endTime2 - arrivalTime  #Service time is calculated
             responseHeaders["End-Time"]     = str(endTime2)
@@ -183,7 +195,7 @@ def skmeans_2(requestHeaders):
                 k_value        = k,
                 m_value        = m,
                 n_iterations   = iterations
-                )
+            )
             logger.info(str(run2_logger_metrics))
             print("_"*50)
             return Response( #Return none and headers
@@ -312,12 +324,24 @@ def dbskmeans_1(requestHeaders) -> Response:
             UDM              = UDMMatrix,
             Cent_j           = __Cent_j
         )    
-        cent_i_put_payload           = PutNDArrayPayload(key = Cent_iId, ndarray = np.array(Cent_i))
-        x                            = STORAGE_CLIENT.put_ndarray(payload= cent_i_put_payload, update=True) # Saving Cent_i to storage
-        cent_j_put_payload           = PutNDArrayPayload(key = Cent_jId, ndarray = np.array(Cent_j))
-        x                            = STORAGE_CLIENT.put_ndarray(payload=cent_j_put_payload,update=True) # Saving Cent_j to storage
-        encrypted_matrix_put_payload = PutNDArrayPayload(key = encryptedShiftMatrixId,  ndarray = np.array(S1)) 
-        x                            = STORAGE_CLIENT.put_ndarray(payload=encrypted_matrix_put_payload,update=True) # Saving S1 matrix to storage
+        #cent_i_put_payload           = PutNDArrayPayload(key = Cent_iId, ndarray = np.array(Cent_i))
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = Cent_iId, 
+            ndarray = np.array(Cent_i),
+            update  = True
+        ).unwrap() # Saving Cent_i to storage
+        #cent_j_put_payload           = PutNDArrayPayload(key = Cent_jId, ndarray = np.array(Cent_j))
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = Cent_jId, 
+            ndarray = np.array(Cent_j),
+            update  = True
+        ).unwrap() # Saving Cent_j to storage
+        #encrypted_matrix_put_payload = PutNDArrayPayload(key = encryptedShiftMatrixId,  ndarray = np.array(S1)) 
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = encryptedShiftMatrixId,  
+            ndarray = np.array(S1),
+            update  = True
+        ).unwrap() # Saving S1 matrix to storage
         endTime                      = time.time()
         serviceTime                  = endTime - arrivalTime
         responseHeaders["Service-Time"]              = str(serviceTime)
@@ -416,8 +440,12 @@ def dbskmeans_2(requestHeaders):
                 shiftMatrix      = shiftMatrixOpe,
             )
 
-            udm_put_payload                 = PutNDArrayPayload( key = UDM_id, ndarray= np.array(_UDMMatrix))
-            _                               = STORAGE_CLIENT.put_ndarray(payload=udm_put_payload, update=True).unwrap() # UDM is extracted from the storage system
+            #udm_put_payload                 = PutNDArrayPayload( key = UDM_id, ndarray= np.array(_UDMMatrix))
+            _ = STORAGE_CLIENT.put_ndarray(
+                key     = UDM_id, 
+                ndarray = np.array(_UDMMatrix),
+                update  =True
+            ).unwrap() # UDM is extracted from the storage system
             end_time                        = time.time()
             service_time                    = end_time - arrivalTime  #Service time is calculated
             responseHeaders["End-Time"]     = str(end_time)

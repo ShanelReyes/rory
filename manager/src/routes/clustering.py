@@ -2,7 +2,6 @@ import time
 import json
 from threading import Lock,Semaphore
 from flask import Blueprint,current_app,request,abort,Response
-from rory.core.interfaces.clusteringmanagerrequest import ClusteringRequestManager
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 
 clustering = Blueprint("clustering",__name__,  url_prefix = "/clustering")
@@ -47,7 +46,8 @@ def test():
                     algorithm      = algorithm,
                     arrival_time   = arrivalTime, 
                     end_time       = endTime, 
-                    service_time   = serviceTime)
+                    service_time   = serviceTime
+                )
                 logger.info(str(logger_metrics)+",{}".format(LATENCY))
 
                 sem.release()

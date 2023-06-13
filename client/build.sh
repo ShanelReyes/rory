@@ -1,1 +1,1 @@
-docker build -t secure-clustering:client .
+docker build -t shanelreyes/rory:client .

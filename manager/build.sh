@@ -1,1 +1,1 @@
-docker build -t secure-clustering:manager .
+docker build -t shanelreyes/rory:manager .

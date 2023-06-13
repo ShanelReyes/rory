@@ -3,9 +3,8 @@ import numpy as np
 import pandas as pd
 from requests import Session
 from flask import Blueprint,current_app,request,Response
-# 
-from rory.core.interfaces.secureclusteringmanager import SecureClusteringManager
-from rory.core.interfaces.secureclusteringworker import SecureClusteringWorker
+from rory.core.interfaces.rorymanager import RoryManager
+from rory.core.interfaces.roryworker import RoryWorker
 from rory.core.interfaces.metricsResult_external import MetricsResultExternal
 from rory.core.interfaces.metricsResult_internal import MetricsResultInternal
 from rory.core.security.dataowner import DataOwner
@@ -72,11 +71,19 @@ def skmeans():
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-UDM".format(plainTextMatrixId) # The iudm id is built
 
-        encrypted_matrix_put_payload  = PutNDArrayPayload(key = encryptedMatrixId, ndarray = outsourced.encrypted_matrix)
-        encrypted_matrix_put_response = STORAGE_CLIENT.put_ndarray(encrypted_matrix_put_payload,update=True).unwrap() # The encrypted matrix is placed in the storage system
-        UDM_put_payload               = PutNDArrayPayload(key = UDMId, ndarray = outsourced.UDM)
-        UDM_put_response              = STORAGE_CLIENT.put_ndarray(UDM_put_payload,update=True) # The udm array is placed in the storage system
-        managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = encryptedMatrixId,
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
+        ).unwrap() # The encrypted matrix is placed in the storage system
+
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = UDMId, 
+            ndarray = outsourced.UDM,
+            update  = True
+        ) # The udm array is placed in the storage system
+
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
         get_worker_start_time = time.time()
         mr                    = managerResponse.getWorker( #Gets the worker from the manager
@@ -99,9 +106,9 @@ def skmeans():
         )
         logger.info(str(get_worker_logger_metrics))
 
-        stringResponse      = mr.content.decode("utf-8") #Decode the manager's response
-        jsonResponse        = json.loads(stringResponse) # Pass the response to json
-        worker              = SecureClusteringWorker( #Allows to establish the connection with the worker
+        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse   = json.loads(stringResponse) # Pass the response to json
+        worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = "localhost" if TESTING else jsonResponse["workerId"],
             port       = jsonResponse["workerPort"],
             session    = s,
@@ -129,16 +136,22 @@ def skmeans():
             encryptedShiftMatrixId            = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
             encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId,cache=True).unwrap()
             encryptedShiftMatrix              = encryptedShiftMatrix_get_response.value
-            shiftMatrix                       = liu.decryptMatrix( #Shift Matrix is decrypted
+            shiftMatrix_chipher_schema_res    = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
                 secret_key        = dataowner.sk,
                 m                 = int(m)
             )
-            shiftMatrixId            = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
-            shiftmatrix_put_payload  = PutNDArrayPayload(key = shiftMatrixId, ndarray = np.array(shiftMatrix.matrix))
-            shiftmatrix_put_response = STORAGE_CLIENT.put_ndarray(shiftmatrix_put_payload,update=True).unwrap() #Shift matrix is saved to the storage system
-            status                   = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
-            run2_headers             = {
+            shiftMatrix   = shiftMatrix_chipher_schema_res.matrix
+            shiftMatrixId = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
+
+            _ = STORAGE_CLIENT.put_ndarray(
+                key     = shiftMatrixId,
+                ndarray = shiftMatrix,
+                update  = True
+            ).unwrap() #Shift matrix is saved to the storage system
+
+            status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
+            run2_headers = {
                     "Step-Index"        : "2",
                     "Clustering-Status" : str(status),
                     "Shift-Matrix-Id"   : shiftMatrixId,
@@ -155,15 +168,17 @@ def skmeans():
                 service_time_worker = time.time() - startTime #The service time is calculated
             else: 
                 status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
-            endTime       = time.time() # Get the time when it ends
-            inner_interaction_service_time = endTime-inner_interaction_arrival_time
-            inner_interaction_logger_metrics = LoggerMetrics(operation_type = "INNER_INTERACTION",
-                                                             matrix_id      = plainTextMatrixId,
-                                                             algorithm      = algorithm,
-                                                             arrival_time   = inner_interaction_arrival_time,
-                                                             end_time       = endTime,
-                                                             service_time   = inner_interaction_service_time,
-                                                             m_value        = m)
+            endTime    = time.time() # Get the time when it ends
+            inner_interaction_service_time   = endTime - inner_interaction_arrival_time
+            inner_interaction_logger_metrics = LoggerMetrics(
+                operation_type = "INNER_INTERACTION",
+                matrix_id      = plainTextMatrixId,
+                algorithm      = algorithm,
+                arrival_time   = inner_interaction_arrival_time,
+                end_time       = endTime,
+                service_time   = inner_interaction_service_time,
+                m_value        = m
+            )
             logger.info(str(inner_interaction_logger_metrics))
             print("_"*10)
         
@@ -180,7 +195,7 @@ def skmeans():
         )
         logger.info(str(interaction_logger_metrics))
 
-        response_time = endTime - arrivalTime 
+        response_time  = endTime - arrivalTime 
         logger_metrics = LoggerMetrics(
             operation_type = algorithm,
             matrix_id      = plainTextMatrixId,
@@ -224,12 +239,15 @@ def kmeans():
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values   
-        #
-        put_payload                  = PutNDArrayPayload(key=plainTextMatrixId, ndarray=plaintextMatrix)
-        plaintextMatrix_put_response = STORAGE_CLIENT.put_ndarray(payload=put_payload,update=True).unwrap()
+        
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = plainTextMatrixId,
+            ndarray = plaintextMatrix,
+            update  = True
+        ).unwrap()
         
         get_worker_arrival_time = time.time()
-        managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         mr          = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"         : algorithm,
@@ -250,7 +268,7 @@ def kmeans():
 
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
-        worker         = SecureClusteringWorker( #Allows to establish the connection with the worker
+        worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = "localhost" if TESTING else jsonResponse["workerId"],
             port       = jsonResponse["workerPort"],
             session    = s,
@@ -258,7 +276,7 @@ def kmeans():
         )
 
         interaction_arrival_time = time.time()
-        workerResponse = worker.run(
+        workerResponse           = worker.run(
             headers    = {
                 "Plaintext-Matrix-Id": plainTextMatrixId,
                 "K": str(k),
@@ -358,11 +376,18 @@ def dbskmeans():
 
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-encrypted-UDM".format(plainTextMatrixId) # The iudm id is built
-        encrypted_matrix_put_payload = PutNDArrayPayload(key=encryptedMatrixId,ndarray=outsourced.encrypted_matrix)
-        _                 = STORAGE_CLIENT.put_ndarray(payload=encrypted_matrix_put_payload,update=True).unwrap() # The encrypted matrix is placed in the storage system
-        udm_put_payload   = PutNDArrayPayload(key=UDMId,ndarray=outsourced.UDM)
-        _                 = STORAGE_CLIENT.put_ndarray(payload=udm_put_payload,update=True).unwrap() # The udm array is placed in the storage system
-        managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = encryptedMatrixId,
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
+        ).unwrap() # The encrypted matrix is placed in the storage system
+
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = UDMId,
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
+        ).unwrap() # The udm array is placed in the storage system
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
         get_worker_start_time = time.time()
         mr          = managerResponse.getWorker( #Gets the worker from the manager
@@ -383,9 +408,9 @@ def dbskmeans():
             m_value        = m)
         logger.info(str(get_worker_logger_metrics))
 
-        stringResponse      = mr.content.decode("utf-8") #Decode the manager's response
-        jsonResponse        = json.loads(stringResponse) # Pass the response to json
-        worker              = SecureClusteringWorker( #Allows to establish the connection with the worker
+        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse   = json.loads(stringResponse) # Pass the response to json
+        worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId  = "localhost" if TESTING else jsonResponse["workerId"],
             port      = jsonResponse["workerPort"],
             session   = s,
@@ -398,11 +423,11 @@ def dbskmeans():
         while (status   != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             inner_interaction_arrival_time = time.time()
             run1_headers = {
-                    "Step-Index"         : "1",
-                    "Clustering-Status"  : str(status),
-                    "Plaintext-Matrix-Id": plainTextMatrixId,
-                    "Request_Id"         : requestId,
-                    "Encrypted-Matrix-Id": encryptedMatrixId,
+                    "Step-Index"          : "1",
+                    "Clustering-Status"   : str(status),
+                    "Plaintext-Matrix-Id" : plainTextMatrixId,
+                    "Request_Id"          : requestId,
+                    "Encrypted-Matrix-Id" : encryptedMatrixId,
                     **requestHeaders
             }
             s.headers.update(run1_headers)
@@ -414,25 +439,34 @@ def dbskmeans():
             encryptedShiftMatrixId = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
             encryptedShiftMatrix_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId).unwrap()
             encryptedShiftMatrix   = encryptedShiftMatrix_response.value
-            shiftMatrix            = liu.decryptMatrix( #Shift Matrix is decrypted
+            cipher_schema_res      = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix  = encryptedShiftMatrix.tolist(),
                 secret_key         = dataowner.sk,
                 m                  = int(m)
             )
             shiftMatrixOpe         = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
-                plaintext_matrix   = shiftMatrix.matrix, 
+                plaintext_matrix   = cipher_schema_res.matrix, 
                 messagespace       = outsourced.messageIntervals,
                 cipherspace        = outsourced.cypherIntervals
-                    )
-            shiftMatrixId                = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
-            shiftMatrixOpeId             = "{}-ShiftMatrixOpe".format(plainTextMatrixId) # The id of the Shift matrix is formed
-            shift_matrix_put_payload     = PutNDArrayPayload(key=shiftMatrixId,ndarray=np.array(shiftMatrix.matrix))
-            _                            = STORAGE_CLIENT.put_ndarray(payload=shift_matrix_put_payload,update=True).unwrap() #Shift matrix is saved to the storage system
-            shift_matrix_ope_put_payload = PutNDArrayPayload(key = shiftMatrixOpeId, ndarray = np.array(shiftMatrixOpe.matrix))
-            _                            = STORAGE_CLIENT.put_ndarray(payload=shift_matrix_ope_put_payload,update=True).unwrap() #Shift matrix is saved to the storage system
-            status                       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
-            run2_headers                 = {
-                    "Step-Index"       :"2",
+            )
+            shiftMatrixId          = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
+            shiftMatrixOpeId       = "{}-ShiftMatrixOpe".format(plainTextMatrixId) # The id of the Shift matrix is formed
+            
+            _ = STORAGE_CLIENT.put_ndarray(
+                key     = shiftMatrixId,
+                ndarray = cipher_schema_res.matrix,
+                update  = True
+            ).unwrap() #Shift matrix is saved to the storage system
+            
+            _  = STORAGE_CLIENT.put_ndarray(
+                key     = shiftMatrixOpeId,
+                ndarray = shiftMatrixOpe.matrix,
+                update  = True
+            ).unwrap() #Shift matrix is saved to the storage system
+
+            status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
+            run2_headers = {
+                    "Step-Index"       : "2",
                     "Clustering-Status": str(status),
                     "Shift-Matrix-Id"  : shiftMatrixId,
             }
@@ -450,13 +484,14 @@ def dbskmeans():
                 status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime                          = time.time() # Get the time when it ends
             inner_interaction_service_time   = endTime-inner_interaction_arrival_time
-            inner_interaction_logger_metrics = LoggerMetrics(operation_type = "INNER_INTERACTION",
-                                                             matrix_id      = plainTextMatrixId,
-                                                             algorithm      = algorithm,
-                                                             arrival_time   = inner_interaction_arrival_time,
-                                                             end_time       = endTime,
-                                                             service_time   = inner_interaction_service_time,
-                                                             m_value        = m)
+            inner_interaction_logger_metrics = LoggerMetrics(
+                operation_type = "INNER_INTERACTION",
+                matrix_id      = plainTextMatrixId,
+                algorithm      = algorithm,
+                arrival_time   = inner_interaction_arrival_time,
+                end_time       = endTime,
+                service_time   = inner_interaction_service_time,
+                m_value        = m)
             logger.info(str(inner_interaction_logger_metrics))
 
         interaction_end_time       = time.time()
@@ -471,7 +506,7 @@ def dbskmeans():
             m_value        = m)
         logger.info(str(interaction_logger_metrics))
 
-        response_time = endTime - arrivalTime 
+        response_time  = endTime - arrivalTime 
         logger_metrics = LoggerMetrics(
             operation_type = algorithm,
             matrix_id      = plainTextMatrixId,
@@ -523,10 +558,24 @@ def dbsnnc():
             algorithm        = algorithm,
             threshold        = threshold
         )
-        encrypt_end_time     = time.time() 
-        encrypt_service_time = encrypt_end_time - encrypt_arrival_time
-        encrypt_logger_metrics = LoggerMetrics(operation_type="ENCRYPT",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.encrypted_matrix_time) 
-        udm_logger_metrics   = LoggerMetrics(operation_type="UDM_GENERATION",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time=encrypt_arrival_time, end_time= encrypt_end_time, service_time=outsourced.udm_time) 
+        encrypt_end_time       = time.time() 
+        encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
+        encrypt_logger_metrics = LoggerMetrics(
+            operation_type = "ENCRYPT",
+            matrix_id      = plainTextMatrixId,
+            algorithm      = algorithm,
+            arrival_time   = encrypt_arrival_time, 
+            end_time       = encrypt_end_time, 
+            service_time   = outsourced.encrypted_matrix_time
+        ) 
+        udm_logger_metrics = LoggerMetrics(
+            operation_type = "UDM_GENERATION",
+            matrix_id      = plainTextMatrixId,
+            algorithm      = algorithm,
+            arrival_time   = encrypt_arrival_time, 
+            end_time       = encrypt_end_time, 
+            service_time   = outsourced.udm_time
+        ) 
         
         logger.info(str(encrypt_logger_metrics))
         logger.info(str(udm_logger_metrics))
@@ -534,14 +583,21 @@ def dbsnnc():
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-encrypted-UDM".format(plainTextMatrixId) # The iudm id is built
 
-        encrypted_matrix_put_payload = PutNDArrayPayload(key = encryptedMatrixId, ndarray = outsourced.encrypted_matrix)
-        _               = STORAGE_CLIENT.put_ndarray(payload=encrypted_matrix_put_payload,update=True).unwrap() # The encrypted matrix is placed in the storage system
-        udm_put_payload = PutNDArrayPayload(key = UDMId, ndarray = outsourced.UDM)
-        _               = STORAGE_CLIENT.put_ndarray(payload=udm_put_payload,update=True).unwrap() # The udm array is placed in the storage system
-        managerResponse:SecureClusteringManager = current_app.config.get("manager") # Communicates with the manager
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = encryptedMatrixId,
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
+        ).unwrap() # The encrypted matrix is placed in the storage system
+        
+        _ = STORAGE_CLIENT.put_ndarray(
+            key     = UDMId,
+            ndarray = outsourced.UDM,
+            update  = True
+        ).unwrap() # The udm array is placed in the storage system
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
         get_worker_start_time = time.time()
-        mr          = managerResponse.getWorker( #Gets the worker from the manager
+        mr = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm": algorithm,
                 "Start-Request-Time": str(arrivalTime)
@@ -549,12 +605,19 @@ def dbsnnc():
         )
         get_worker_end_time       = time.time() 
         get_worker_service_time   = get_worker_end_time - get_worker_start_time
-        get_worker_logger_metrics = LoggerMetrics(operation_type="GET_WORKER",matrix_id=plainTextMatrixId,algorithm=algorithm,arrival_time= get_worker_start_time, end_time= get_worker_end_time, service_time=get_worker_service_time)
+        get_worker_logger_metrics = LoggerMetrics(
+            operation_type = "GET_WORKER",
+            matrix_id      = plainTextMatrixId,
+            algorithm      = algorithm,
+            arrival_time   = get_worker_start_time, 
+            end_time       = get_worker_end_time, 
+            service_time   = get_worker_service_time
+        )
         logger.info(str(get_worker_logger_metrics))
 
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
-        worker         = SecureClusteringWorker( #Allows to establish the connection with the worker
+        worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = "localhost" if TESTING else jsonResponse["workerId"],
             port       = jsonResponse["workerPort"],
             session    = s,
@@ -578,7 +641,8 @@ def dbsnnc():
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time, 
             service_time   = interaction_service_time,
-            m_value        = m)
+            m_value        = m
+        )
         logger.info(str(interaction_logger_metrics))
 
         stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
@@ -586,17 +650,15 @@ def dbsnnc():
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = workerResponse.headers.get("Service-Time",0) # Extract the time at which it started]]
         response_time        = endTime - arrivalTime # Get the service time
-
-        response_time = endTime - arrivalTime 
-
-        logger_metrics = LoggerMetrics(
+        logger_metrics       = LoggerMetrics(
             operation_type = algorithm,
             matrix_id      = plainTextMatrixId,
             algorithm      = algorithm,
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
             service_time   = response_time,
-            m_value        = m)
+            m_value        = m
+        )
         logger.info(str(logger_metrics))
 
         return Response(
@@ -614,6 +676,7 @@ def dbsnnc():
     
 
 @clustering.route("/metrics", methods = ["GET"])
+
 def metrics():
     try:
         logger                     = current_app.config["metricslogger"]
