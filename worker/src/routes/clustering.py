@@ -40,7 +40,7 @@ def skmeans_1(requestHeaders) -> Response:
         encryptedMatrix                           = encryptedMatrix_response.value
         responseHeaders["Encrypted-Matrix-Dtype"] = encryptedMatrix_response.metadata.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
         responseHeaders["Encrypted-Matrix-Shape"] = encryptedMatrix_response.metadata.get("shape",encryptedMatrix.shape) #Save the shape
-        udm_matrix_response                       = STORAGE_CLIENT.get_ndarray(key = UDMId,force = True, cache=True).unwrap() #Gets the UDM of the storage system
+        udm_matrix_response                       = STORAGE_CLIENT.get_ndarray(key = UDMId).unwrap() #Gets the UDM of the storage system
         UDMMatrix                                 = udm_matrix_response.value
         responseHeaders["Udm-Matrix-Dtype"]       = udm_matrix_response.metadata.get("dtype",UDMMatrix.dtype) # Extract the type
         responseHeaders["Udm-Matrix-Shape"]       = udm_matrix_response.metadata.get("shape",UDMMatrix.shape) # Extract the shape
@@ -124,16 +124,21 @@ def skmeans_2(requestHeaders):
     m                     = int(requestHeaders.get("M",3))
     encryptedMatrixId     = requestHeaders["Encrypted-Matrix-Id"]
     plainTextMatrixID     = requestHeaders["Plaintext-Matrix-Id"]
-    shiftMatrixId         = requestHeaders.get("Shift-Matrix-Id","{}-Shift-Matrix".format(plainTextMatrixID))
+    shiftMatrixId         = requestHeaders.get("Shift-Matrix-Id","{}-ShiftMatrix".format(plainTextMatrixID))
     UDM_id                = "{}-UDM".format(plainTextMatrixID)
     iterations            = int(requestHeaders.get("Iterations",0))
     responseHeaders       = {}
     start_time            = requestHeaders.get("Start-Time","0.0")
     try:
-        UDM_response             = STORAGE_CLIENT.get_ndarray(key = UDM_id,cache= True).unwrap()
+        UDM_response             = STORAGE_CLIENT.get_ndarray(key = UDM_id).unwrap()
         UDM                      = UDM_response.value
         shiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(key = shiftMatrixId).unwrap()
+        
         shiftMatrix              = shiftMatrix_get_response.value
+        print("shiftmatrix")
+        print("_"*10)
+        print(shiftMatrix)
+        print("_"*10)
         isZero                   = Utils.verifyZero(shiftMatrix)
         if(isZero): #If Shift matrix is zero
             responseHeaders["Clustering-Status"]  = Constants.ClusteringStatus.COMPLETED #Change the status to COMPLETED

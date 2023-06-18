@@ -17,13 +17,12 @@ from mictlanx.v3.client import Client
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
-
 @clustering.route("/skmeans",methods = ["POST"])
 def skmeans():
     try:
         arrivalTime           = time.time()
         logger                = current_app.config["logger"]
-        TESTING               = current_app.config.get("TESTING",True),
+        TESTING               = current_app.config.get("TESTING",True)
         SINK_PATH             = current_app.config["SINK_PATH"]
         SOURCE_PATH           = current_app.config["SOURCE_PATH"]
         liu:Liu               = current_app.config.get("liu")
@@ -39,12 +38,12 @@ def skmeans():
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
-
+        
         encrypt_arrival_time  = time.time()
         outsourced            = dataowner.outsourcedData(  # The data is sent to the dataowner to start the encryption
             plaintext_matrix  = plaintextMatrix,
             algorithm         = algorithm
-        )    
+        )
         encrypt_end_time       = time.time() 
         encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
         encrypt_logger_metrics = LoggerMetrics(
@@ -81,7 +80,7 @@ def skmeans():
             key     = UDMId, 
             ndarray = outsourced.UDM,
             update  = True
-        ) # The udm array is placed in the storage system
+        ).unwrap() # The udm array is placed in the storage system
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
@@ -107,9 +106,12 @@ def skmeans():
         logger.info(str(get_worker_logger_metrics))
 
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
+        print("RM_RESPONSE",stringResponse)
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
+        workerId       =  "localhost" if TESTING else jsonResponse["workerId"]
+        print("WORKER_ID",workerId)
         worker         = RoryWorker( #Allows to establish the connection with the worker
-            workerId   = "localhost" if TESTING else jsonResponse["workerId"],
+            workerId   =workerId,
             port       = jsonResponse["workerPort"],
             session    = s,
             algorithm  = algorithm
@@ -134,7 +136,8 @@ def skmeans():
             stringWorkerResponse              = workerResponse.content.decode("utf-8") #Response from worker
             jsonWorkerResponse                = json.loads(stringWorkerResponse) #pass to json
             encryptedShiftMatrixId            = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
-            encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId,cache=True).unwrap()
+            encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId).unwrap()
+            print("ESM_CHECKSUM",encryptedShiftMatrix_get_response.metadata)
             encryptedShiftMatrix              = encryptedShiftMatrix_get_response.value
             shiftMatrix_chipher_schema_res    = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
@@ -218,6 +221,7 @@ def skmeans():
             headers  = {}
         )
     except Exception as e:
+        logger.error(str(e))
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
     
     
@@ -226,7 +230,7 @@ def kmeans():
     try:
         arrivalTime           = time.time()
         logger                = current_app.config["logger"]
-        TESTING               = current_app.config.get("TESTING",True),
+        TESTING               = current_app.config.get("TESTING",True)
         SOURCE_PATH           = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:Client = current_app.config.get("STORAGE_CLIENT")
         algorithm             = Constants.ClusteringAlgorithms.KMEANS
@@ -320,6 +324,7 @@ def kmeans():
             headers  = {}
         )       
     except Exception as e:
+        logger.error(str(e))
         return Response(response = None, status= 500, headers = {"Error-Message":str(e)})
 
 
@@ -328,7 +333,7 @@ def dbskmeans():
     try:
         arrivalTime           = time.time()
         logger                = current_app.config["logger"]
-        TESTING               = current_app.config.get("TESTING",True),
+        TESTING               = current_app.config.get("TESTING",True)
         SINK_PATH             = current_app.config["SINK_PATH"]
         SOURCE_PATH           = current_app.config["SOURCE_PATH"]
         liu:Liu               = current_app.config.get("liu")
@@ -529,6 +534,7 @@ def dbskmeans():
             headers  = {}
         )
     except Exception as e:
+        logger.error(str(e))
         return Response(response = None, status= 500, headers={"Error-Message":str(e)})
     
 
@@ -537,7 +543,7 @@ def dbsnnc():
     try:
         arrivalTime           = time.time()
         logger                = current_app.config["logger"]
-        TESTING               = current_app.config.get("TESTING",True),
+        TESTING               = current_app.config.get("TESTING",True)
         SOURCE_PATH           = current_app.config["SOURCE_PATH"]
         dataowner:DataOwner   = current_app.config.get("dataowner")
         STORAGE_CLIENT:Client = current_app.config.get("STORAGE_CLIENT")
@@ -672,6 +678,7 @@ def dbsnnc():
             headers  = {}
         )
     except Exception as e:
+        logger.error(str(e))
         return Response(response =None, status= 500, headers={"Error-Message":str(e)})
     
 
@@ -711,4 +718,5 @@ def metrics():
             headers  = {}
         )
     except Exception as e:
+        logger.error(str(e))
         return Response(response = None, status = 500, headers={"Error-Message": str(e)})

@@ -2,135 +2,167 @@ import os
 import requests 
 import pandas as pd
 import logging
-import time, json
-from logger.Logger import create_logger
-from mictlanx.client import Client as StorageClient
-from interfaces.dataowner_response import DataownerResponse
+import time
+from rory.core.interfaces.client_response import ClientResponse
 from rory.core.interfaces.logger_metrics import LoggerMetrics
+from mictlanx.v3.client import Client as StorageClient
+from mictlanx.v3.services.xolo import Xolo
+from mictlanx.v3.services.proxy import Proxy
+from mictlanx.v3.services.replica_manger import ReplicaManager
+from logger.Logger import create_logger
+from option import Some
 
-NODE_ID             = os.environ.get("NODE_ID","rory-dataowner-0") 
-CLIENT_ID           = "rory-client-0"
+NODE_ID        = os.environ.get("NODE_ID","rory-dataowner-0") 
+CLIENT_ID      = os.environ.get("CLIENT_ID","rory-client-0")
+CLIENT_INDEX   = os.environ.get("CLIENT_INDEX","0")
+CLIENT_PORT    = os.environ.get("CLIENT_PORT",3000)
+CLIENT_IP_ADDR = os.environ.get("CLIENT_IP_ADDR","localhost")
 
-#CREAR FOLDERS
-#SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-#SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-#LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-#os.makedirs(SINK_FOLDER,  exist_ok = True)
-#os.makedirs(SOURCE_FOLDER,exist_ok = True)
-#os.makedirs(LOG_FOLDER,   exist_ok = True)
+TASK_ID      = os.environ.get("TASK_ID","CLUSTERING")
+ALGORITHM    = os.environ.get("ALGORITHM","KMEANS")
+BATCH_ID     = os.environ.get("BATCH_ID",0)
+TRACE_ID     = os.environ.get("TRACE_ID",ALGORITHM)
+BATCH_INDEX  = "batch_{}".format(BATCH_ID)
+LOGGER_NAME  = NODE_ID
 
-LOG_PATH            = os.environ.get("LOG_PATH","/rory/dataowner-0/log")
+SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
+SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
+LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
+os.makedirs(SINK_FOLDER,  exist_ok = True)
+os.makedirs(SOURCE_FOLDER,exist_ok = True)
+os.makedirs(LOG_FOLDER,   exist_ok = True)
 
-SOURCE_PATH         = "/rory/client-0/data/source/"
-DATA_OWNER_BASE_URL = "localhost"
-DATA_OWNER_PORT     = 3000
-DATASET_EXTENSION   = "csv"
-STORAGE_HOSTNAME    = os.environ.get("STORAGE_SYSTEM_HOSTNAME","localhost")
-STORAGE_PORT        = int(os.environ.get("STORAGE_SYSTEM_PORT",6001))
-STORAGE_CLIENT      = StorageClient(hostname = STORAGE_HOSTNAME,port = STORAGE_PORT, LOG_PATH = LOG_PATH) 
-LOGGER              = create_logger(
-    name                  = NODE_ID,
+# MICTLANX
+MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID")
+MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID")
+MICTLANX_SECRET                  = os.environ.get("MICTLANX_SECRET")
+# if not MICTLANX_APP_ID or not MICTLANX_CLIENT_ID or not MICTLANX_SECRET:
+    # pass 
+MICTLANX_PROXY_IP_ADDR           = os.environ.get("MICTLANX_PROXY_IP_ADDR","localhost")
+MICTLANX_PROXY_PORT              = int(os.environ.get("MICTLANX_PROXY_PORT","8080"))
+MICTLANX_XOLO_IP_ADDR            = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
+MICTLANX_XOLO_PORT               = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
+MICTLANX_REPLICA_MANAGER_IP_ADDR = os.environ.get("MICTLANX_REPLICA_MANAGER_IP_ADDR","localhost")
+MICTLANX_REPLICA_MANAGER_PORT    = int(os.environ.get("MICTLANX_REPLICA_MANAGER_PORT","20000"))
+MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION","3"))
+MICTLANX_EXPIRES_IN              = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+
+
+LOGGER = create_logger(
+    name                   = LOGGER_NAME,
     LOG_FILENAME           = NODE_ID,
-    LOG_PATH               = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.INFO or record.levelno == logging.ERROR or record.levelno == logging.DEBUG,
-    file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
+    LOG_PATH               = LOG_FOLDER,
+    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
 
-trace_id     = "trace_threshold"
-#trace_id = "trace_mictlanx"
-#trace_id = "trace_kmeans"
-trace_path   = "{}{}.{}".format(SOURCE_PATH,trace_id,DATASET_EXTENSION)
-trace        = pd.read_csv(trace_path)
-generate_url = lambda algorithm: "http://{}:{}/clustering/{}".format(DATA_OWNER_BASE_URL,DATA_OWNER_PORT,algorithm)
-algorithms   = ["KMEANS","SKMEANS","DBSKMEANS","DBSNNC"]
-identity     = lambda x:x
+#  
+replica_manager = ReplicaManager(
+    ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
+    port        = MICTLANX_REPLICA_MANAGER_PORT, 
+    api_version = Some(MICTLANX_API_VERSION)
+)
+xolo            = Xolo(
+    ip_addr     = MICTLANX_XOLO_IP_ADDR, 
+    port        = MICTLANX_XOLO_PORT, 
+    api_version = Some(MICTLANX_API_VERSION)
+)
+proxy           = Proxy(
+    ip_addr     = MICTLANX_PROXY_IP_ADDR, 
+    port        = MICTLANX_PROXY_PORT, 
+    api_version = Some(MICTLANX_API_VERSION)
+)
+STORAGE_CLIENT  = StorageClient(
+    app_id          = MICTLANX_APP_ID,
+    client_id       = Some(MICTLANX_CLIENT_ID),
+    secret          = MICTLANX_SECRET,
+    replica_manager = replica_manager, 
+    xolo            = xolo, 
+    proxies         = [proxy], 
+    expires_in      = Some(MICTLANX_EXPIRES_IN)
+)
 
-def dataownerClustering():
-    for row_index,row in trace.iterrows():
-        arrivalTime   = time.time()
-        isKmeans      = row["KMEANS"]    == 1
-        isSkmeans     = row["SKMEANS"]   == 1
-        isDbskmeans   = row["DBSKMEANS"] == 1
-        isDbsnnc      = row["DBSNNC"]    == 1
-        unfiltered_xs = [isKmeans, isSkmeans, isDbskmeans, isDbsnnc]
-        unfiltered_xs = list(zip(list(range(0,len(algorithms))),unfiltered_xs))
-        
-        xs = list(filter(lambda x:x[1], unfiltered_xs)) #if x:
-        for index,x in xs:
-            algorithm:str     = algorithms[index]
-            url               = generate_url(algorithm.lower())
-            plaintextMatrixId = row["PLAINTEXT_MATRIX_ID"]
-            k                 = row["K"]
-            headers = {
-                "Plaintext-Matrix-Id":plaintextMatrixId,
-                "K":str(k),
-                "M":str(row["M"]),
-                "Threshold":str(row["THRESHOLD"]),
-                "Extension":DATASET_EXTENSION,
-                "Client-Id":CLIENT_ID,
-                "Max-Iterations": str(row["MAX_ITERATIONS"])
-            }
+EXPERIMENT_ID     = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
+DATASET_EXTENSION = "csv"
+TRACE_PATH        = os.environ.get("TRACE_PATH","{}/{}/{}/{}.{}".format(SOURCE_FOLDER,EXPERIMENT_ID,BATCH_INDEX,TRACE_ID,DATASET_EXTENSION))
+trace_df          = pd.read_csv(TRACE_PATH)
 
-            response = requests.post(
-                url    = url,
-                data   = None, 
-                headers= headers
-            )
-
-            response      = DataownerResponse.fromResponse(response)
-            labelVectorId = "{}_{}_k{}".format(plaintextMatrixId,algorithm,k)
-            _             = STORAGE_CLIENT.put_ndarray(
-                key     = labelVectorId, 
-                ndarray = response.labelVector,
-                update  = True
-            )
-            endTime       = time.time() # Get the time when it ends
-            service_time  = response.headers.get("Service-Time",0) 
-            response_time = endTime - arrivalTime 
-
-            logger_metrics = LoggerMetrics(
-                operation_type = algorithm,
-                matrix_id      = plaintextMatrixId,
-                algorithm      = algorithm,
-                arrival_time   = arrivalTime, 
-                end_time       = endTime, 
-                service_time   = response_time
-            )
-            LOGGER.info(str(logger_metrics))
-
-def dataOwnerMetrics():
-    for row_index,row in trace.iterrows():
-        arrivalTime = time.time()
-        algorithm   = "metrics"
-        #algorithm = "dbsnnc"
-        url               = generate_url(algorithm)
-        plaintextMatrixId = row["PLAINTEXT_MATRIX_ID"]
-        k                 = row["K"]
-        headers = {
-            "Plaintext-Matrix-Id":plaintextMatrixId,
-            "K":str(k),
-            "Extension":DATASET_EXTENSION,
-            "Algorithm": "DBSNNC"
-        }
-        response = requests.get(
-            url    = url,
-            data   = None, 
-            headers= headers
+for index,row in trace_df.iterrows():
+    arrivalTime       = time.time()
+    plainTextMatrixId = str(row["DATASET_ID"])
+    headers = {
+        "Plaintext-Matrix-Id": plainTextMatrixId,
+        "K": str(row["K"]),
+        "M": str(row["M"]),
+        "Threshold": str(row["THRESHOLD"]),
+        "Extension": DATASET_EXTENSION,
+        "Client-Id": CLIENT_ID,
+        "Max-Iterations": str(row["MAX_ITERATIONS"])
+    }
+    url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+    
+    _response = requests.post(
+        url    = url,
+        data   = None, 
+        headers= headers
         )
-        LOGGER.debug("RESPONSE_STATUS {}".format(response.status_code))
-        endTime       = time.time() # Get the time when it ends
-        service_time  = response.headers.get("Service-Time",0) 
-        response_time = endTime - arrivalTime 
+    
+    response = ClientResponse.fromResponse(_response)
+    labelVectorId = "{}_{}".format(plainTextMatrixId,ALGORITHM)
+    _ = STORAGE_CLIENT.put_ndarray(
+            key     = labelVectorId,
+            ndarray = response.labelVector,
+            update  = True
+    ).unwrap()
+
+    endTime       = time.time() # Get the time when it ends
+    # service_time  = response.headers.get("Service-Time",0) 
+    response_time = endTime - arrivalTime 
+
+    logger_metrics = LoggerMetrics(
+        operation_type = ALGORITHM,
+        matrix_id      = plainTextMatrixId,
+        algorithm      = ALGORITHM,
+        arrival_time   = arrivalTime, 
+        end_time       = endTime, 
+        service_time   = response_time
+    )
+    LOGGER.info(str(logger_metrics))
+
+
+# def dataOwnerMetrics():
+#     for row_index,row in trace.iterrows():
+#         arrivalTime = time.time()
+#         algorithm   = "metrics"
+#         #algorithm = "dbsnnc"
+#         url               = generate_url(algorithm)
+#         plaintextMatrixId = row["PLAINTEXT_MATRIX_ID"]
+#         k                 = row["K"]
+#         headers = {
+#             "Plaintext-Matrix-Id":plaintextMatrixId,
+#             "K":str(k),
+#             "Extension":DATASET_EXTENSION,
+#             "Algorithm": "DBSNNC"
+#         }
+#         response = requests.get(
+#             url    = url,
+#             data   = None, 
+#             headers= headers
+#         )
+#         LOGGER.debug("RESPONSE_STATUS {}".format(response.status_code))
+#         endTime       = time.time() # Get the time when it ends
+#         service_time  = response.headers.get("Service-Time",0) 
+#         response_time = endTime - arrivalTime 
         
-        LOGGER.info("{} {} {} {} {}".format(#Show the final result in a logger
-            algorithm.upper(),
-            plaintextMatrixId,
-            k,
-            service_time,
-            response_time
-        ))
+#         LOGGER.info("{} {} {} {} {}".format(#Show the final result in a logger
+#             algorithm.upper(),
+#             plaintextMatrixId,
+#             k,
+#             service_time,
+#             response_time
+#         ))
 
 
-if __name__ == "__main__":
-    #dataownerClustering()
-    dataOwnerMetrics()
+# if __name__ == "__main__":
+#     #dataownerClustering()
+#     dataOwnerMetrics()

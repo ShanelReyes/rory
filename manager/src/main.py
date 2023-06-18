@@ -46,7 +46,7 @@ MAX_RETRIES    = int(os.environ.get("MAX_RETRIES",100))
 LOAD_BALANCING = int(os.environ.get("LOAD_BALANCING","0"))
 
 MICTLANX_SUMMONER_IP_ADDR        = os.environ.get("MICTLANX_SUMMONER_IP_ADDR","localhost")
-MICTLANX_SUMMONER_PORT           = os.environ.get("MICTLANX_SUMMONER_PORT",1025)
+MICTLANX_SUMMONER_PORT           = os.environ.get("MICTLANX_SUMMONER_PORT",15000)
 MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION",3))
 MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID","APP_ID")
 MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")

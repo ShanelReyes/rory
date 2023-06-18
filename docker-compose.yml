@@ -1,0 +1,49 @@
+services:
+  rory-manager-0:
+    image: shanelreyes/rory:manager
+    container_name: rory-manager-0
+    hostname: rory-manager-0
+    ports:
+      - 6000:6000
+    environment:
+      - NODE_ID=rory-manager-0
+      - NODE_PORT=6000
+      - NODE_IP_ADDR=rory-manager-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - INIT_WORKERS=1
+      - WORKER_INIT_PORT=9000
+      - MAX_WORKERS=1
+      - DOCKER_IMAGE_NAME=shanelreyes/rory
+      - DOCKER_IMAGE_TAG=worker
+      - DEBUG=0
+      - RELOAD=0
+      - TESTING=0
+      - MAX_RETRIES=10
+      - SOURCE_PATH=/rory/rory-manager-0/source
+      - SINK_PATH=/rory/rory-manager-0/sink
+      - LOG_PATH=/rory/rory-manager-0/log
+      - LOGGER_NAME=rory-manager-0
+      - MAX_ITERATIONS=10
+      - M=3
+      - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0
+      - MICTLANX_SUMMONER_PORT=15000
+      - MICTLANX_SUMMONER_API_VERSION=2
+      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
+      - MICTLANX_CLIENT_ID=sreyes
+      - MICTLANX_SECRET=t0p53cr3T#
+      - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
+      - MICTLANX_PROXY_PORT=8080
+      - MICTLANX_XOLO_IP_ADDR=mictlanx-xolo-0
+      - MICTLANX_XOLO_PORT=10000
+      - MICTLANX_REPLICA_MANAGER_IP_ADDR=mictlanx-rm-0
+      - MICTLANX_REPLICA_MANAGER_PORT=20001
+      - MICTLANX_API_VERSION=3
+      - MICTLANX_EXPIRES_IN=15d
+    volumes:
+      - /rory/rory-manager-0:/rory/rory-manager-0
+    networks:
+      - mictlanx
+    
+networks:
+  mictlanx:
+    external: true

@@ -37,7 +37,7 @@ def test():
                 workerPort     = worker.port
                 endTime        = time.time()
                 serviceTime    = endTime - arrivalTime
-                OPERATION_NAME = "CLUSTERING"
+                OPERATION_NAME = "BALANCING"
                 LATENCY        = arrivalTime - float(startRequestTime)
                 
                 logger_metrics = LoggerMetrics(

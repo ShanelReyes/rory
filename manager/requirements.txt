@@ -4,4 +4,4 @@ requests==2.22.0
 python-dotenv>=1.0.0
 --extra-index-url https://test.pypi.org/simple/ 
 mictlanx==0.0.38
-rory==0.0.14
+rory==0.0.15

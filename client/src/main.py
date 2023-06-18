@@ -86,7 +86,7 @@ LOGGER = create_logger(
     name                   = LOGGER_NAME,
     LOG_FILENAME           = NODE_ID,
     LOG_PATH               = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
+    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
 METRICSLOGGER = create_logger(
@@ -125,6 +125,8 @@ def create_app(*args):
         current_app.config["LOG_PATH"]        = LOG_PATH
         current_app.config["MAX_ITERATIONS"]  = MAX_ITERATIONS
         current_app.config["STORAGE_CLIENT"]  = STORAGE_CLIENT
+        # print(">>>>>>>>>>TESTING",TESTING)
+        current_app.config["TESTING"]         = TESTING
     return app
 
 """
