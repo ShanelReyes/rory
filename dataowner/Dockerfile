@@ -1,15 +1,17 @@
 FROM python:3.8-slim
 WORKDIR /app
+ARG BASE_PATH=/home/sreyes/rory
 RUN apt update
 RUN apt install -y git
 RUN apt install -y gcc
 RUN apt install -y python3-dev
 RUN apt install -y gfortran
 RUN apt install -y musl-dev
+RUN apt install -y libmagic-dev
 RUN python -m pip install --upgrade pip
-COPY ./requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY ./src .
 ENV FLASK_APP="main"
 ENV FLASK_ENV="production"
+COPY ./requirements.txt .
+RUN pip install -r requirements.txt
+COPY ./src .
 CMD [ "python","-u","/app/main.py"]

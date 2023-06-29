@@ -1,4 +1,4 @@
-import os, logging
+import os, logging, sys
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
@@ -30,16 +30,23 @@ RELOAD            = bool(int(os.environ.get("RELOAD",0)))
 SERVER_IP_ADDR    = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 
 #CREAR FOLDERS
-SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-os.makedirs(SINK_FOLDER,  exist_ok = True)
-os.makedirs(SOURCE_FOLDER,exist_ok = True)
-os.makedirs(LOG_FOLDER,   exist_ok = True)
 
-LOG_PATH       = os.environ.get("LOG_PATH",LOG_FOLDER)
-SINK_PATH      = os.environ.get("SINK_PATH",SINK_FOLDER)
-SOURCE_PATH    = os.environ.get("SOURCE_PATH",SOURCE_FOLDER)
+SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
+SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
+LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
+try:
+    os.makedirs(SOURCE_PATH,exist_ok = True)
+    os.makedirs(SINK_PATH,  exist_ok = True)
+    os.makedirs(LOG_PATH,   exist_ok = True)
+except Exception as e:
+    print("MAKE_FOLDER_ERROR",e)
+# SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
+# SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
+# LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
+# os.makedirs(SINK_FOLDER,  exist_ok = True)
+# os.makedirs(SOURCE_FOLDER,exist_ok = True)
+# os.makedirs(LOG_FOLDER,   exist_ok = True)
+
 
 TESTING        = bool(int(os.environ.get("TESTING","1")))
 MAX_RETRIES    = int(os.environ.get("MAX_RETRIES",100))
@@ -47,6 +54,7 @@ LOAD_BALANCING = int(os.environ.get("LOAD_BALANCING","0"))
 
 MICTLANX_SUMMONER_IP_ADDR        = os.environ.get("MICTLANX_SUMMONER_IP_ADDR","localhost")
 MICTLANX_SUMMONER_PORT           = os.environ.get("MICTLANX_SUMMONER_PORT",15000)
+MICTLANX_SUMMONER_MODE           = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
 MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION",3))
 MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID","APP_ID")
 MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
@@ -92,6 +100,7 @@ deploy_nodes(
     MICTLANX_XOLO_PORT               = str(MICTLANX_XOLO_PORT),
     MICTLANX_API_VERSION             = MICTLANX_API_VERSION,
     MICTLANX_SECRET                  = MICTLANX_SECRET,
+    MICTLANX_SUMMONER_MODE           = MICTLANX_SUMMONER_MODE 
 )
 
 LOGGER = create_logger(
@@ -145,5 +154,9 @@ def create_app(*args):
     return app
 
 if __name__ == '__main__':
-    app = create_app()
-    app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+    try:
+        app = create_app()
+        app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+    except Exception as e:
+        print(e)
+        sys.exit(1)

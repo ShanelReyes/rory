@@ -34,6 +34,7 @@ def skmeans():
         plainTextMatrixId     = requestHeaders.get("Plaintext-Matrix-Id","matrix-0")
         extension             = requestHeaders.get("Extension","csv")
         m                     = requestHeaders.get("M","3")
+        k                     = requestHeaders.get("K")
         MAX_ITERATIONS        = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
@@ -46,7 +47,7 @@ def skmeans():
         )
         encrypt_end_time       = time.time() 
         encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
-        encrypt_logger_metrics = LoggerMetrics(
+        encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
             operation_type = "ENCRYPT",
             matrix_id      = plainTextMatrixId,
             algorithm      = algorithm,
@@ -55,7 +56,7 @@ def skmeans():
             service_time   = outsourced.encrypted_matrix_time,
             m_value        = m
         ) 
-        udm_logger_metrics = LoggerMetrics(
+        udm_logger_metrics = LoggerMetrics( #Write times of udm in logger
             operation_type = "UDM_GENERATION",
             matrix_id      = plainTextMatrixId,
             algorithm      = algorithm,
@@ -72,14 +73,12 @@ def skmeans():
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = encryptedMatrixId,
-            ndarray = outsourced.encrypted_matrix,
-            update  = True
+            ndarray = outsourced.encrypted_matrix
         ).unwrap() # The encrypted matrix is placed in the storage system
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = UDMId, 
-            ndarray = outsourced.UDM,
-            update  = True
+            ndarray = outsourced.UDM
         ).unwrap() # The udm array is placed in the storage system
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
@@ -89,29 +88,30 @@ def skmeans():
             headers = {
                 "Algorithm"             : algorithm,
                 "Start-Request-Time"    : str(arrivalTime),
-                "Start-Get-Worker-Time" : str(get_worker_start_time) # Si quieres lo quitas, pero mira...
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
-        get_worker_end_time       = time.time() 
-        get_worker_service_time   = get_worker_end_time - get_worker_start_time
-        get_worker_logger_metrics = LoggerMetrics(
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse            = json.loads(stringResponse) # Pass the response to json
+        workerId                =  "localhost" if TESTING else jsonResponse["workerId"]
+
+        get_worker_logger_metrics = LoggerMetrics( # Write times of worker communication in logger
             operation_type = "GET_WORKER",
             matrix_id      = plainTextMatrixId,
             algorithm      = algorithm,
             arrival_time   = get_worker_start_time, 
             end_time       = get_worker_end_time, 
             service_time   = get_worker_service_time,
-            m_value        = m
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
         )
         logger.info(str(get_worker_logger_metrics))
 
-        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
-        print("RM_RESPONSE",stringResponse)
-        jsonResponse   = json.loads(stringResponse) # Pass the response to json
-        workerId       =  "localhost" if TESTING else jsonResponse["workerId"]
-        print("WORKER_ID",workerId)
         worker         = RoryWorker( #Allows to establish the connection with the worker
-            workerId   =workerId,
+            workerId   = workerId,
             port       = jsonResponse["workerPort"],
             session    = s,
             algorithm  = algorithm
@@ -127,17 +127,20 @@ def skmeans():
                 "Plaintext-Matrix-Id" : plainTextMatrixId,
                 "Request_Id"          : requestId,
                 "Encrypted-Matrix-Id" : encryptedMatrixId,
+                "Content-Type"        : "application/json",
                 **requestHeaders
             }
             s.headers.update(run1_headers)
             workerResponse    = worker.run() #Run 1 starts
+
             run1_service_time = float(workerResponse.headers.get("Service-Time",0))
             s.headers.update(workerResponse.headers) # the current headers are updated with the ones that come from the worker
             stringWorkerResponse              = workerResponse.content.decode("utf-8") #Response from worker
             jsonWorkerResponse                = json.loads(stringWorkerResponse) #pass to json
             encryptedShiftMatrixId            = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
-            encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId).unwrap()
-            print("ESM_CHECKSUM",encryptedShiftMatrix_get_response.metadata)
+            encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(
+                key = encryptedShiftMatrixId
+            ).unwrap()
             encryptedShiftMatrix              = encryptedShiftMatrix_get_response.value
             shiftMatrix_chipher_schema_res    = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
@@ -146,7 +149,7 @@ def skmeans():
             )
             shiftMatrix   = shiftMatrix_chipher_schema_res.matrix
             shiftMatrixId = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
-
+            #logger.debug("shiftmatrix:{}".format(shiftMatrix))
             _ = STORAGE_CLIENT.put_ndarray(
                 key     = shiftMatrixId,
                 ndarray = shiftMatrix,
@@ -170,7 +173,7 @@ def skmeans():
                 startTime           = float(s.headers.get("Start-Time",0))
                 service_time_worker = time.time() - startTime #The service time is calculated
             else: 
-                status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
+                status = int(workerResponse.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime    = time.time() # Get the time when it ends
             inner_interaction_service_time   = endTime - inner_interaction_arrival_time
             inner_interaction_logger_metrics = LoggerMetrics(
@@ -180,10 +183,11 @@ def skmeans():
                 arrival_time   = inner_interaction_arrival_time,
                 end_time       = endTime,
                 service_time   = inner_interaction_service_time,
-                m_value        = m
+                m_value        = m,
+                k_value        = k,
+                worker_id      = workerId
             )
             logger.info(str(inner_interaction_logger_metrics))
-            print("_"*10)
         
         interaction_end_time       = time.time()
         interaction_service_time   = interaction_end_time - interaction_arrival_time 
@@ -194,7 +198,9 @@ def skmeans():
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time,
             service_time   = interaction_service_time,
-            m_value        = m
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -206,7 +212,9 @@ def skmeans():
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
             service_time   = response_time,
-            m_value        = m
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
         )
         logger.info(str(logger_metrics))
 
@@ -260,20 +268,23 @@ def kmeans():
         )
         get_worker_end_time       = time.time()
         get_worker_service_time   = get_worker_end_time - get_worker_arrival_time 
+
+        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse   = json.loads(stringResponse) # Pass the response to json
+        workerId       = "localhost" if TESTING else jsonResponse["workerId"]
         get_worker_logger_metrics = LoggerMetrics(
             operation_type = "GET_WORKER", 
             matrix_id      = plainTextMatrixId, 
             algorithm      = algorithm, 
             arrival_time   = get_worker_arrival_time, 
             end_time       = get_worker_end_time,
-            service_time   = get_worker_service_time
+            service_time   = get_worker_service_time,
+            worker_id      = workerId
             )
         logger.info(str(get_worker_logger_metrics) )
 
-        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
-        jsonResponse   = json.loads(stringResponse) # Pass the response to json
         worker         = RoryWorker( #Allows to establish the connection with the worker
-            workerId   = "localhost" if TESTING else jsonResponse["workerId"],
+            workerId   = workerId,
             port       = jsonResponse["workerPort"],
             session    = s,
             algorithm  = algorithm
@@ -294,7 +305,8 @@ def kmeans():
             algorithm      = algorithm, 
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time, 
-            service_time   = interaction_service_time
+            service_time   = interaction_service_time,
+            worker_id      = workerId
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -310,7 +322,8 @@ def kmeans():
             algorithm      = algorithm, 
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
-            service_time   = response_time)
+            service_time   = response_time,
+            worker_id      = workerId)
         logger.info(str(logger_metrics))
 
         return Response(
@@ -345,6 +358,7 @@ def dbskmeans():
         plainTextMatrixId     = requestHeaders.get("Plaintext-Matrix-Id","matrix-0")
         extension             = requestHeaders.get("Extension","csv")
         m                     = requestHeaders.get("M","3")
+        k                     = requestHeaders.get("K")
         MAX_ITERATIONS        = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",100)))
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
@@ -373,36 +387,41 @@ def dbskmeans():
             arrival_time   = encrypt_arrival_time, 
             end_time       = encrypt_end_time, 
             service_time   = outsourced.udm_time,
-            m_value        = m) 
-        
+            m_value        = m
+        ) 
         logger.info(str(encrypt_logger_metrics))
         logger.info(str(udm_logger_metrics))
 
-
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-encrypted-UDM".format(plainTextMatrixId) # The iudm id is built
+        
         _ = STORAGE_CLIENT.put_ndarray(
             key     = encryptedMatrixId,
-            ndarray = outsourced.encrypted_matrix,
-            update  = True
+            ndarray = outsourced.encrypted_matrix
         ).unwrap() # The encrypted matrix is placed in the storage system
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = UDMId,
-            ndarray = outsourced.encrypted_matrix,
-            update  = True
+            ndarray = outsourced.UDM
         ).unwrap() # The udm array is placed in the storage system
+
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
         get_worker_start_time = time.time()
-        mr          = managerResponse.getWorker( #Gets the worker from the manager
+        mr                    = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
-                "Algorithm"         : algorithm,
-                "Start-Request-Time": str(arrivalTime)
+                "Algorithm"             : algorithm,
+                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
         get_worker_end_time       = time.time() 
         get_worker_service_time   = get_worker_end_time - get_worker_start_time
+
+        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse   = json.loads(stringResponse) # Pass the response to json
+        workerId       = "localhost" if TESTING else jsonResponse["workerId"]
+
         get_worker_logger_metrics = LoggerMetrics(
             operation_type = "GET_WORKER",
             matrix_id      = plainTextMatrixId,
@@ -410,21 +429,21 @@ def dbskmeans():
             arrival_time   = get_worker_start_time, 
             end_time       = get_worker_end_time, 
             service_time   = get_worker_service_time,
-            m_value        = m)
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
+        )
         logger.info(str(get_worker_logger_metrics))
 
-        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
-        jsonResponse   = json.loads(stringResponse) # Pass the response to json
         worker         = RoryWorker( #Allows to establish the connection with the worker
-            workerId  = "localhost" if TESTING else jsonResponse["workerId"],
-            port      = jsonResponse["workerPort"],
-            session   = s,
-            algorithm = algorithm
+            workerId   = workerId,
+            port       = jsonResponse["workerPort"],
+            session    = s,
+            algorithm  = algorithm
         )
         status           = Constants.ClusteringStatus.START #Set the status to start
         workerResponse   = None 
         interaction_arrival_time = time.time()
-
         while (status   != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             inner_interaction_arrival_time = time.time()
             run1_headers = {
@@ -433,29 +452,33 @@ def dbskmeans():
                     "Plaintext-Matrix-Id" : plainTextMatrixId,
                     "Request_Id"          : requestId,
                     "Encrypted-Matrix-Id" : encryptedMatrixId,
+                    "Content-Type"        : "application/json",
                     **requestHeaders
             }
             s.headers.update(run1_headers)
             workerResponse         = worker.run() #Run 1 starts
             run1_service_time      = float(workerResponse.headers.get("Service-Time",0))
             s.headers.update(workerResponse.headers) # the current headers are updated with the ones that come from the worker
-            stringWorkerResponse   = workerResponse.content.decode("utf-8") #Response from worker
-            jsonWorkerResponse     = json.loads(stringWorkerResponse) #pass to json
-            encryptedShiftMatrixId = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
-            encryptedShiftMatrix_response = STORAGE_CLIENT.get_ndarray(key = encryptedShiftMatrixId).unwrap()
+            stringWorkerResponse          = workerResponse.content.decode("utf-8") #Response from worker
+            jsonWorkerResponse            = json.loads(stringWorkerResponse) #pass to json
+            encryptedShiftMatrixId        = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
+            encryptedShiftMatrix_response = STORAGE_CLIENT.get_ndarray(
+                key = encryptedShiftMatrixId
+            ).unwrap()
             encryptedShiftMatrix   = encryptedShiftMatrix_response.value
             cipher_schema_res      = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix  = encryptedShiftMatrix.tolist(),
                 secret_key         = dataowner.sk,
                 m                  = int(m)
             )
-            shiftMatrixOpe         = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
+            shiftMatrixOpe_res     = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
                 plaintext_matrix   = cipher_schema_res.matrix, 
                 messagespace       = outsourced.messageIntervals,
                 cipherspace        = outsourced.cypherIntervals
             )
-            shiftMatrixId          = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
-            shiftMatrixOpeId       = "{}-ShiftMatrixOpe".format(plainTextMatrixId) # The id of the Shift matrix is formed
+            shiftMatrixOpe   = shiftMatrixOpe_res.matrix
+            shiftMatrixId    = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
+            shiftMatrixOpeId = "{}-ShiftMatrixOpe".format(plainTextMatrixId) # The id of the Shift matrix is formed
             
             _ = STORAGE_CLIENT.put_ndarray(
                 key     = shiftMatrixId,
@@ -465,28 +488,30 @@ def dbskmeans():
             
             _  = STORAGE_CLIENT.put_ndarray(
                 key     = shiftMatrixOpeId,
-                ndarray = shiftMatrixOpe.matrix,
+                ndarray = shiftMatrixOpe,
                 update  = True
             ).unwrap() #Shift matrix is saved to the storage system
 
             status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             run2_headers = {
-                    "Step-Index"       : "2",
-                    "Clustering-Status": str(status),
-                    "Shift-Matrix-Id"  : shiftMatrixId,
+                    "Step-Index"          : "2",
+                    "Clustering-Status"   : str(status),
+                    "Shift-Matrix-Id"     : shiftMatrixId,
+                    "Shift-Matrix-Ope-Id" : shiftMatrixOpeId
             }
             s.headers.update(run2_headers)
             workerResponse    = worker.run() #Start run 2
             runw_service_time = float(workerResponse.headers.get("Service-Time",0))
             s.headers.update(workerResponse.headers) # The headers are updated
             service_time_worker = workerResponse.headers.get("Service-Time",0) 
+
             iterations          = int(s.headers.get("Iterations",0)) # Extract the current number of iterations
             if (iterations >= MAX_ITERATIONS): #If the number of iterations is equal to the maximum
                 status              = Constants.ClusteringStatus.COMPLETED #Change the status to complete
                 startTime           = float(s.headers.get("Start-Time",0))
                 service_time_worker = time.time() - startTime #The service time is calculated
             else: 
-                status = int(workerResponse.headers.get("Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
+                status = int(workerResponse.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime                          = time.time() # Get the time when it ends
             inner_interaction_service_time   = endTime-inner_interaction_arrival_time
             inner_interaction_logger_metrics = LoggerMetrics(
@@ -496,7 +521,10 @@ def dbskmeans():
                 arrival_time   = inner_interaction_arrival_time,
                 end_time       = endTime,
                 service_time   = inner_interaction_service_time,
-                m_value        = m)
+                m_value        = m,
+                k_value        = k,
+                worker_id      = workerId
+            )
             logger.info(str(inner_interaction_logger_metrics))
 
         interaction_end_time       = time.time()
@@ -508,7 +536,10 @@ def dbskmeans():
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time, 
             service_time   = interaction_service_time,
-            m_value        = m)
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
+        )
         logger.info(str(interaction_logger_metrics))
 
         response_time  = endTime - arrivalTime 
@@ -519,7 +550,10 @@ def dbskmeans():
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
             service_time   = response_time,
-            m_value        = m)
+            m_value        = m,
+            k_value        = k,
+            worker_id      = workerId
+        )
         logger.info(str(logger_metrics))
 
 
@@ -609,22 +643,25 @@ def dbsnnc():
                 "Start-Request-Time": str(arrivalTime)
             }
         )
-        get_worker_end_time       = time.time() 
-        get_worker_service_time   = get_worker_end_time - get_worker_start_time
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
+        jsonResponse            = json.loads(stringResponse) # Pass the response to json
+        workerId                = "localhost" if TESTING else jsonResponse["workerId"]
+
         get_worker_logger_metrics = LoggerMetrics(
             operation_type = "GET_WORKER",
             matrix_id      = plainTextMatrixId,
             algorithm      = algorithm,
             arrival_time   = get_worker_start_time, 
             end_time       = get_worker_end_time, 
-            service_time   = get_worker_service_time
+            service_time   = get_worker_service_time,
+            worker_id      = workerId
         )
         logger.info(str(get_worker_logger_metrics))
 
-        stringResponse = mr.content.decode("utf-8") #Decode the manager's response
-        jsonResponse   = json.loads(stringResponse) # Pass the response to json
         worker         = RoryWorker( #Allows to establish the connection with the worker
-            workerId   = "localhost" if TESTING else jsonResponse["workerId"],
+            workerId   = workerId,
             port       = jsonResponse["workerPort"],
             session    = s,
             algorithm  = algorithm
@@ -647,7 +684,8 @@ def dbsnnc():
             arrival_time   = interaction_arrival_time, 
             end_time       = interaction_end_time, 
             service_time   = interaction_service_time,
-            m_value        = m
+            m_value        = m,
+            worker_id      = workerId
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -663,7 +701,8 @@ def dbsnnc():
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
             service_time   = response_time,
-            m_value        = m
+            m_value        = m,
+            worker_id      = workerId
         )
         logger.info(str(logger_metrics))
 

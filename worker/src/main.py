@@ -1,4 +1,4 @@
-import os, logging, requests
+import os, logging, requests, sys
 from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
@@ -26,16 +26,26 @@ IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 
 #CREAR FOLDERS
-SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-os.makedirs(SINK_FOLDER,  exist_ok = True)
-os.makedirs(SOURCE_FOLDER,exist_ok = True)
-os.makedirs(LOG_FOLDER,   exist_ok = True)
 
-LOG_PATH             = os.environ.get("LOG_PATH",LOG_FOLDER)
-SINK_PATH            = os.environ.get("SINK_PATH",SINK_FOLDER)
-SOURCE_PATH          = os.environ.get("SOURCE_PATH",SOURCE_FOLDER)
+SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
+SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
+LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
+try:
+    os.makedirs(SOURCE_PATH,exist_ok = True)
+    os.makedirs(SINK_PATH,  exist_ok = True)
+    os.makedirs(LOG_PATH,   exist_ok = True)
+except Exception as e:
+    print("MAKE_FOLDER_ERROR",e)
+# SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
+# SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
+# LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
+# os.makedirs(SINK_FOLDER,  exist_ok = True)
+# os.makedirs(SOURCE_FOLDER,exist_ok = True)
+# os.makedirs(LOG_FOLDER,   exist_ok = True)
+
+# LOG_PATH             = os.environ.get("LOG_PATH",LOG_FOLDER)
+# SINK_PATH            = os.environ.get("SINK_PATH",SINK_FOLDER)
+# SOURCE_PATH          = os.environ.get("SOURCE_PATH",SOURCE_FOLDER)
 
 MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID")
 MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID")
@@ -77,7 +87,7 @@ LOGGER = create_logger (
     name                   = NODE_ID,
     LOG_FILENAME           = NODE_ID,
     LOG_PATH               = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    console_handler_filter = lambda record: record.levelno == logging.INFO or record.levelno == logging.ERROR or record.levelno == logging.DEBUG,
     file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
 )
 
@@ -128,7 +138,13 @@ def started_completed():
   LOGGER.debug("WORKER_STARTED_RESPONSE {}".format(result))
 
 if __name__ == '__main__':
-  app = create_app()
-  t1 = Thread(target= started_completed, daemon= True, args = () )
-  t1.start()
-  app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+  try:
+    app = create_app()
+    t1 = Thread(target= started_completed, daemon= True, args = () )
+    t1.start()
+    app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+  except Exception as e:
+    print(e)
+    sys.exit(1)
+  finally:
+    STORAGE_CLIENT.logout()

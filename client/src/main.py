@@ -1,5 +1,4 @@
-import os
-import logging
+import os, logging, sys
 from flask import Flask,current_app
 from rory.core.logger.Logger import create_logger
 from rory.core.security.cryptosystem.liu import Liu
@@ -26,16 +25,20 @@ LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","1")))
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 
 #CREAR FOLDERS
-SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-os.makedirs(SINK_FOLDER,  exist_ok = True)
-os.makedirs(SOURCE_FOLDER,exist_ok = True)
-os.makedirs(LOG_FOLDER,   exist_ok = True)
+# SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
+# SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
+# LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
 
-SINK_PATH        = os.environ.get("SINK_PATH",SINK_FOLDER)
-SOURCE_PATH      = os.environ.get("SOURCE_PATH",SOURCE_FOLDER)
-LOG_PATH         = os.environ.get("LOG_PATH",LOG_FOLDER)
+SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
+SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
+LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
+try:
+    os.makedirs(SOURCE_PATH,exist_ok = True)
+    os.makedirs(SINK_PATH,  exist_ok = True)
+    os.makedirs(LOG_PATH,   exist_ok = True)
+except Exception as e:
+    print("MAKE_FOLDER_ERROR",e)
+
 LOGGER_NAME      = os.environ.get("LOGGER_NAME","rory-client-0")
 MAX_ITERATIONS   = int(os.environ.get("MAX_ITERATIONS",10))
 TESTING          = bool(int(os.environ.get("TESTING","0")))
@@ -89,13 +92,13 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
-METRICSLOGGER = create_logger(
-    name                   = NODE_ID_METRICS,
-    LOG_FILENAME           = NODE_ID_METRICS,
-    LOG_PATH               = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
-    file_handler_filter    = lambda record:  record.levelno == logging.INFO,
-)
+# METRICSLOGGER = create_logger(
+#     name                   = NODE_ID_METRICS,
+#     LOG_FILENAME           = NODE_ID_METRICS,
+#     LOG_PATH               = LOG_PATH,
+#     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
+#     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
+# )
 LIU  = Liu(
     round = LIU_ROUND
 )
@@ -115,7 +118,7 @@ def create_app(*args):
     with app.app_context():
         current_app.config["request_counter"] = 0
         current_app.config["logger"]          = LOGGER
-        current_app.config["metricslogger"]   = METRICSLOGGER
+        #current_app.config["metricslogger"]   = METRICSLOGGER
         current_app.config["manager"]         = MANAGER
         current_app.config["liu"]             = LIU
         current_app.config["dataowner"]       = DATAOWNER
@@ -138,4 +141,10 @@ def start_app(*args):
     app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
 
 if __name__ == '__main__':
-    start_app()
+    try:
+        start_app()
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+    finally:
+        STORAGE_CLIENT.logout()

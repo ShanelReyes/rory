@@ -1,0 +1,33 @@
+services:
+  rory-client-0:
+    image: shanelreyes/rory:dataowner
+    container_name: rory-dataowner-0
+    environment:
+      - NODE_ID =rory-dataowner-0
+      - CLIENT_PORT=3000
+      - CLIENT_INDEX=0
+      - CLIENT_ID=rory-client-0
+      - CLIENT_IP_ADDR=rory-client-0
+      - TASK_ID=${TASK_ID}
+      - ALGORITHM=${ALGORITHM}
+      - BATCH_ID=${BATCH_ID}
+      - TRACE_ID=${TRACE_ID}
+      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
+      - MICTLANX_CLIENT_ID=rory-dataowner-0
+      - MICTLANX_SECRET=t0p53cr3T#
+      - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
+      - MICTLANX_PROXY_PORT=8080
+      - MICTLANX_XOLO_IP_ADDR=mictlanx-xolo-0
+      - MICTLANX_XOLO_PORT=10000
+      - MICTLANX_REPLICA_MANAGER_IP_ADDR=mictlanx-rm-0
+      - MICTLANX_REPLICA_MANAGER_PORT=20001
+      - MICTLANX_API_VERSION=3
+      - MICTLANX_EXPIRES_IN=15d
+    volumes:
+      - /rory/rory-dataowner-0:/rory/rory-dataowner-0
+    networks:
+      - mictlanx
+
+networks:
+  mictlanx: 
+    external: true
