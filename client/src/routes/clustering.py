@@ -38,14 +38,18 @@ def skmeans():
         MAX_ITERATIONS        = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         requestId             = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
+        #
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
         
+
         encrypt_arrival_time  = time.time()
         outsourced            = dataowner.outsourcedData(  # The data is sent to the dataowner to start the encryption
             plaintext_matrix  = plaintextMatrix,
             algorithm         = algorithm
         )
         encrypt_end_time       = time.time() 
+
+    
         encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
         encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
             operation_type = "ENCRYPT",
@@ -73,12 +77,14 @@ def skmeans():
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = encryptedMatrixId,
-            ndarray = outsourced.encrypted_matrix
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
         ).unwrap() # The encrypted matrix is placed in the storage system
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = UDMId, 
-            ndarray = outsourced.UDM
+            ndarray = outsourced.UDM,
+            update  = True
         ).unwrap() # The udm array is placed in the storage system
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
@@ -185,7 +191,8 @@ def skmeans():
                 service_time   = inner_interaction_service_time,
                 m_value        = m,
                 k_value        = k,
-                worker_id      = workerId
+                worker_id      = workerId,
+                n_iterations   = iterations
             )
             logger.info(str(inner_interaction_logger_metrics))
         
@@ -200,7 +207,8 @@ def skmeans():
             service_time   = interaction_service_time,
             m_value        = m,
             k_value        = k,
-            worker_id      = workerId
+            worker_id      = workerId,
+            n_iterations   = iterations
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -214,7 +222,8 @@ def skmeans():
             service_time   = response_time,
             m_value        = m,
             k_value        = k,
-            worker_id      = workerId
+            worker_id      = workerId,
+            n_iterations   = iterations
         )
         logger.info(str(logger_metrics))
 
@@ -315,7 +324,7 @@ def kmeans():
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = workerResponse.headers.get("Service-Time",0) # Extract the time at which it started]]
         response_time        = endTime - arrivalTime # Get the service time
-
+        iterations           = int(workerResponse.headers.get("Iterations",0)) # Extract the current number of iterations
         logger_metrics = LoggerMetrics(
             operation_type = algorithm, 
             matrix_id      = plainTextMatrixId, 
@@ -323,7 +332,9 @@ def kmeans():
             arrival_time   = arrivalTime, 
             end_time       = endTime, 
             service_time   = response_time,
-            worker_id      = workerId)
+            worker_id      = workerId,
+            n_iterations   = iterations
+        )
         logger.info(str(logger_metrics))
 
         return Response(
@@ -369,8 +380,8 @@ def dbskmeans():
             plaintext_matrix = plaintextMatrix,
             algorithm        = algorithm
         )  
-        encrypt_end_time     = time.time() 
-        encrypt_service_time = encrypt_end_time - encrypt_arrival_time
+        encrypt_end_time       = time.time() 
+        encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
         encrypt_logger_metrics = LoggerMetrics(
             operation_type = "ENCRYPT",
             matrix_id      = plainTextMatrixId,
@@ -397,12 +408,14 @@ def dbskmeans():
         
         _ = STORAGE_CLIENT.put_ndarray(
             key     = encryptedMatrixId,
-            ndarray = outsourced.encrypted_matrix
+            ndarray = outsourced.encrypted_matrix,
+            update  = True
         ).unwrap() # The encrypted matrix is placed in the storage system
 
         _ = STORAGE_CLIENT.put_ndarray(
             key     = UDMId,
-            ndarray = outsourced.UDM
+            ndarray = outsourced.UDM,
+            update  = True
         ).unwrap() # The udm array is placed in the storage system
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
@@ -523,7 +536,8 @@ def dbskmeans():
                 service_time   = inner_interaction_service_time,
                 m_value        = m,
                 k_value        = k,
-                worker_id      = workerId
+                worker_id      = workerId,
+                n_iterations   = iterations
             )
             logger.info(str(inner_interaction_logger_metrics))
 
@@ -538,7 +552,8 @@ def dbskmeans():
             service_time   = interaction_service_time,
             m_value        = m,
             k_value        = k,
-            worker_id      = workerId
+            worker_id      = workerId,
+            n_iterations   = iterations
         )
         logger.info(str(interaction_logger_metrics))
 
@@ -552,7 +567,8 @@ def dbskmeans():
             service_time   = response_time,
             m_value        = m,
             k_value        = k,
-            worker_id      = workerId
+            worker_id      = workerId,
+            n_iterations   = iterations
         )
         logger.info(str(logger_metrics))
 

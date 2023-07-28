@@ -276,6 +276,7 @@ def kmeans():
         endTime                         = time.time()
         serviceTime                     = endTime - arrivalTime
         responseHeaders["Service-Time"] = str(serviceTime)
+        responseHeaders["Iterations"]   = int(result.n_iterations)
         
         logger_metrics = LoggerMetrics(
             operation_type = algorithm, 
