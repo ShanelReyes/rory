@@ -7,13 +7,23 @@ services:
     ports:
       - 10000:10000
     environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - BIN_NAME=xolo 
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
       - NODE_ID=mictlanx-xolo-0
       - NODE_PORT=10000
       - SERVER_IP_ADDRESS=0.0.0.0
       - IP_ADDRESS=mictlanx-xolo-0
-      - GOD_SECRET=te0imDRjzcA2lnRfwWzxu47NyVFq7xU/XWK/l7bPHPo=
+      - XOLO_SECRET=te0imDRjzcA2lnRfwWzxu47NyVFq7xU/XWK/l7bPHPo=
+
     volumes:
-      - /mictlanx/mictlanx-xolo-0:/mictlanx/mictlanx-xolo-0
+      - /mictlanx/mictlanx-xolo-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-xolo-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-xolo-0/data:/mictlanx/data
     networks:
       - mictlanx
 
@@ -24,15 +34,27 @@ services:
     ports:
       - 8080:8080
     environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - BIN_NAME=proxy
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
       - NODE_ID=mictlanx-proxy-0
       - NODE_PORT=8080
       - SERVER_IP_ADDRESS=0.0.0.0
       - IP_ADDRESS=mictlanx-proxy-0
+      - APPLICATION_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
+      - CLIENT_ID=mictlanx-proxy-0
+      - SECRET=t0p53cr3T#
       - XOLO_IP_ADDR=mictlanx-xolo-0
       - XOLO_PORT=10000
       - LOAD_BALANCING_ALGORITHM=ROUND_ROBIN
     volumes:
-      - /mictlanx/mictlanx-proxy-0:/mictlanx/mictlanx-proxy-0
+      - /mictlanx/mictlanx-proxy-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-proxy-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-proxy-0/data:/mictlanx/data
     networks:
       - mictlanx
     depends_on:
@@ -45,6 +67,13 @@ services:
     ports:
       - 20001:20001
     environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - BIN_NAME=replica_manager 
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
       - NODE_ID=mictlanx-rm-0
       - NODE_PORT=20001
       - IP_ADDRESS=mictlanx-rm-0
@@ -55,7 +84,9 @@ services:
       - PROXY_PORT=8080
       - LOAD_BALANCING_ALGORITHM=ROUND_ROBIN
     volumes:
-      - /mictlanx/mictlanx-rm-0:/mictlanx/mictlanx-rm-0
+      - /mictlanx/mictlanx-rm-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-rm-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-rm-0/data:/mictlanx/data
     networks:
       - mictlanx
     depends_on:
@@ -69,6 +100,13 @@ services:
     ports:
       - 7000:7000
     environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - BIN_NAME=storage_node 
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
       - NODE_ID=mictlanx-sn-0
       - NODE_PORT=7000
       - IP_ADDRESS=mictlanx-sn-0
@@ -77,11 +115,13 @@ services:
       - XOLO_PORT=10000
       - REPLICA_MANAGER_IP_ADDR=mictlanx-rm-0
       - REPLICA_MANAGER_PORT=20001
-      - NODE_DISK_CAPACITY=10000000000
+      - NODE_DISK_CAPACITY=1000000000000
       - NODE_MEMORY_CAPACITY=1000000000
       - LOAD_BALANCING_ALGORITHM=ROUND_ROBIN
     volumes:
-      - /mictlanx/mictlanx-sn-0:/mictlanx/mictlanx-sn-0
+      - /mictlanx/mictlanx-sn-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-sn-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-sn-0/data:/mictlanx/data
     networks:
       - mictlanx
     depends_on:
@@ -95,6 +135,14 @@ services:
     ports:
       - 15000:15000
     environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - DOCKER_GID=1001
+      - BIN_NAME=summoner 
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
       - NODE_ID=mictlanx-summoner-0
       - NODE_PORT=15000
       - IP_ADDRESS=mictlanx-summoner-0
@@ -102,7 +150,9 @@ services:
       - XOLO_IP_ADDR=mictlanx-xolo-0
       - XOLO_PORT=10000
     volumes:
-      - /mictlanx/mictlanx-summoner-0:/mictlanx/mictlanx-summoner-0
+      - /mictlanx/mictlanx-summoner-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-summoner-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-summoner-0/data:/mictlanx/data
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mictlanx

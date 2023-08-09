@@ -58,7 +58,7 @@ services:
       - LIU_ROUND=1
       - TESTING=0
       - M=3
-      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
+      - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
       - MICTLANX_CLIENT_ID=rory-client-0
       - MICTLANX_SECRET=t0p53cr3T#
       - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
@@ -107,7 +107,7 @@ services:
       - MICTLANX_SUMMONER_PORT=15000
       - MICTLANX_SUMMONER_MODE=swarm
       - MICTLANX_SUMMONER_API_VERSION=2
-      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
+      - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
       - MICTLANX_CLIENT_ID=sreyes
       - MICTLANX_SECRET=t0p53cr3T#
       - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0

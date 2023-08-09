@@ -13,7 +13,7 @@ services:
       - BATCH_ID=${BATCH_ID}
       - TRACE_ID=${TRACE_ID}
       - EXPERIMENT_ITERATION=${EXPERIMENT_ITERATION}
-      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
+      - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
       - MICTLANX_CLIENT_ID=rory-dataowner-0
       - MICTLANX_SECRET=t0p53cr3T#
       - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0

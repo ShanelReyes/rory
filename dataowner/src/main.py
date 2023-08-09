@@ -14,6 +14,9 @@ from rory.core.logger.Logger import create_logger
 from option import Some
 import numpy.typing as npt
 from dotenv import load_dotenv
+from retry.api import retry_call
+from typing import Dict
+
 load_dotenv()
 
 NODE_ID              = os.environ.get("NODE_ID","rory-dataowner-0") 
@@ -90,7 +93,20 @@ def write_to_file(filename:str, lv:npt.NDArray):
         
     except Exception as e:
         LOGGER.error(str(e))
-                    
+
+
+
+def client_request(row:pd.Series,url:str,headers:Dict[str,str]):
+    try:
+        return requests.post(
+            url=url,
+            headers=headers
+        )
+    except Exception as e:
+        LOGGER.error("Error to process {} ".format(row["DATASET_ID"]))
+        raise e
+
+
 
 try:
     EXPERIMENT_ID     = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
@@ -112,12 +128,24 @@ try:
             }
             url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
             
-            _response = requests.post(
-                url    = url,
-                data   = None, 
-                headers= headers
+            # _response = requests.post(
+            #     url    = url,
+            #     data   = None, 
+            #     headers= headers
+            # )
+            _response = retry_call(
+                client_request,
+                fkwargs={
+                    "row":row,
+                    "url":url,
+                    "headers": headers
+                },
+                tries=100,
+                delay=1,
+                max_delay=3,
+                jitter=0.1
             )
-            #print("RESPONSE",_response)
+
             response = ClientResponse.fromResponse(_response)
             labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,iterat)
 
@@ -143,6 +171,7 @@ try:
                 n_iterations   = iterat,
             )
             LOGGER.info(str(logger_metrics))
+            time.sleep(row["INTERARRIVAL_TIME"])
 except Exception as e:
     print("ERROR",e)
 finally:
