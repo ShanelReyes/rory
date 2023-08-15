@@ -1,5 +1,5 @@
 services:
-  rory-client-0:
+  rory-dataowner-0:
     image: shanelreyes/rory:dataowner
     container_name: rory-dataowner-0
     environment:
@@ -13,6 +13,7 @@ services:
       - BATCH_ID=${BATCH_ID}
       - TRACE_ID=${TRACE_ID}
       - EXPERIMENT_ITERATION=${EXPERIMENT_ITERATION}
+      - MAX_THREADS=${MAX_THREADS}
       - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
       - MICTLANX_CLIENT_ID=rory-dataowner-0
       - MICTLANX_SECRET=t0p53cr3T#

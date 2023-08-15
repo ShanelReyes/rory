@@ -123,7 +123,7 @@ def started_completed():
     try:
       response = requests.post(
             "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT),
-            headers = {"Worker-Id":NODE_ID,"Worker-Port":str(HOST_PORT)}
+            headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)}
       )
       print("RESPONSE",response)
       response.raise_for_status()

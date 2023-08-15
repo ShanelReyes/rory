@@ -1,6 +1,5 @@
 FROM python:3.8-slim
 WORKDIR /app
-ARG BASE_PATH=/home/sreyes/rory
 RUN apt update
 RUN apt install -y git
 RUN apt install -y gcc

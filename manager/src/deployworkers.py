@@ -29,8 +29,8 @@ def deploy_nodes(
         init_port:int = 3000,
 ):
     
-    swarm_nodes = list(map(str, range(3,10)))
-
+    # swarm_nodes = list(map(str, range(3,10)))
+    swarm_nodes = ["0","2","3","9"]
     auth_result = xolo.auth(
         payload = AuthTokenPayload(
             app_id     = MICTLANX_APP_ID, 
@@ -60,10 +60,7 @@ def deploy_nodes(
             CONTAINER_SOURCE_PATH = "{}/source".format(WORKER_BASE_PATH)
             CONTAINER_SINK_PATH = "{}/sink".format(WORKER_BASE_PATH)
             CONTAINER_LOG_PATH = "{}/log".format(WORKER_BASE_PATH)
-            # CONTAINER_BASE_PATH = "{}/{}".format(CONTAINER_BASE_PATH,container_id) # /rory/<container_id>/
-            # LOG_PATH      = "{}/log".format(WORKER_PATH)
-            # SINK_PATH     = "{}/sink".format(WORKER_PATH)
-            # SOURCE_PATH   = "{}/source".format(WORKER_PATH)
+          
             selected_node = swarm_nodes[i % N]
             payload     = SummonContainerPayload(
                 image         = DOCKER_IMAGE, 
@@ -78,6 +75,7 @@ def deploy_nodes(
                     )
                 ],
                 envs={
+                    "NODE_INDEX":str(i),
                     "NODE_IP_ADDR":container_id,
                     "NODE_PORT":str(init_port),
                     "RORY_MANAGER_IP_ADDR":NODE_ID,
@@ -135,6 +133,7 @@ def deploy_nodes(
 
                 print("HOST_LOG_PATH",HOST_LOG_PATH)
                 print("CONTAINER_LOG_PATH",CONTAINER_LOG_PATH)
+                print("_"*25)
             else:
                 error = response.unwrap_err()
                 print("Summoner error {}".format(error))

@@ -80,6 +80,7 @@ services:
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink
       - LOG_PATH=/rory/log
+      - WORKER_BASE_PATH=/rory
     volumes:
       - /rory/rory-manager-0/source:/rory/source
       - /rory/rory-manager-0/sink:/rory/sink

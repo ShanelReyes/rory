@@ -16,6 +16,7 @@ import numpy.typing as npt
 from dotenv import load_dotenv
 from retry.api import retry_call
 from typing import Dict
+from concurrent.futures import ThreadPoolExecutor,wait,ALL_COMPLETED
 
 load_dotenv()
 
@@ -106,6 +107,51 @@ def client_request(row:pd.Series,url:str,headers:Dict[str,str]):
         LOGGER.error("Error to process {} ".format(row["DATASET_ID"]))
         raise e
 
+def run_experiment(row,experiment_iteration):
+        arrivalTime       = time.time()
+        plainTextMatrixId = str(row["DATASET_ID"])
+        LOGGER.debug("INIT_EXPERIMENT {} {}".format(plainTextMatrixId,experiment_iteration))
+        headers = {
+            "Plaintext-Matrix-Id": plainTextMatrixId,
+            "K": str(row["K"]),
+            "M": str(row["M"]),
+            "Threshold": str(row["THRESHOLD"]),
+            "Extension": DATASET_EXTENSION,
+            "Client-Id": CLIENT_ID,
+            "Max-Iterations": str(row["MAX_ITERATIONS"])
+        }
+        url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+
+        _response = retry_call(
+            client_request,
+            fkwargs={
+                "row":row,
+                "url":url,
+                "headers": headers
+            },
+            tries=100,
+            delay=1,
+            max_delay=3,
+            jitter=0.1
+        )
+
+        response = ClientResponse.fromResponse(_response)
+        labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,experiment_iteration)
+
+        write_to_file(labelVectorId,response.labelVector)
+        endTime       = time.time() # Get the time when it ends
+        response_time = endTime - arrivalTime 
+
+        logger_metrics = LoggerMetrics(
+            operation_type = ALGORITHM,
+            matrix_id      = plainTextMatrixId,
+            algorithm      = ALGORITHM,
+            arrival_time   = arrivalTime, 
+            end_time       = endTime, 
+            service_time   = response_time,
+            n_iterations   = experiment_iteration,
+        )
+        LOGGER.info(str(logger_metrics))
 
 
 try:
@@ -113,65 +159,22 @@ try:
     DATASET_EXTENSION = "csv"
     TRACE_PATH        = os.environ.get("TRACE_PATH","{}/{}.{}".format(SOURCE_PATH,TRACE_ID,DATASET_EXTENSION))
     trace_df          = pd.read_csv(TRACE_PATH)
-    for index,row in trace_df.iterrows():
-        for iterat in range(EXPERIMENT_ITERATION):
-            arrivalTime       = time.time()
-            plainTextMatrixId = str(row["DATASET_ID"])
-            headers = {
-                "Plaintext-Matrix-Id": plainTextMatrixId,
-                "K": str(row["K"]),
-                "M": str(row["M"]),
-                "Threshold": str(row["THRESHOLD"]),
-                "Extension": DATASET_EXTENSION,
-                "Client-Id": CLIENT_ID,
-                "Max-Iterations": str(row["MAX_ITERATIONS"])
-            }
-            url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+    MAX_THREADS       = int(os.environ.get("MAX_THREADS",1))
+
+    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+        for index,row in trace_df.iterrows():
+            start_time = time.time()
+            futures =[]
+            for experiment_iteration in range(EXPERIMENT_ITERATION):
+                fut = executor.submit(run_experiment,row,experiment_iteration)
+                futures.append(fut)
+                time.sleep(row["INTERARRIVAL_TIME"])
             
-            # _response = requests.post(
-            #     url    = url,
-            #     data   = None, 
-            #     headers= headers
-            # )
-            _response = retry_call(
-                client_request,
-                fkwargs={
-                    "row":row,
-                    "url":url,
-                    "headers": headers
-                },
-                tries=100,
-                delay=1,
-                max_delay=3,
-                jitter=0.1
-            )
+            wait(futures,None,ALL_COMPLETED )
+            experiment_time = time.time() - start_time
+            LOGGER.debug("{},{},{}".format(row["DATASET_ID"], EXPERIMENT_ITERATION,experiment_time))
+            print("_"*50)
 
-            response = ClientResponse.fromResponse(_response)
-            labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,iterat)
-
-            write_to_file(labelVectorId,response.labelVector)
-            # _ = np.save()
-            # _ = STORAGE_CLIENT.put_ndarray(
-            #         key     = labelVectorId,
-            #         ndarray = response.labelVector,
-            #         update  = True
-            # ).unwrap()
-            #print(response.labelVector)
-            endTime       = time.time() # Get the time when it ends
-            # service_time  = response.headers.get("Service-Time",0) 
-            response_time = endTime - arrivalTime 
-
-            logger_metrics = LoggerMetrics(
-                operation_type = ALGORITHM,
-                matrix_id      = plainTextMatrixId,
-                algorithm      = ALGORITHM,
-                arrival_time   = arrivalTime, 
-                end_time       = endTime, 
-                service_time   = response_time,
-                n_iterations   = iterat,
-            )
-            LOGGER.info(str(logger_metrics))
-            time.sleep(row["INTERARRIVAL_TIME"])
 except Exception as e:
     print("ERROR",e)
 finally:
