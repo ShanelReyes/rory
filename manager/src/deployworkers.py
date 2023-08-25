@@ -30,7 +30,7 @@ def deploy_nodes(
 ):
     
     # swarm_nodes = list(map(str, range(3,10)))
-    swarm_nodes = ["0","2","3","9"]
+    swarm_nodes = ["2","3","4","9"]
     auth_result = xolo.auth(
         payload = AuthTokenPayload(
             app_id     = MICTLANX_APP_ID, 

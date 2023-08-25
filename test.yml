@@ -15,12 +15,13 @@ services:
       - LOGGER_NAME=rory-client-0
       - MAX_ITERATIONS=10
       - MAX_WORKERS=1
+      - MAX_THREADS=3
       - DEBUG =0
       - RELOAD=0
       - LIU_ROUND=1
       - TESTING=0
       - M=3
-      - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
+      - MICTLANX_APP_ID=rory_IUOq9pJAuIWLYinltZEiTivwEHKiVYWz
       - MICTLANX_CLIENT_ID=rory-client-0
       - MICTLANX_SECRET=t0p53cr3T#
       - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
@@ -31,6 +32,7 @@ services:
       - MICTLANX_REPLICA_MANAGER_PORT=20001
       - MICTLANX_API_VERSION=3
       - MICTLANX_EXPIRES_IN=15d
+      - CUSTOM_PYTHON_PATH=/app
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink
       - LOG_PATH=/rory/log
@@ -60,12 +62,13 @@ services:
       - RELOAD=0
       - TESTING=0
       - MAX_RETRIES=10
+      - MAX_THREADS=1
       - LOAD_BALANCING=0
       - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0
       - MICTLANX_SUMMONER_PORT=15000
       - MICTLANX_SUMMONER_MODE=docker
-      - MICTLANX_SUMMONER_API_VERSION=2
-      - MICTLANX_APP_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
+      - MICTLANX_SUMMONER_API_VERSION=3
+      - MICTLANX_APP_ID=rory_IUOq9pJAuIWLYinltZEiTivwEHKiVYWz
       - MICTLANX_CLIENT_ID=sreyes
       - MICTLANX_SECRET=t0p53cr3T#
       - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
@@ -76,6 +79,7 @@ services:
       - MICTLANX_REPLICA_MANAGER_PORT=20001
       - MICTLANX_API_VERSION=3
       - MICTLANX_EXPIRES_IN=15d
+      - CUSTOM_PYTHON_PATH=/app
       - LOGGER_NAME=rory-manager-0
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink

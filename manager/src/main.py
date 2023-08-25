@@ -1,4 +1,4 @@
-import os, logging, sys
+import os, logging, sys,coloredlogs
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
@@ -12,7 +12,9 @@ from mictlanx.v3.interfaces.payloads import SummonContainerPayload,ExposedPort
 from option import NONE,Some
 from rory.core.logger.Logger import create_logger
 from dotenv import load_dotenv
+app = Flask(__name__)
 load_dotenv()
+
 
 NODE_ID           = os.environ.get("NODE_ID","rory-manager-0")
 IP_ADDR           = os.environ.get("NODE_IP_ADDR",NODE_ID)
@@ -110,13 +112,15 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
 )
+coloredlogs.install(level='DEBUG',logger=LOGGER)
+
 
 """
 Description:
     Function that create a context using Flask. Establishes the connection between client, manager and worker. 
 """
 def create_app(*args):
-    app = Flask(__name__)
+   
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     app.register_blueprint(workers) # node replication
     balancers = [
@@ -151,12 +155,13 @@ def create_app(*args):
         current_app.config["MICTLANX_CLIENT_ID"]               = MICTLANX_CLIENT_ID
         current_app.config["DOCKER_NETWORK_ID"]                = DOCKER_NETWORK_ID
 
-    return app
+    # return app
 
-if __name__ == '__main__':
+# print("__NAME__",__name__)
+if __name__ == 'main' or __name__ == "__main__":
     try:
-        app = create_app()
-        app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+        create_app()
+        # app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
     except Exception as e:
         print(e)
         sys.exit(1)

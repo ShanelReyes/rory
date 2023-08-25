@@ -22,4 +22,5 @@ RUN pip install -r requirements.txt
 # USER sreyes
 
 COPY ./src .
-CMD [ "python","-u","/app/main.py"]
+#CMD [ "python","-u","/app/main.py"]
+CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]

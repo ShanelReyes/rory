@@ -13,6 +13,14 @@ from rory.core.interfaces.logger_metrics import LoggerMetrics
 # 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
+def get_matrix_or_error(client:Client,key:str, cache:bool=False,force:bool=True):
+    x = client.get_ndarray( key = key,cache=cache,force=force)
+    if x.is_err:
+        e = x.unwrap_err()
+        print("GET_ERROR",e)
+        raise e
+    return x.unwrap()
+
 """
 Description:
     First part of the skmeans process. 
@@ -33,21 +41,30 @@ def skmeans_1(requestHeaders) -> Response:
     UDMId                  = "{}-UDM".format(plainTextMatrixID) 
     encryptedShiftMatrixId = "{}-EncryptedShiftMatrix".format(plainTextMatrixID) #Build the id of Encrypted Shift Matrix
     skmeans                = SKMeans()
-    responseHeaders        = {} 
-    logger.debug("headers:{}".format(requestHeaders))
+    responseHeaders        = {}
+    # logger.debug("headers:{}".format(requestHeaders))
+    logger.debug("Worker starts SKMEANS_1 process -> {}".format(plainTextMatrixID))
+
     try:
         responseHeaders["Start-Time"] = str(arrivalTime)
-        encryptedMatrix_response      = STORAGE_CLIENT.get_ndarray(
-            key   = encryptedMatrixId,
-            cache = True,
-            force = isStartStatus
-        ).unwrap() # Extract the encrypted dataset
+        encryptedMatrix_response      = get_matrix_or_error(client=STORAGE_CLIENT, key=encryptedMatrixId)
+        # print(encryptedMatrix_response.value)
         encryptedMatrix                           = encryptedMatrix_response.value
+        print("MATRIX_TYPE",type(encryptedMatrix))
         responseHeaders["Encrypted-Matrix-Dtype"] = encryptedMatrix_response.metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
         responseHeaders["Encrypted-Matrix-Shape"] = encryptedMatrix_response.metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
-        udm_matrix_response = STORAGE_CLIENT.get_ndarray(
-            key = UDMId
-        ).unwrap() #Gets the UDM of the storage system
+        udm_matrix_response =get_matrix_or_error(client=STORAGE_CLIENT,key=UDMId)
+        # STORAGE_CLIENT.get_ndarray(
+        #     key = UDMId
+        # ) #Gets the UDM of the storage system
+        # udm_matrix_respons
+        # print("GET_UDM",udm_matrix_response_)
+        # if udm_matrix_response_.is_err:
+        #     e = udm_matrix_response_.unwrap_err()
+        #     return Response(None, status = 500, headers = {"Error-Message":str(e)})
+        # else:
+        #     udm_matrix_response = udm_matrix_response_.unwrap()
+
         UDMMatrix                           = udm_matrix_response.value
         #logger.debug("get_UDM_1:{}".format(UDMMatrix))
         responseHeaders["Udm-Matrix-Dtype"] = udm_matrix_response.metadata.tags.get("dtype",UDMMatrix.dtype) # Extract the type
@@ -58,9 +75,11 @@ def skmeans_1(requestHeaders) -> Response:
         if(isStartStatus): #if the status is start
             __Cent_j = None #There is no Cent_j
         else: 
-            Cent_j_response = STORAGE_CLIENT.get_ndarray(
-                key = Cent_iId
-            ).unwrap() #Cent_J is extracted from the storage system
+            Cent_j_response = get_matrix_or_error(client=STORAGE_CLIENT,key=Cent_iId)
+            # STORAGE_CLIENT.get_ndarray(
+            #     key = Cent_iId
+            # )
+            # .unwrap() #Cent_J is extracted from the storage system
             __Cent_j        = Cent_j_response.value
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS
         S1,Cent_i,Cent_j,label_vector = skmeans.run1( # The first part of the skmeans is done
@@ -71,21 +90,24 @@ def skmeans_1(requestHeaders) -> Response:
             UDM             = UDMMatrix,
             Cent_j          = __Cent_j
         )
-        _ = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+        x = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
             key     = Cent_iId, 
             ndarray = np.array(Cent_i),
             update  = True
-        ).unwrap() 
-        _ = STORAGE_CLIENT.put_ndarray( # Saving Cent_j to storage
+        )
+        print("PUT_CENT_I_RESULT",x)
+        y = STORAGE_CLIENT.put_ndarray( # Saving Cent_j to storage
             key     = Cent_jId, 
             ndarray = np.array(Cent_j),
             update  = True
-        ).unwrap() 
-        _ = STORAGE_CLIENT.put_ndarray( # Saving S1 matrix to storage
+        )
+        print("PUT_CENT_J",y)
+        z = STORAGE_CLIENT.put_ndarray( # Saving S1 matrix to storage
             key     = encryptedShiftMatrixId, 
             ndarray = np.array(S1),
             update  = True
-        ).unwrap() 
+        )
+        print("PUT_ENCRYPTED_SHIFT",z)
         
         endTime                                      = time.time()
         serviceTime                                  = endTime - arrivalTime
@@ -105,6 +127,7 @@ def skmeans_1(requestHeaders) -> Response:
             m_value        = m,
             n_iterations   = responseHeaders.get("Iterations",0)
         )
+
         logger.info(str(run1_logger_metrics))
                 
         return Response( #Returns the final response as a label vector + the headers
@@ -113,8 +136,17 @@ def skmeans_1(requestHeaders) -> Response:
             headers  = responseHeaders
         )
     except Exception as e:
-        logger.error( encryptedMatrixId+" "+str(e) )
-        return Response(None,status = 503,headers = {"Error-Message":str(e)} )
+        logger.error("WORKER_SKMEANS_1 "+encryptedMatrixId+" "+str(e))
+        return Response(
+            None,
+            status = 500,
+            headers = {"Error-Message":str(e)} 
+        )
+
+
+
+
+
 
 """
 Description:
@@ -134,33 +166,53 @@ def skmeans_2(requestHeaders):
     encryptedMatrixId     = requestHeaders["Encrypted-Matrix-Id"]
     plainTextMatrixID     = requestHeaders["Plaintext-Matrix-Id"]
     shiftMatrixId         = requestHeaders.get("Shift-Matrix-Id","{}-ShiftMatrix".format(plainTextMatrixID))
-    logger.debug("headers:{}".format(requestHeaders))
+    # logger.debug("headers:{}".format(requestHeaders))
     UDM_id                = "{}-UDM".format(plainTextMatrixID)
     Cent_iId              = "{}-Cent_i".format(plainTextMatrixID) #Build the id of Cent_i
     Cent_jId              = "{}-Cent_j".format(plainTextMatrixID) #Build the id of Cent_j
     iterations            = int(requestHeaders.get("Iterations",0))
     responseHeaders       = {}
     start_time            = requestHeaders.get("Start-Time","0.0")
+    logger.debug("Worker starts SKMEANS_2 process -> {}".format(plainTextMatrixID))
     try:
-        UDM_response = STORAGE_CLIENT.get_ndarray(
-            key = UDM_id
-        ).unwrap()
-        UDM                      = UDM_response.value
-        #logger.debug("get_UDM:{}".format(UDM))
+        UDM_response= get_matrix_or_error(client= STORAGE_CLIENT, key=UDM_id)
+        # STORAGE_CLIENT.get_ndarray(
+        #     key = UDM_id
+        # )
+        # if UDM_result.is_err:
+        #     return Response(None, status=500, headers={"Error-Message":"Something went wrong downloading UDM." })
+        # else:
+        #     UDM_response = UDM_result.unwrap()
 
-        Cent_i_response = STORAGE_CLIENT.get_ndarray(
-            key = Cent_iId
-        ).unwrap()
+        UDM                      = UDM_response.value
+
+        # Cent_i_result = STORAGE_CLIENT.get_ndarray(
+        #     key = Cent_iId
+        # ) 
+
+        # if Cent_i_result.is_err:
+        #     return Response(500, status=500, headers={"Error-Message":"Cent i could not be downloaded from MictlanX"})
+        # else:
+        #     Cent_i_response = Cent_i_result.unwrap()
+        Cent_i_response = get_matrix_or_error(client=STORAGE_CLIENT, key=Cent_iId)
         Cent_i                      = Cent_i_response.value
 
-        Cent_j_response = STORAGE_CLIENT.get_ndarray(
-            key = Cent_jId
-        ).unwrap()
+        # Cent_j_result = 
+        # STORAGE_CLIENT.get_ndarray(
+        #     key = Cent_jId
+        # )
+
+        # if Cent_j_result.is_err:
+        #     return Response(None, status = 500, headers={"Error-Message":"Cent_j"})
+        # else:
+        #     Cent_j_response = Cent_j_result.unwrap()
+        Cent_j_response = get_matrix_or_error(client=STORAGE_CLIENT, key=Cent_jId) 
         Cent_j                      = Cent_j_response.value
 
-        shiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(
-            key = shiftMatrixId
-        ).unwrap()
+        shiftMatrix_get_response = get_matrix_or_error(client=STORAGE_CLIENT, key=shiftMatrixId)
+        # STORAGE_CLIENT.get_ndarray(
+        #     key = shiftMatrixId
+        # ).unwrap()
         shiftMatrix              = shiftMatrix_get_response.value
 
         #isZero                   = Utils.verifyZero(shiftMatrix)
@@ -206,11 +258,12 @@ def skmeans_2(requestHeaders):
             )
             UDM_array = np.array(_UDM)
             #logger.debug("put_UDM:{}".format(UDM_array))
-            _ = STORAGE_CLIENT.put_ndarray(
+            x = STORAGE_CLIENT.put_ndarray(
                 key     = UDM_id, 
                 ndarray = UDM_array,
                 update  = True
-            ).unwrap() # UDM is extracted from the storage system
+            ) # UDM is extracted from the storage system
+            print("PUT_UDM",x)
             endTime2                        = time.time()
             serviceTime2                    = endTime2 - arrivalTime  #Service time is calculated
             responseHeaders["End-Time"]     = str(endTime2)

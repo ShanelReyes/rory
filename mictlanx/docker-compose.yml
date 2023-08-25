@@ -45,7 +45,7 @@ services:
       - NODE_PORT=8080
       - SERVER_IP_ADDRESS=0.0.0.0
       - IP_ADDRESS=mictlanx-proxy-0
-      - APPLICATION_ID=rory_7mJLTl6Ar0R4uV0Lw33tFNnKBOYapz9V
+      - APPLICATION_ID=rory_IUOq9pJAuIWLYinltZEiTivwEHKiVYWz
       - CLIENT_ID=mictlanx-proxy-0
       - SECRET=t0p53cr3T#
       - XOLO_IP_ADDR=mictlanx-xolo-0

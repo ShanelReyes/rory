@@ -12,6 +12,7 @@ services:
       - ALGORITHM=${ALGORITHM}
       - BATCH_ID=${BATCH_ID}
       - TRACE_ID=${TRACE_ID}
+      - MAX_THREADS=${MAX_THREADS}
       - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
       - MICTLANX_CLIENT_ID=rory-dataowner-0
       - MICTLANX_SECRET=t0p53cr3T#
@@ -23,6 +24,7 @@ services:
       - MICTLANX_REPLICA_MANAGER_PORT=20001
       - MICTLANX_API_VERSION=3
       - MICTLANX_EXPIRES_IN=15d
+      - CUSTOM_PYTHON_PATH=/app
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink
       - LOG_PATH=/rory/log

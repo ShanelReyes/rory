@@ -15,6 +15,16 @@ from rory.core.validation_index.metrics import internal_validation_indexes,exter
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 from mictlanx.v3.client import Client 
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
+import gc
+
+def get_matrix_or_error(client:Client,key:str):
+    x = client.get_ndarray( key = key)
+    if x.is_err:
+        e = x.unwrap_err()
+        print("GET_ERROR",e)
+        raise e
+    return x.unwrap()
+
 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 @clustering.route("/skmeans",methods = ["POST"])
@@ -31,14 +41,18 @@ def skmeans():
         algorithm             = Constants.ClusteringAlgorithms.SKMEANS
         s                     = Session()
         requestHeaders        = request.headers #Headers for the request
-        plainTextMatrixId     = requestHeaders.get("Plaintext-Matrix-Id","matrix-0")
+        plainTextMatrixId       = requestHeaders.get("Plaintext-Matrix-Id","matrix-0")
+        plainTextMatrixFilename = requestHeaders.get("Plaintext-Matrix-Filename","matrix-0")
+
         extension             = requestHeaders.get("Extension","csv")
         m                     = requestHeaders.get("M","3")
         k                     = requestHeaders.get("K")
+        experiment_iteration  = requestHeaders.get("Experiment-Iteration","0")
         MAX_ITERATIONS        = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         requestId             = "request-{}".format(plainTextMatrixId)
-        plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixId, extension)
+        plaintextMatrix_path  = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixFilename, extension)
         #
+        logger.debug("Client starts to process {} at {}".format(plainTextMatrixId,arrivalTime))
         plaintextMatrix       = pd.read_csv(plaintextMatrix_path, header=None).values
         
 
@@ -48,7 +62,9 @@ def skmeans():
             algorithm         = algorithm
         )
         encrypt_end_time       = time.time() 
-
+        del plaintextMatrix
+        
+        # gc.collect()
     
         encrypt_service_time   = encrypt_end_time - encrypt_arrival_time
         encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
@@ -75,18 +91,24 @@ def skmeans():
         encryptedMatrixId = "encrypted-{}".format(plainTextMatrixId) # The id of the encrypted matrix is built
         UDMId             = "{}-UDM".format(plainTextMatrixId) # The iudm id is built
 
-        _ = STORAGE_CLIENT.put_ndarray(
+        encrypted_matrix_result = STORAGE_CLIENT.put_ndarray(
             key     = encryptedMatrixId,
             ndarray = outsourced.encrypted_matrix,
             update  = True
-        ).unwrap() # The encrypted matrix is placed in the storage system
-
-        _ = STORAGE_CLIENT.put_ndarray(
+        )  # The encrypted matrix is placed in the storage system
+        print("ENCRYPTED_MATRIX_PUT_RESULT",encrypted_matrix_result)
+        udm_result = STORAGE_CLIENT.put_ndarray(
             key     = UDMId, 
             ndarray = outsourced.UDM,
             update  = True
-        ).unwrap() # The udm array is placed in the storage system
+        ) # The udm array is placed in the storage system
+        print("UDM_PUT_RESULT",udm_result)
+        
+        if encrypted_matrix_result.is_err or udm_result.is_err:
+            return Response(None, status= 500, headers= {"Error-Message":"Something went wrong with D1 or UDM"})
 
+        del outsourced
+        
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
         get_worker_start_time = time.time()
@@ -125,6 +147,7 @@ def skmeans():
         status                   = Constants.ClusteringStatus.START #Set the status to start
         workerResponse           = None 
         interaction_arrival_time = time.time()
+        # gc.collect()
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             inner_interaction_arrival_time = time.time()
             run1_headers = {
@@ -144,9 +167,11 @@ def skmeans():
             stringWorkerResponse              = workerResponse.content.decode("utf-8") #Response from worker
             jsonWorkerResponse                = json.loads(stringWorkerResponse) #pass to json
             encryptedShiftMatrixId            = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
-            encryptedShiftMatrix_get_response = STORAGE_CLIENT.get_ndarray(
-                key = encryptedShiftMatrixId
-            ).unwrap()
+            encryptedShiftMatrix_get_response = get_matrix_or_error(client=STORAGE_CLIENT, key=encryptedShiftMatrixId)
+            # STORAGE_CLIENT.get_ndarray(
+            #     key = encryptedShiftMatrixId
+            # )
+
             encryptedShiftMatrix              = encryptedShiftMatrix_get_response.value
             shiftMatrix_chipher_schema_res    = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
@@ -156,12 +181,12 @@ def skmeans():
             shiftMatrix   = shiftMatrix_chipher_schema_res.matrix
             shiftMatrixId = "{}-ShiftMatrix".format(plainTextMatrixId) # The id of the Shift matrix is formed
             #logger.debug("shiftmatrix:{}".format(shiftMatrix))
-            _ = STORAGE_CLIENT.put_ndarray(
+            x = STORAGE_CLIENT.put_ndarray(
                 key     = shiftMatrixId,
                 ndarray = shiftMatrix,
                 update  = True
-            ).unwrap() #Shift matrix is saved to the storage system
-
+            ) #Shift matrix is saved to the storage system
+            print("PUT_SHIFT",x )
             status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             run2_headers = {
                     "Step-Index"        : "2",
@@ -238,7 +263,8 @@ def skmeans():
             headers  = {}
         )
     except Exception as e:
-        logger.error(str(e))
+        # print("CLIENT_ERROR",e)
+        logger.error("CLIENT_ERROR "+str(e))
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
     
     

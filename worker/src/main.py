@@ -10,6 +10,7 @@ from mictlanx.v3.services.replica_manger import ReplicaManager
 from option import Some
 from dotenv import load_dotenv
 from retry.api import retry_call
+app = Flask(__name__)
 load_dotenv()
 
 NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
@@ -97,7 +98,7 @@ Description:
   Function that create a context using Flask. Establishes the connection between client, manager and worker. 
 """
 def create_app():
-    app = Flask(__name__)
+    
     # Register blueprints
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     with app.app_context():
@@ -110,7 +111,7 @@ def create_app():
         current_app.config["events"]          = {}
         current_app.config["LOG_PATH"]        = LOG_PATH
         current_app.config["STORAGE_CLIENT"]  = STORAGE_CLIENT
-    return app
+    # return app
 
 
 """
@@ -137,14 +138,14 @@ def started_completed():
   print("RESULT", result)
   LOGGER.debug("WORKER_STARTED_RESPONSE {}".format(result))
 
-if __name__ == '__main__':
+if __name__ == 'main' or __name__ == "__main__":
   try:
-    app = create_app()
+    create_app()
     t1 = Thread(target= started_completed, daemon= True, args = () )
     t1.start()
-    app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+    # app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
   except Exception as e:
     print(e)
+    # STORAGE_CLIENT.logout()
     sys.exit(1)
-  finally:
-    STORAGE_CLIENT.logout()
+  # finally:

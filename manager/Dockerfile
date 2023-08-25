@@ -13,4 +13,5 @@ ENV FLASK_ENV="production"
 COPY ./requirements.txt .
 RUN pip install -r requirements.txt
 COPY ./src .
-CMD [ "python","-u","/app/main.py"]
+# CMD [ "gunicorn","python","-u","/app/main.py"]
+CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]

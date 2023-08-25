@@ -1,3 +1,4 @@
+import coloredlogs
 import os
 import requests 
 import pandas as pd
@@ -62,6 +63,8 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
+coloredlogs.install(level='DEBUG')
+
 replica_manager = ReplicaManager(
     ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
     port        = MICTLANX_REPLICA_MANAGER_PORT, 
@@ -101,57 +104,69 @@ def client_request(row:pd.Series,url:str,headers:Dict[str,str]):
     try:
         return requests.post(
             url=url,
-            headers=headers
+            headers=headers,
+            timeout=1800
         )
     except Exception as e:
+        print(e)
         LOGGER.error("Error to process {} ".format(row["DATASET_ID"]))
         raise e
 
 def run_experiment(row,experiment_iteration):
-        arrivalTime       = time.time()
-        plainTextMatrixId = str(row["DATASET_ID"])
-        LOGGER.debug("INIT_EXPERIMENT {} {}".format(plainTextMatrixId,experiment_iteration))
-        headers = {
-            "Plaintext-Matrix-Id": plainTextMatrixId,
-            "K": str(row["K"]),
-            "M": str(row["M"]),
-            "Threshold": str(row["THRESHOLD"]),
-            "Extension": DATASET_EXTENSION,
-            "Client-Id": CLIENT_ID,
-            "Max-Iterations": str(row["MAX_ITERATIONS"])
-        }
-        url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+        try:
+            arrivalTime       = time.time()
+            plainTextMatrixId = str(row["DATASET_ID"])
+            LOGGER.debug("INIT_EXPERIMENT {} {}".format(plainTextMatrixId,experiment_iteration))
+            headers = {
+                "Plaintext-Matrix-Id": "{}-{}".format(plainTextMatrixId,experiment_iteration),
+                "Plaintext-Matrix-Filename":plainTextMatrixId,
+                "K": str(row["K"]),
+                "M": str(row["M"]),
+                "Threshold": str(row["THRESHOLD"]),
+                "Extension": DATASET_EXTENSION,
+                "Client-Id": CLIENT_ID,
+                "Max-Iterations": str(row["MAX_ITERATIONS"]),
+                "Experiment-Iteration": str(experiment_iteration)
+            }
+            url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
 
-        _response = retry_call(
-            client_request,
-            fkwargs={
-                "row":row,
-                "url":url,
-                "headers": headers
-            },
-            tries=100,
-            delay=1,
-            max_delay=3,
-            jitter=0.1
-        )
+            _response = retry_call(
+                client_request,
+                fkwargs={
+                    "row":row,
+                    "url":url,
+                    "headers": headers
+                },
+                tries=5,
+                delay=1,
+                max_delay=3,
+                jitter=0.1
+            )
 
-        response = ClientResponse.fromResponse(_response)
-        labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,experiment_iteration)
+            response = ClientResponse.fromResponse(_response)
+            labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,experiment_iteration)
 
-        write_to_file(labelVectorId,response.labelVector)
-        endTime       = time.time() # Get the time when it ends
-        response_time = endTime - arrivalTime 
+            write_to_file(labelVectorId,response.labelVector)
+            endTime       = time.time() # Get the time when it ends
+            response_time = endTime - arrivalTime 
 
-        logger_metrics = LoggerMetrics(
-            operation_type = ALGORITHM,
-            matrix_id      = plainTextMatrixId,
-            algorithm      = ALGORITHM,
-            arrival_time   = arrivalTime, 
-            end_time       = endTime, 
-            service_time   = response_time,
-            n_iterations   = experiment_iteration,
-        )
-        LOGGER.info(str(logger_metrics))
+            logger_metrics = LoggerMetrics(
+                operation_type = ALGORITHM,
+                matrix_id      = plainTextMatrixId,
+                algorithm      = ALGORITHM,
+                arrival_time   = arrivalTime, 
+                end_time       = endTime, 
+                service_time   = response_time,
+                n_iterations   = experiment_iteration,
+            )
+            LOGGER.info(str(logger_metrics))
+            return row["DATASET_ID"]
+        except Exception as e:
+            # print("DATAOWNER_ERROR",e)
+            LOGGER.error("DATAOWNER_ERROR "+str(e))
+            print(e)
+            return row["DATASET_ID"]
+            # return None
 
 
 try:
@@ -164,18 +179,20 @@ try:
     with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
         for index,row in trace_df.iterrows():
             start_time = time.time()
-            futures =[]
+            futures    = []
+
             for experiment_iteration in range(EXPERIMENT_ITERATION):
                 fut = executor.submit(run_experiment,row,experiment_iteration)
                 futures.append(fut)
                 time.sleep(row["INTERARRIVAL_TIME"])
-            
-            wait(futures,None,ALL_COMPLETED )
+            LOGGER.debug("{} was completed".format(row["DATASET_ID"])) 
+            completed_futures, not_completed = wait(futures,None,ALL_COMPLETED )
+            print("NOT_COMPLETED_TASKS",not_completed)
             experiment_time = time.time() - start_time
             LOGGER.debug("{},{},{}".format(row["DATASET_ID"], EXPERIMENT_ITERATION,experiment_time))
             print("_"*50)
 
 except Exception as e:
-    print("ERROR",e)
+    print("DATAONWE_ERROR",e)
 finally:
     STORAGE_CLIENT.logout()

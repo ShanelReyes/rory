@@ -11,6 +11,7 @@ from mictlanx.v3.services.proxy import Proxy
 from mictlanx.v3.services.replica_manger import ReplicaManager
 from option import Some
 from dotenv import load_dotenv
+app = Flask(__name__)
 load_dotenv()
 
 NODE_ID              = os.environ.get("NODE_ID","rory-client-0")
@@ -92,6 +93,7 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
+# print(STORAGE_CLIENT.credentials.application_id,STORAGE_CLIENT.credentials.client_id,STORAGE_CLIENT.credentials.secret,STORAGE_CLIENT.credentials.authorization,)
 # METRICSLOGGER = create_logger(
 #     name                   = NODE_ID_METRICS,
 #     LOG_FILENAME           = NODE_ID_METRICS,
@@ -112,7 +114,7 @@ Description:
     Function that create a context using Flask. Establishes the connection between client, manager and worker. 
 """
 def create_app(*args):
-    app = Flask(__name__)
+    
     # Register blueprints
     app.register_blueprint(clustering)
     with app.app_context():
@@ -130,21 +132,25 @@ def create_app(*args):
         current_app.config["STORAGE_CLIENT"]  = STORAGE_CLIENT
         # print(">>>>>>>>>>TESTING",TESTING)
         current_app.config["TESTING"]         = TESTING
-    return app
+    # return app
 
 """
 Description:
     Initialize create_app
 """
-def start_app(*args):
-    app = create_app(*args)
-    app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
+# def start_app(*args):
+   
+    # app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
 
-if __name__ == '__main__':
+#if __name__ == '__main__':
+if __name__ == 'main' or __name__ == "__main__":
     try:
-        start_app()
+        # start_app()
+        create_app()
     except Exception as e:
         print(e)
-        sys.exit(1)
-    finally:
         STORAGE_CLIENT.logout()
+        sys.exit(1)
+
+    # finally:
+        # 
