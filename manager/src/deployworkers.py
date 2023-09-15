@@ -8,6 +8,7 @@ def deploy_nodes(
         summoner:Summoner,
         NODE_ID:str,
         PORT:str,
+        WORKER_MAX_THREADS:int,
         DOCKER_IMAGE:str, 
         DOCKER_NETWORK_ID:str,
         MICTLANX_APP_ID:str ,
@@ -27,26 +28,33 @@ def deploy_nodes(
         MICTLANX_EXPIRES_IN:Option[str] = Some("15d"),
         NODE_PREFIX:str="rory-worker-",
         init_port:int = 3000,
+        XOLO_ENABLE:bool = False,
+        MICTLANX_PEERS:str = "mictlanx-peer-0:localhost:7000"
 ):
     
     # swarm_nodes = list(map(str, range(3,10)))
     swarm_nodes = ["2","3","4","9"]
-    auth_result = xolo.auth(
-        payload = AuthTokenPayload(
-            app_id     = MICTLANX_APP_ID, 
-            client_id  = MICTLANX_CLIENT_ID, 
-            secret     = MICTLANX_SECRET,
-            expires_in = Some(MICTLANX_EXPIRES_IN)
-        )
-    )
-    
 
-    if(auth_result.is_err):
-        raise auth_result.unwrap_err()
-    auth_response = auth_result.unwrap()
+    if XOLO_ENABLE:
+        auth_result = xolo.auth(
+            payload = AuthTokenPayload(
+                app_id     = MICTLANX_APP_ID, 
+                client_id  = MICTLANX_CLIENT_ID, 
+                secret     = MICTLANX_SECRET,
+                expires_in = Some(MICTLANX_EXPIRES_IN)
+            )
+        )
+        if(auth_result.is_err):
+            raise auth_result.unwrap_err()
+        auth_response = auth_result.unwrap()
+        authorization=Some(auth_response.token)
+    else:
+        authorization = NONE
+
 
     try:
         WORKER_BASE_PATH = os.environ.get("WORKER_BASE_PATH","/rory")
+        print("WORKER_BASE_PATH", WORKER_BASE_PATH)
         # SWARM_CLUSTER_NODES = int(os.environ.get("SWARM_CLUSTER_NODES",10))
         N = len(swarm_nodes)
         for i in range(init_workers): 
@@ -60,7 +68,20 @@ def deploy_nodes(
             CONTAINER_SOURCE_PATH = "{}/source".format(WORKER_BASE_PATH)
             CONTAINER_SINK_PATH = "{}/sink".format(WORKER_BASE_PATH)
             CONTAINER_LOG_PATH = "{}/log".format(WORKER_BASE_PATH)
-          
+
+            print("HOST_LOG",HOST_LOG_PATH)
+            print("DOCERK_LOG",CONTAINER_LOG_PATH)
+            print("MICTLANX_PEERS",MICTLANX_PEERS)
+            mounts = {
+                    HOST_SOURCE_PATH:CONTAINER_SOURCE_PATH,
+                    HOST_SINK_PATH: CONTAINER_SINK_PATH,
+                    HOST_LOG_PATH:CONTAINER_LOG_PATH, #/rory/rory-worker-0/log -> /rory/log/
+
+            }
+            #/rory/rory-worker-0/log -> /rory/log/   (Binding)
+            # LOG_PATH = /rory/rory-worker-0/log 
+            print("MOUNTS", mounts)
+
             selected_node = swarm_nodes[i % N]
             payload     = SummonContainerPayload(
                 image         = DOCKER_IMAGE, 
@@ -89,6 +110,7 @@ def deploy_nodes(
                     "MAX_ITERATIONS":"10",
                     "TESTING":"0",
                     "M":"3",
+                    "MAX_THREADS":str(WORKER_MAX_THREADS),
                     "MICTLANX_APP_ID":MICTLANX_APP_ID, 
                     "MICTLANX_CLIENT_ID":container_id,
                     "MICTLANX_SECRET":MICTLANX_SECRET,
@@ -99,15 +121,12 @@ def deploy_nodes(
                     "MICTLANX_REPLICA_MANAGER_IP_ADDR":MICTLANX_REPLICA_MANAGER_IP_ADDR,
                     "MICTLANX_REPLICA_MANAGER_PORT":str(MICTLANX_REPLICA_MANAGER_PORT),
                     "MICTLANX_API_VERSION":str(MICTLANX_API_VERSION),
-                    "MICTLANX_EXPIRES_IN":MICTLANX_EXPIRES_IN
+                    "MICTLANX_EXPIRES_IN":MICTLANX_EXPIRES_IN,
+                    "MICTLANX_PEERS":MICTLANX_PEERS
                 }, 
                 memory=1000000000,
                 cpu_count=1, 
-                mounts= {
-                    HOST_SOURCE_PATH:CONTAINER_SOURCE_PATH,
-                    HOST_SINK_PATH: CONTAINER_SINK_PATH,
-                    HOST_LOG_PATH:CONTAINER_LOG_PATH,
-                },
+                mounts= mounts,
                 network_id= DOCKER_NETWORK_ID,
                 selected_node=Some(selected_node)
 
@@ -117,7 +136,7 @@ def deploy_nodes(
                 mode=MICTLANX_SUMMONER_MODE,
                 client_id=Some(MICTLANX_CLIENT_ID),
                 app_id=Some(MICTLANX_APP_ID),
-                authorization=Some(auth_response.token),
+                authorization= authorization,
                 secret=Some(MICTLANX_SECRET)
             )
             if response.is_ok:
@@ -143,5 +162,6 @@ def deploy_nodes(
         print(e)
         sys.exit(1)
     finally:
-        payload = LogoutPayload(app_id=MICTLANX_APP_ID, client_id=MICTLANX_CLIENT_ID,secret=MICTLANX_SECRET, token=auth_response.token)
-        xolo.logout(payload=payload)
+        if XOLO_ENABLE:
+            payload = LogoutPayload(app_id=MICTLANX_APP_ID, client_id=MICTLANX_CLIENT_ID,secret=MICTLANX_SECRET, token=auth_response.token)
+            xolo.logout(payload=payload)

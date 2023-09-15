@@ -1,0 +1,104 @@
+version: "3.8"
+services:
+
+  mictlanx-peer-0:
+    image: nachocode/mictlanx:peer
+    container_name: mictlanx-peer-0
+    hostname: mictlanx-peer-0
+    privileged: true
+    ports:
+      - 7000:7000
+    environment:
+      - USER_ID=1001
+      - GROUP_ID=1002
+      - BIN_NAME=peer
+      - NODE_ID=mictlanx-peer-0
+      - NODE_PORT=7000
+      - IP_ADDRESS=mictlanx-peer-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - XOLO_IP_ADDR=mictlanx-xolo-0
+      - XOLO_PORT=10000
+      - NODE_DISK_CAPACITY=10000000000
+      - NODE_MEMORY_CAPACITY=1000000000
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
+    volumes:
+      - /mictlanx/mictlanx-peer-0/log:/mictlanx/log
+      - /mictlanx/mictlanx-peer-0/local:/mictlanx/local
+      - /mictlanx/mictlanx-peer-0/data:/mictlanx/data
+    networks:
+      - mictlanx
+  mictlanx-peer-1:
+    image: nachocode/mictlanx:peer
+    container_name: mictlanx-peer-1
+    hostname: mictlanx-peer-1
+    privileged: true
+    ports:
+      - 7001:7001
+    environment:
+      - USER_ID=1001
+      - GROUP_ID=1002
+      - BIN_NAME=peer
+      - NODE_ID=mictlanx-peer-1
+      - NODE_PORT=7001
+      - IP_ADDRESS=mictlanx-peer-1
+      - SERVER_IP_ADDR=0.0.0.0
+      - XOLO_IP_ADDR=mictlanx-xolo-0
+      - XOLO_PORT=10000
+      - NODE_DISK_CAPACITY=10000000000
+      - NODE_MEMORY_CAPACITY=1000000000
+      - PEERS=mictlanx-peer-0:7000
+      - BASE_PATH=/mictlanx
+      - LOCAL_PATH=/mictlanx/local
+      - DATA_PATH=/mictlanx/data
+      - LOG_PATH=/mictlanx/log
+    volumes:
+      - /mictlanx/mictlanx-peer-1/log:/mictlanx/log
+      - /mictlanx/mictlanx-peer-1/local:/mictlanx/local
+      - /mictlanx/mictlanx-peer-1/data:/mictlanx/data
+    networks:
+      - mictlanx
+  mictlanx-summoner-0:
+      image: nachocode/mictlanx:summoner
+      container_name: mictlanx-summoner-0
+      hostname: mictlanx-summoner-0
+      ports:
+        - 15000:15000
+      environment:
+        - USER_ID=1000
+        - GROUP_ID=1000
+        - DOCKER_GID=1001
+        - BIN_NAME=summoner 
+        - BASE_PATH=/mictlanx
+        - LOCAL_PATH=/mictlanx/local
+        - DATA_PATH=/mictlanx/data
+        - LOG_PATH=/mictlanx/log
+        - NODE_ID=mictlanx-summoner-0
+        - NODE_PORT=15000
+        - IP_ADDRESS=mictlanx-summoner-0
+        - SERVER_IP_ADDRESS=0.0.0.0
+        - XOLO_IP_ADDR=mictlanx-xolo-0
+        - XOLO_PORT=10000
+        - XOLO_ENABLE=false
+      volumes:
+        - /mictlanx/mictlanx-summoner-0/local:/mictlanx/local
+        - /mictlanx/mictlanx-summoner-0/log:/mictlanx/log
+        - /mictlanx/mictlanx-summoner-0/data:/mictlanx/data
+        - /var/run/docker.sock:/var/run/docker.sock
+      networks:
+        - mictlanx
+    # depends_on:
+      # - mictlanx-xolo-0
+      # - mictlanx-proxy-0
+      # - mictlanx-rm-0
+     
+networks:
+  mictlanx:
+    external: true
+
+
+  
+
+

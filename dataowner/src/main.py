@@ -7,10 +7,10 @@ import time
 import numpy as np
 from rory.core.interfaces.client_response import ClientResponse
 from rory.core.interfaces.logger_metrics import LoggerMetrics
-from mictlanx.v3.client import Client as StorageClient
-from mictlanx.v3.services.xolo import Xolo
-from mictlanx.v3.services.proxy import Proxy
-from mictlanx.v3.services.replica_manger import ReplicaManager
+# from mictlanx.v3.client import Client as StorageClient
+# from mictlanx.v3.services.xolo import Xolo
+# from mictlanx.v3.services.proxy import Proxy
+# from mictlanx.v3.services.replica_manger import ReplicaManager
 from rory.core.logger.Logger import create_logger
 from option import Some
 import numpy.typing as npt
@@ -63,32 +63,32 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
-coloredlogs.install(level='DEBUG')
+# coloredlogs.install(level='DEBUG')
 
-replica_manager = ReplicaManager(
-    ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
-    port        = MICTLANX_REPLICA_MANAGER_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-xolo            = Xolo(
-    ip_addr     = MICTLANX_XOLO_IP_ADDR, 
-    port        = MICTLANX_XOLO_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-proxy           = Proxy(
-    ip_addr     = MICTLANX_PROXY_IP_ADDR, 
-    port        = MICTLANX_PROXY_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-STORAGE_CLIENT  = StorageClient(
-    app_id          = MICTLANX_APP_ID,
-    client_id       = Some(MICTLANX_CLIENT_ID),
-    secret          = MICTLANX_SECRET,
-    replica_manager = replica_manager, 
-    xolo            = xolo, 
-    proxies         = [proxy], 
-    expires_in      = Some(MICTLANX_EXPIRES_IN)
-)
+# replica_manager = ReplicaManager(
+#     ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
+#     port        = MICTLANX_REPLICA_MANAGER_PORT, 
+#     api_version = Some(MICTLANX_API_VERSION)
+# )
+# xolo            = Xolo(
+#     ip_addr     = MICTLANX_XOLO_IP_ADDR, 
+#     port        = MICTLANX_XOLO_PORT, 
+#     api_version = Some(MICTLANX_API_VERSION)
+# )
+# proxy           = Proxy(
+#     ip_addr     = MICTLANX_PROXY_IP_ADDR, 
+#     port        = MICTLANX_PROXY_PORT, 
+#     api_version = Some(MICTLANX_API_VERSION)
+# )
+# STORAGE_CLIENT  = StorageClient(
+#     app_id          = MICTLANX_APP_ID,
+#     client_id       = Some(MICTLANX_CLIENT_ID),
+#     secret          = MICTLANX_SECRET,
+#     replica_manager = replica_manager, 
+#     xolo            = xolo, 
+#     proxies         = [proxy], 
+#     expires_in      = Some(MICTLANX_EXPIRES_IN)
+# )
 def write_to_file(filename:str, lv:npt.NDArray):
     path = "{}/{}.npy".format(SINK_PATH,filename)
     try:
@@ -194,5 +194,5 @@ try:
 
 except Exception as e:
     print("DATAONWE_ERROR",e)
-finally:
-    STORAGE_CLIENT.logout()
+# finally:
+    # STORAGE_CLIENT.logout()

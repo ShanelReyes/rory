@@ -5,10 +5,11 @@ from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
 from rory.core.interfaces.rorymanager import RoryManager,DumbRoryManager
 from routes.clustering import clustering
-from mictlanx.v3.client import Client 
+# from mictlanx
+from mictlanx.v4.client import Client
+from mictlanx.utils.index import Utils
 from mictlanx.v3.services.xolo import Xolo
-from mictlanx.v3.services.proxy import Proxy
-from mictlanx.v3.services.replica_manger import ReplicaManager
+import time
 from option import Some
 from dotenv import load_dotenv
 app = Flask(__name__)
@@ -24,12 +25,10 @@ DEBUG                = bool(int(os.environ.get("DEBUG",0)))
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
 LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","1")))
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
+NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
+MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",4)) #Total of process for encryption
 
 #CREAR FOLDERS
-# SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-# SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-# LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
@@ -40,10 +39,11 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-LOGGER_NAME      = os.environ.get("LOGGER_NAME","rory-client-0")
-MAX_ITERATIONS   = int(os.environ.get("MAX_ITERATIONS",10))
-TESTING          = bool(int(os.environ.get("TESTING","0")))
-M                = int(os.environ.get("M","3"))
+LOGGER_NAME    = os.environ.get("LOGGER_NAME","rory-client-0")
+MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS",10))
+TESTING_ENV    = os.environ.get("TESTING","1")
+TESTING        = bool(int(TESTING_ENV))
+M              = int(os.environ.get("M","3"))
 
 # MICTLANX
 MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID")
@@ -57,32 +57,21 @@ MICTLANX_REPLICA_MANAGER_IP_ADDR = os.environ.get("MICTLANX_REPLICA_MANAGER_IP_A
 MICTLANX_REPLICA_MANAGER_PORT    = int(os.environ.get("MICTLANX_REPLICA_MANAGER_PORT","20000"))
 MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION","3"))
 MICTLANX_EXPIRES_IN              = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+MICTLANX_PEERS                   = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000")
 
-replica_manager = ReplicaManager(
-    ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
-    port        = MICTLANX_REPLICA_MANAGER_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
 xolo            = Xolo(
-    ip_addr     = MICTLANX_XOLO_IP_ADDR, 
-    port        = MICTLANX_XOLO_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-proxy           = Proxy(
-    ip_addr     = MICTLANX_PROXY_IP_ADDR, 
-    port        = MICTLANX_PROXY_PORT, 
+    ip_addr     = Some(MICTLANX_XOLO_IP_ADDR), 
+    port        = Some(MICTLANX_XOLO_PORT), 
     api_version = Some(MICTLANX_API_VERSION)
 )
 STORAGE_CLIENT  = Client(
-    app_id          = MICTLANX_APP_ID,
-    client_id       = Some(MICTLANX_CLIENT_ID),
-    secret          = MICTLANX_SECRET,
-    replica_manager = replica_manager, 
-    xolo            = xolo, 
-    proxies         = [proxy], 
-    expires_in      = Some(MICTLANX_EXPIRES_IN)
+    client_id       = MICTLANX_CLIENT_ID,
+    peers           = list(Utils.peers_from_str(MICTLANX_PEERS)),
+    daemon          = False,
+    debug           = False,
+    max_workers     = int(os.environ.get("MICTLANX_CLIENT_WORKERS","4"))
 )
-MANAGER = DumbRoryManager() if(TESTING) else RoryManager(
+MANAGER = RoryManager(
     hostname = RORY_MANAGER_IP_ADDR,
     port     = RORY_MANAGER_PORT,
 )
@@ -93,14 +82,6 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
 )
-# print(STORAGE_CLIENT.credentials.application_id,STORAGE_CLIENT.credentials.client_id,STORAGE_CLIENT.credentials.secret,STORAGE_CLIENT.credentials.authorization,)
-# METRICSLOGGER = create_logger(
-#     name                   = NODE_ID_METRICS,
-#     LOG_FILENAME           = NODE_ID_METRICS,
-#     LOG_PATH               = LOG_PATH,
-#     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
-#     file_handler_filter    = lambda record:  record.levelno == logging.INFO,
-# )
 LIU  = Liu(
     round = LIU_ROUND
 )
@@ -120,7 +101,6 @@ def create_app(*args):
     with app.app_context():
         current_app.config["request_counter"] = 0
         current_app.config["logger"]          = LOGGER
-        #current_app.config["metricslogger"]   = METRICSLOGGER
         current_app.config["manager"]         = MANAGER
         current_app.config["liu"]             = LIU
         current_app.config["dataowner"]       = DATAOWNER
@@ -130,27 +110,19 @@ def create_app(*args):
         current_app.config["LOG_PATH"]        = LOG_PATH
         current_app.config["MAX_ITERATIONS"]  = MAX_ITERATIONS
         current_app.config["STORAGE_CLIENT"]  = STORAGE_CLIENT
-        # print(">>>>>>>>>>TESTING",TESTING)
         current_app.config["TESTING"]         = TESTING
+        current_app.config["NUM_CHUNKS"]      = NUM_CHUNKS
+        current_app.config["MAX_WORKES"]      = MAX_WORKERS
     # return app
 
 """
 Description:
     Initialize create_app
 """
-# def start_app(*args):
-   
-    # app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
-
-#if __name__ == '__main__':
 if __name__ == 'main' or __name__ == "__main__":
     try:
-        # start_app()
         create_app()
     except Exception as e:
         print(e)
         STORAGE_CLIENT.logout()
         sys.exit(1)
-
-    # finally:
-        # 

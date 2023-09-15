@@ -3,10 +3,8 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from rory.core.logger.Logger import create_logger
-from mictlanx.v3.client import Client 
-from mictlanx.v3.services.xolo import Xolo
-from mictlanx.v3.services.proxy import Proxy
-from mictlanx.v3.services.replica_manger import ReplicaManager
+from mictlanx.v4.client import Client
+from mictlanx.utils.index import Utils
 from option import Some
 from dotenv import load_dotenv
 from retry.api import retry_call
@@ -21,13 +19,11 @@ MAX_RETRIES          = int(os.environ.get("MAX_RETRIES",100))
 RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
 DEBUG                = bool(int(os.environ.get("DEBUG",0)))
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
-
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 
 #CREAR FOLDERS
-
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
@@ -37,16 +33,6 @@ try:
     os.makedirs(LOG_PATH,   exist_ok = True)
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
-# SINK_FOLDER   = "/rory/{}/sink".format(NODE_ID)
-# SOURCE_FOLDER = "/rory/{}/source".format(NODE_ID)
-# LOG_FOLDER    = "/rory/{}/log".format(NODE_ID)
-# os.makedirs(SINK_FOLDER,  exist_ok = True)
-# os.makedirs(SOURCE_FOLDER,exist_ok = True)
-# os.makedirs(LOG_FOLDER,   exist_ok = True)
-
-# LOG_PATH             = os.environ.get("LOG_PATH",LOG_FOLDER)
-# SINK_PATH            = os.environ.get("SINK_PATH",SINK_FOLDER)
-# SOURCE_PATH          = os.environ.get("SOURCE_PATH",SOURCE_FOLDER)
 
 MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID")
 MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID")
@@ -60,29 +46,12 @@ MICTLANX_REPLICA_MANAGER_PORT    = int(os.environ.get("MICTLANX_REPLICA_MANAGER_
 MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION","3"))
 MICTLANX_EXPIRES_IN              = os.environ.get("MICTLANX_EXPIRES_IN","15d")
 
-replica_manager = ReplicaManager(
-    ip_addr     = MICTLANX_REPLICA_MANAGER_IP_ADDR, 
-    port        = MICTLANX_REPLICA_MANAGER_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-xolo = Xolo(
-    ip_addr     = MICTLANX_XOLO_IP_ADDR, 
-    port        = MICTLANX_XOLO_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-proxy = Proxy(
-    ip_addr     = MICTLANX_PROXY_IP_ADDR, 
-    port        = MICTLANX_PROXY_PORT, 
-    api_version = Some(MICTLANX_API_VERSION)
-)
-STORAGE_CLIENT = Client(
-    app_id          = MICTLANX_APP_ID,
-    client_id       = Some(MICTLANX_CLIENT_ID),
-    secret          = MICTLANX_SECRET,
-    replica_manager = replica_manager, 
-    xolo            = xolo, 
-    proxies         = [proxy], 
-    expires_in      = Some(MICTLANX_EXPIRES_IN)
+STORAGE_CLIENT  = Client(
+    client_id       = MICTLANX_CLIENT_ID,
+    peers           = list(Utils.peers_from_str(os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000"))),
+    debug           = False,
+    daemon          = False,
+    max_workers     = int(os.environ.get("MICTLANX_CLIENT_WORKERS","4"))
 )
 LOGGER = create_logger (
     name                   = NODE_ID,
@@ -118,7 +87,6 @@ def create_app():
 Description:
   Initialize worker
 """
-
 def started_completed():
   def __inner():
     try:

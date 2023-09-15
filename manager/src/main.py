@@ -16,21 +16,21 @@ app = Flask(__name__)
 load_dotenv()
 
 
-NODE_ID           = os.environ.get("NODE_ID","rory-manager-0")
-IP_ADDR           = os.environ.get("NODE_IP_ADDR",NODE_ID)
-PORT              = int(os.environ.get("NODE_PORT",6000))
-NODE_PREFIX       = os.environ.get("NODE_PREFIX","rory-worker-")
-init_workers      = int(os.environ.get("INIT_WORKERS",1))
-MAX_WORKERS       = int(os.environ.get("MAX_WORKERS",4))
-DOCKER_IMAGE_NAME = os.environ.get("DOCKER_IMAGE_NAME","shanelreyes/rory")
-DOCKER_IMAGE_TAG  = os.environ.get("DOCKER_IMAGE_TAG","worker")
-DOCKER_IMAGE      = os.environ.get("DOCKER_IMAGE","{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG))
-DOCKER_NETWORK_ID = os.environ.get("DOCKER_NETWORK_ID","mictlanx") 
-init_port         = int(os.environ.get("WORKER_INIT_PORT",3000))
-DEBUG             = bool(int(os.environ.get("DEBUG",0)))
-RELOAD            = bool(int(os.environ.get("RELOAD",0)))
-SERVER_IP_ADDR    = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
-
+NODE_ID            = os.environ.get("NODE_ID","rory-manager-0")
+IP_ADDR            = os.environ.get("NODE_IP_ADDR",NODE_ID)
+PORT               = int(os.environ.get("NODE_PORT",6000))
+NODE_PREFIX        = os.environ.get("NODE_PREFIX","rory-worker-")
+init_workers       = int(os.environ.get("INIT_WORKERS","0")) #worker iniciales que se levantan
+DOCKER_IMAGE_NAME  = os.environ.get("DOCKER_IMAGE_NAME","shanelreyes/rory")
+DOCKER_IMAGE_TAG   = os.environ.get("DOCKER_IMAGE_TAG","worker")
+DOCKER_IMAGE       = os.environ.get("DOCKER_IMAGE","{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG))
+DOCKER_NETWORK_ID  = os.environ.get("DOCKER_NETWORK_ID","mictlanx") 
+init_port          = int(os.environ.get("WORKER_INIT_PORT",3000))
+DEBUG              = bool(int(os.environ.get("DEBUG",0)))
+RELOAD             = bool(int(os.environ.get("RELOAD",0)))
+SERVER_IP_ADDR     = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
+XOLO_ENABLE        = bool(int(os.environ.get("XOLO_ENABLE","0")))
+WORKER_MAX_THREADS = int(os.environ.get("WORKER_MAX_THREADS",2)) #Cantidad de threats para gunicorn
 #CREAR FOLDERS
 
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
@@ -68,6 +68,7 @@ MICTLANX_XOLO_PORT               = int(os.environ.get("MICTLANX_XOLO_PORT","1000
 MICTLANX_REPLICA_MANAGER_IP_ADDR = os.environ.get("MICTLANX_REPLICA_MANAGER_IP_ADDR", "localhost")
 MICTLANX_REPLICA_MANAGER_PORT    = int(os.environ.get("MICTLANX_REPLICA_MANAGER_PORT", "20000"))
 MICTLANX_EXPIRES_IN              = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+MICTLANX_PEERS                   = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000")
 
 REPLICATOR = Summoner(
     ip_addr     = MICTLANX_SUMMONER_IP_ADDR,
@@ -75,8 +76,8 @@ REPLICATOR = Summoner(
     api_version = Some(MICTLANX_API_VERSION)
 )
 xolo = Xolo(
-    ip_addr     = MICTLANX_XOLO_IP_ADDR ,
-    port        = MICTLANX_XOLO_PORT,
+    ip_addr     = Some(MICTLANX_XOLO_IP_ADDR) ,
+    port        = Some(MICTLANX_XOLO_PORT),
     api_version = Some(MICTLANX_API_VERSION) 
 )
 
@@ -88,6 +89,7 @@ deploy_nodes(
     NODE_ID                          = NODE_ID,
     PORT                             = str(PORT),
     NODE_PREFIX                      = NODE_PREFIX,
+    WORKER_MAX_THREADS               = WORKER_MAX_THREADS,
     init_port                        = init_port,
     DOCKER_IMAGE                     = DOCKER_IMAGE,
     DOCKER_NETWORK_ID                = DOCKER_NETWORK_ID,
@@ -102,7 +104,9 @@ deploy_nodes(
     MICTLANX_XOLO_PORT               = str(MICTLANX_XOLO_PORT),
     MICTLANX_API_VERSION             = MICTLANX_API_VERSION,
     MICTLANX_SECRET                  = MICTLANX_SECRET,
-    MICTLANX_SUMMONER_MODE           = MICTLANX_SUMMONER_MODE 
+    MICTLANX_SUMMONER_MODE           = MICTLANX_SUMMONER_MODE ,
+    XOLO_ENABLE                      = XOLO_ENABLE,
+    MICTLANX_PEERS                   = MICTLANX_PEERS
 )
 
 LOGGER = create_logger(
@@ -112,7 +116,7 @@ LOGGER = create_logger(
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
     file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
 )
-coloredlogs.install(level='DEBUG',logger=LOGGER)
+# coloredlogs.install(level='DEBUG',logger=LOGGER)
 
 
 """
@@ -141,6 +145,7 @@ def create_app(*args):
         current_app.config["DOCKER_IMAGE"]                     = "{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG)
         current_app.config["logger"]                           = LOGGER
         current_app.config["DEPLOY_START_TIMES"]               = {}
+        # current_app.config["WORKER_MAX_THREADS"]               = WORKER_MAX_THREADS
         #current_app.config["STORAGE_CLIENT"]                   = STORAGE_CLIENT
         current_app.config["MICTLANX_APP_ID"]                  = MICTLANX_APP_ID
         current_app.config["MICTLANX_SECRET"]                  = MICTLANX_SECRET

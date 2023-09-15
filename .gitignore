@@ -1,5 +1,6 @@
 analysis/
 datasetgenerator.py
+./rory-env/
 .vscode
 .ipynb_checkpoints/
 **/__pycache__
