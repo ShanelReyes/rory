@@ -14,6 +14,7 @@ services:
       - RORY_MANAGER_PORT=6000
       - LOGGER_NAME=rory-client-0
       - MAX_ITERATIONS=10
+      - NUM_CHUNKS=4
       - MAX_WORKERS=1
       - MAX_THREADS=3
       - XOLO_ENABLE=0
@@ -22,11 +23,6 @@ services:
       - LIU_ROUND=1
       - TESTING=0
       - M=3
-      - MICTLANX_APP_ID=rory_IUOq9pJAuIWLYinltZEiTivwEHKiVYWz
-      - MICTLANX_CLIENT_ID=rory-client-0
-      - MICTLANX_SECRET=t0p53cr3T#
-      - MICTLANX_API_VERSION=3
-      - MICTLANX_EXPIRES_IN=15d
       - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
       - CUSTOM_PYTHON_PATH=/app
       - SOURCE_PATH=/rory/source
@@ -42,7 +38,7 @@ services:
       resources:
         limits:
           cpus: '10'
-          memory: 16G
+          memory: 32G
       placement:
         constraints:
           - "node.labels.index==5"
@@ -58,7 +54,7 @@ services:
       - NODE_PORT=6000
       - NODE_IP_ADDR=rory-manager-0
       - SERVER_IP_ADDR=0.0.0.0
-      - INIT_WORKERS=${INIT_WORKERS}
+      - INIT_WORKERS=2
       - WORKER_INIT_PORT=9000
       - DOCKER_IMAGE_NAME=shanelreyes/rory
       - DOCKER_IMAGE_TAG=worker
@@ -67,16 +63,13 @@ services:
       - TESTING=0
       - MAX_RETRIES=10
       - MAX_THREADS=1
+      - WORKER_MAX_THREADS=2
       - LOAD_BALANCING=0
+      - WORKER_MEMORY=10000000000
       - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0
       - MICTLANX_SUMMONER_PORT=15000
       - MICTLANX_SUMMONER_MODE=docker
       - MICTLANX_SUMMONER_API_VERSION=3
-      - MICTLANX_APP_ID=rory_IUOq9pJAuIWLYinltZEiTivwEHKiVYWz
-      - MICTLANX_CLIENT_ID=sreyes
-      - MICTLANX_SECRET=t0p53cr3T#
-      - MICTLANX_API_VERSION=3
-      - MICTLANX_EXPIRES_IN=15d
       - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
       - CUSTOM_PYTHON_PATH=/app
       - LOGGER_NAME=rory-manager-0
@@ -95,7 +88,7 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 4G
+          memory: 8G
       placement:
         constraints:
           - "node.labels.index==6"

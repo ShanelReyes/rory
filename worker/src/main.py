@@ -34,9 +34,10 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID")
-MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID")
-MICTLANX_SECRET                  = os.environ.get("MICTLANX_SECRET")
+MICTLANX_TIMEOUT                 = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID" "APP_ID")
+MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
+MICTLANX_SECRET                  = os.environ.get("MICTLANX_SECRET","SECRET")
 MICTLANX_PROXY_IP_ADDR           = os.environ.get("MICTLANX_PROXY_IP_ADDR","localhost")
 MICTLANX_PROXY_PORT              = int(os.environ.get("MICTLANX_PROXY_PORT","8080"))
 MICTLANX_XOLO_IP_ADDR            = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
@@ -71,15 +72,16 @@ def create_app():
     # Register blueprints
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     with app.app_context():
-        current_app.config["request_counter"] = 0
-        current_app.config["NODE_PORT"]       = PORT
-        current_app.config["SINK_PATH"]       = SINK_PATH
-        current_app.config["SOURCE_PATH"]     = SOURCE_PATH
-        current_app.config["logger"]          = LOGGER
-        current_app.config["NODE_ID"]         = NODE_ID
-        current_app.config["events"]          = {}
-        current_app.config["LOG_PATH"]        = LOG_PATH
-        current_app.config["STORAGE_CLIENT"]  = STORAGE_CLIENT
+        current_app.config["request_counter"]  = 0
+        current_app.config["NODE_PORT"]        = PORT
+        current_app.config["SINK_PATH"]        = SINK_PATH
+        current_app.config["SOURCE_PATH"]      = SOURCE_PATH
+        current_app.config["logger"]           = LOGGER
+        current_app.config["NODE_ID"]          = NODE_ID
+        current_app.config["events"]           = {}
+        current_app.config["LOG_PATH"]         = LOG_PATH
+        current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
+        current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
     # return app
 
 
@@ -92,9 +94,9 @@ def started_completed():
     try:
       response = requests.post(
             "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT),
-            headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)}
+            headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)},
+            timeout = 300
       )
-      print("RESPONSE",response)
       response.raise_for_status()
       LOGGER.debug("STARTED_RESPONSE {}".format(response.content))
       return response
@@ -103,7 +105,6 @@ def started_completed():
       LOGGER.error(str(e))
       raise e
   result = retry_call(__inner, tries=MAX_RETRIES, delay=1,backoff=1)
-  print("RESULT", result)
   LOGGER.debug("WORKER_STARTED_RESPONSE {}".format(result))
 
 if __name__ == 'main' or __name__ == "__main__":
@@ -111,9 +112,7 @@ if __name__ == 'main' or __name__ == "__main__":
     create_app()
     t1 = Thread(target= started_completed, daemon= True, args = () )
     t1.start()
-    # app.run(host = SERVER_IP_ADDR, port = PORT,debug = DEBUG,use_reloader = RELOAD)
   except Exception as e:
     print(e)
-    # STORAGE_CLIENT.logout()
     sys.exit(1)
   # finally:

@@ -7,9 +7,22 @@ from rory.core.interfaces.logger_metrics import LoggerMetrics
 clustering = Blueprint("clustering",__name__,  url_prefix = "/clustering")
 sem        = Semaphore(1)
 
+
+@clustering.route("/test",methods=["GET","POST"])
+def test():
+    return Response(
+        response = json.dumps({
+            "component_type":"manager"
+        }),
+        status   = 200,
+        headers  = {
+            "Component-Type":"manager"
+        }
+    )
+
 # GET clustering/secure
 @clustering.route("/secure", methods = ["POST","GET"])
-def test():
+def test_secure():
     try:
         sem.acquire()
         arrivalTime        = time.time()        

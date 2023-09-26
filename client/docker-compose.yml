@@ -12,30 +12,26 @@ services:
       - SERVER_IP_ADDR=0.0.0.0
       - RORY_MANAGER_IP_ADDR=rory-manager-0
       - RORY_MANAGER_PORT=6000
-      - SINK_PATH=/rory/rory-client-0/sink
-      - SOURCE_PATH=/rory/rory-client-0/source
-      - LOG_PATH=/rory/rory-client-0/log
       - LOGGER_NAME=rory-client-0
       - MAX_ITERATIONS=10
-      - MAX_WORKERS=1
+      - MAX_THREADS=3
+      - NUM_CHUNKS=4
+      - MAX_WORKERS=4
+      - XOLO_ENABLE=0
       - DEBUG =0
       - RELOAD=0
       - LIU_ROUND=1
       - TESTING=0
       - M=3
-      - MICTLANX_APP_ID=rory_HmsDacZ7RjkCNuDEKvej8ftpxDz2dcNF
-      - MICTLANX_CLIENT_ID=rory-client-0
-      - MICTLANX_SECRET=t0p53cr3T#
-      - MICTLANX_PROXY_IP_ADDR=mictlanx-proxy-0
-      - MICTLANX_PROXY_PORT=8080
-      - MICTLANX_XOLO_IP_ADDR=mictlanx-xolo-0
-      - MICTLANX_XOLO_PORT=10000
-      - MICTLANX_REPLICA_MANAGER_IP_ADDR=mictlanx-rm-0
-      - MICTLANX_REPLICA_MANAGER_PORT=20001
-      - MICTLANX_API_VERSION=3
-      - MICTLANX_EXPIRES_IN=15d
+      - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
+      - CUSTOM_PYTHON_PATH=/app
+      - SOURCE_PATH=/rory/source
+      - SINK_PATH=/rory/sink
+      - LOG_PATH=/rory/log
     volumes:
-      - /rory/rory-client-0:/rory/rory-client-0
+      - /rory/rory-client-0/source:/rory/source
+      - /rory/rory-client-0/sink:/rory/sink
+      - /rory/rory-client-0/log:/rory/log
     networks:
       - mictlanx
 
