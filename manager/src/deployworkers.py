@@ -15,15 +15,21 @@ def deploy_nodes(
         MICTLANX_CLIENT_ID:str,
         MICTLANX_SECRET:str,
         xolo:Xolo,
-        MICTLANX_SUMMONER_MODE:str="docker",
-        init_workers:int = 1,
-        MICTLANX_EXPIRES_IN:Option[str] = Some("15d"),
-        NODE_PREFIX:str="rory-worker-",
-        init_port:int = 3000,
-        XOLO_ENABLE:bool = False,
-        WORKER_MEMORY:str = "1000000000",
-        WORKER_CPU:int = 2,
-        WORKER_MICTLANX_PEERS:str = "mictlanx-peer-0:localhost:7000"
+        MICTLANX_DEBUG:bool,
+        MICTLANX_DAEMON:bool,
+        MICTLANX_SHOW_METRICS:bool,
+        MICTLANX_DISABLED_LOG:bool,
+        MICTLANX_SUMMONER_MODE:str       ="docker",
+        init_workers:int                 = 1,
+        MICTLANX_EXPIRES_IN:Option[str]  = Some("15d"),
+        NODE_PREFIX:str                  ="rory-worker-",
+        init_port:int                    = 3000,
+        XOLO_ENABLE:bool                 = False,
+        WORKER_MEMORY:str                = "1000000000",
+        WORKER_CPU:int                   = 2,
+        WORKER_MICTLANX_PEERS:str        = "mictlanx-peer-0:localhost:7000",
+        MICTLANX_CLIENT_LB_ALGORITHM:str = "ROUND_ROBIN",
+        MICTLANX_MAX_WORKERS:int         = 12
 ):
     
     swarm_nodes = ["2","3","4","8"]
@@ -94,7 +100,13 @@ def deploy_nodes(
                     "TESTING":"0",
                     "M":"3",
                     "MAX_THREADS":str(WORKER_MAX_THREADS),
-                    "MICTLANX_PEERS":WORKER_MICTLANX_PEERS
+                    "MICTLANX_PEERS":WORKER_MICTLANX_PEERS,
+                    "MICTLANX_CLIENT_LB_ALGORITHM":MICTLANX_CLIENT_LB_ALGORITHM,
+                    "MICTLANX_DEBUG":str(int(MICTLANX_DEBUG)),
+                    "MICTLANX_DAEMON":str(int(MICTLANX_DAEMON)),
+                    "MICTLANX_SHOW_METRICS":str(int(MICTLANX_SHOW_METRICS)),
+                    "MICTLANX_MAX_WORKERS":str(MICTLANX_MAX_WORKERS),
+                    "MICTLANX_DISABLED_LOG":str(int(MICTLANX_DISABLED_LOG))
                 }, 
                 labels={"target":"rory"},
                 memory=int(WORKER_MEMORY),

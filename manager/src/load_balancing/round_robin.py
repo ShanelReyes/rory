@@ -7,6 +7,8 @@ class RoundRobin(LoadBalancingAlgorithm):
         self.total  = 0
         self.prefix = kwargs.get("prefix","scw-")
         self.n = kwargs.get("n",1)
+        if self.n == 0:
+            self.n=1
         for i in range(self.n):
             binId = "{}{}".format(self.prefix,i)
             self.bins[binId] = 0

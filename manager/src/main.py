@@ -12,6 +12,8 @@ from mictlanx.v3.interfaces.payloads import SummonContainerPayload,ExposedPort
 from option import NONE,Some
 from rory.core.logger.Logger import create_logger
 from dotenv import load_dotenv
+# print("INIT_MANAGER")
+
 app = Flask(__name__)
 DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
 if DEBUG:
@@ -34,6 +36,7 @@ WORKER_MAX_THREADS    = int(os.environ.get("WORKER_MAX_THREADS",2)) #Cantidad de
 WORKER_MEMORY         = os.environ.get("WORKER_MEMORY","1000000000")
 WORKER_CPU            = os.environ.get("WORKER_CPU",2)
 WORKER_MICTLANX_PEERS = os.environ.get("WORKER_MICTLANX_PEERS")
+WORKER_TIMEOUT        = int(os.environ.get("WORKER_TIMEOUT",300))
 
 #CREAR FOLDERS
 SOURCE_PATH = os.environ.get("SOURCE_PATH","/rory/source")
@@ -46,24 +49,28 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-TESTING        = bool(int(os.environ.get("TESTING","1")))
-MAX_RETRIES    = int(os.environ.get("MAX_RETRIES",100))
-LOAD_BALANCING = int(os.environ.get("LOAD_BALANCING","0"))
+TESTING                      = bool(int(os.environ.get("TESTING","1")))
+MAX_RETRIES                  = int(os.environ.get("MAX_RETRIES",100))
+LOAD_BALANCING               = int(os.environ.get("LOAD_BALANCING","0"))
+MICTLANX_SUMMONER_IP_ADDR    = os.environ.get("MICTLANX_SUMMONER_IP_ADDR","localhost")
+MICTLANX_SUMMONER_PORT       = os.environ.get("MICTLANX_SUMMONER_PORT",15000)
+MICTLANX_SUMMONER_MODE       = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
+MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION",3))
+MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID","APP_ID")
+MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
+MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
+MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
+MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
+MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000")
+MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
+MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS",12))
+MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
+MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",0)))
+MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
+MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
 
-MICTLANX_SUMMONER_IP_ADDR = os.environ.get("MICTLANX_SUMMONER_IP_ADDR","localhost")
-MICTLANX_SUMMONER_PORT    = os.environ.get("MICTLANX_SUMMONER_PORT",15000)
-MICTLANX_SUMMONER_MODE    = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
-MICTLANX_API_VERSION      = int(os.environ.get("MICTLANX_API_VERSION",3))
-MICTLANX_APP_ID           = os.environ.get("MICTLANX_APP_ID","APP_ID")
-MICTLANX_CLIENT_ID        = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
-MICTLANX_SECRET           = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_PROXY_IP_ADDR    = os.environ.get("MICTLANX_PROXY_IP_ADDR","localhost")
-MICTLANX_PROXY_PORT       = int(os.environ.get("MICTLANX_PROXY_PORT","8080"))
-MICTLANX_XOLO_IP_ADDR     = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT        = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
-MICTLANX_EXPIRES_IN       = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_PEERS            = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000")
-MICTLANX_TIMEOUT          = int(os.environ.get("MICTLANX_TIMEOUT",120))
 
 REPLICATOR = Summoner(
     ip_addr     = MICTLANX_SUMMONER_IP_ADDR,
@@ -75,7 +82,6 @@ xolo = Xolo(
     port        = Some(MICTLANX_XOLO_PORT),
     api_version = Some(MICTLANX_API_VERSION) 
 )
-
 # DEPLOY_NODES
 deploy_nodes(
     summoner               = REPLICATOR,
@@ -96,7 +102,13 @@ deploy_nodes(
     XOLO_ENABLE            = XOLO_ENABLE,
     WORKER_MEMORY          = WORKER_MEMORY,
     WORKER_CPU             = WORKER_CPU,
-    WORKER_MICTLANX_PEERS  = WORKER_MICTLANX_PEERS
+    WORKER_MICTLANX_PEERS  = WORKER_MICTLANX_PEERS,
+    MICTLANX_CLIENT_LB_ALGORITHM = MICTLANX_CLIENT_LB_ALGORITHM,
+    MICTLANX_DEBUG         = MICTLANX_DEBUG,
+    MICTLANX_DAEMON        = MICTLANX_DAEMON,
+    MICTLANX_SHOW_METRICS  = MICTLANX_SHOW_METRICS,
+    MICTLANX_MAX_WORKERS   = MICTLANX_MAX_WORKERS,
+    MICTLANX_DISABLED_LOG  = MICTLANX_DISABLED_LOG
 )
 
 LOGGER = create_logger(
@@ -136,9 +148,11 @@ def create_app(*args):
         current_app.config["DEPLOY_START_TIMES"] = {}
         current_app.config["DOCKER_NETWORK_ID"]  = DOCKER_NETWORK_ID
         current_app.config["MICTLANX_TIMEOUT"]   = MICTLANX_TIMEOUT
+        current_app.config["WORKER_TIMEOUT"]     = WORKER_TIMEOUT
 
 if __name__ == 'main' or __name__ == "__main__":
     try:
+        #print("ANTES DE INICIAR LA APP")
         create_app()
     except Exception as e:
         print(e)

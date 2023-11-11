@@ -39,8 +39,11 @@ LOG_PATH             = os.environ.get("LOG_PATH","/rory/log")
 MAX_RETRIES          = int(os.environ.get("MAX_RETRIES","10"))
 EXPERIMENT_ID        = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
 MAX_THREADS          = int(os.environ.get("MAX_THREADS",1))
-DATASET_EXTENSION    = "csv"
-TRACE_PATH           = os.environ.get("TRACE_PATH","{}/{}.{}".format(SOURCE_PATH,TRACE_ID,DATASET_EXTENSION))
+TRACE_EXTENSION      = os.environ.get("TRACE_EXTENSION","csv")
+DATASET_EXTENSION    = os.environ.get("EXTENSION","csv")
+
+TRACE_PATH           = os.environ.get("TRACE_PATH","{}/{}.{}".format(SOURCE_PATH,TRACE_ID,TRACE_EXTENSION))
+CLIENT_TIMEOUT       = int(os.environ.get("CLIENT_TIMEOUT",300))
 
 try:
     os.makedirs(SOURCE_PATH,exist_ok = True)
@@ -80,21 +83,25 @@ def write_to_file(filename:str, lv:npt.NDArray):
     except Exception as e:
         LOGGER.error(str(e))
 
-def client_request(row:pd.Series,url:str,headers:Dict[str,str]):
+def client_request(row:pd.Series,url:str,headers:Dict[str,str], timeout:int = 300):
     try:
-        return requests.post(
+        response = requests.post(
             url     = url,
             headers = headers,
-            timeout = 300
+            timeout = timeout
         )
+        response.raise_for_status()
+        return response
     except Exception as e:
         print(e)
         LOGGER.error("Error to process {} ".format(row["DATASET_ID"]))
         raise e
 
-def run_experiment(row:pd.Series,experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
+
+
+
+def clustering_experiment(row:pd.Series,experiment_iteration:int):
         try:
-            #return Err((row, R.Response(), -1))
             arrivalTime       = time.time()
             plainTextMatrixId = str(row["DATASET_ID"])
             LOGGER.debug("INIT_EXPERIMENT {} {}".format(plainTextMatrixId,experiment_iteration))
@@ -112,7 +119,12 @@ def run_experiment(row:pd.Series,experiment_iteration:int)->Result[Tuple[pd.Seri
 
             url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
 
-            _response     = client_request(row=row,url=url,headers=headers)
+            _response   = client_request(
+                row     = row,
+                url     = url,
+                headers = headers, 
+                timeout = CLIENT_TIMEOUT
+            )
             _response.raise_for_status()
             response      = ClientResponse.fromResponse(_response)
             labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,experiment_iteration)
@@ -135,39 +147,130 @@ def run_experiment(row:pd.Series,experiment_iteration:int)->Result[Tuple[pd.Seri
             return Ok((row,_response,experiment_iteration))
         except Exception as e:
             LOGGER.error("DATAOWNER_ERROR "+str(e))
-            return Err((row,R.Response(),experiment_iteration))
+            return Err((row,Exception,experiment_iteration))
 
+
+def classification_experiment(row:pd.Series,experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,Exception, int]]:
+    try:
+        arrivalTime   = time.time()
+        matrixId      = str(row["DATASET_ID"])
+        modelId       = "{}_model".format(matrixId)
+        recordsTestId = "{}_data".format(matrixId)
+        LOGGER.debug("INIT_EXPERIMENT {} {}".format(matrixId,experiment_iteration))
+
+        headers = {
+            "Matrix-Id": "{}-{}".format(matrixId,experiment_iteration),
+            "Model-Id":modelId,
+            "M": str(row["M"]),
+            "Extension": DATASET_EXTENSION,
+            "Client-Id": CLIENT_ID,
+            "Experiment-Iteration": str(experiment_iteration)
+        }
+
+        LOGGER.debug("INIT_TRAIN {} {}".format(matrixId,experiment_iteration))
+        url_train = "http://{}:{}/classification/{}/train".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+
+        LOGGER.debug("URL = {}".format(url_train))
+
+        _response   = client_request(
+            row     = row,
+            url     = url_train,
+            headers = headers, 
+            timeout = CLIENT_TIMEOUT
+        )
+        response   = ClientResponse.fromResponse(_response)
+
+        LOGGER.debug("INIT_PREDICT {} {}".format(matrixId,experiment_iteration))
+        headers_pred = {
+            "Model-Id": modelId,
+            "Records-Test-Id": recordsTestId,
+            "M": str(row["M"]),
+            "Extension": DATASET_EXTENSION,
+            "Client-Id": CLIENT_ID,
+            "Experiment-Iteration": str(experiment_iteration)
+        }
+        url_predict = "http://{}:{}/classification/{}/predict".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
+        _response   = client_request(
+            row     = row,
+            url     = url_predict,
+            headers = headers_pred, 
+            timeout = CLIENT_TIMEOUT
+        )
+        response   = ClientResponse.fromResponse(_response)
+        labelVectorId = "{}_{}_{}".format(matrixId,ALGORITHM,experiment_iteration)
+
+        write_to_file(labelVectorId,response.labelVector)
+        endTime       = time.time() # Get the time when it ends
+        response_time = endTime - arrivalTime 
+
+        logger_metrics = LoggerMetrics(
+            operation_type = ALGORITHM,
+            matrix_id      = matrixId,
+            algorithm      = ALGORITHM,
+            arrival_time   = arrivalTime, 
+            end_time       = endTime, 
+            service_time   = response_time,
+            n_iterations   = experiment_iteration,
+        )
+        LOGGER.info(str(logger_metrics))
+        print("_"*40)
+        return Ok((row, R.Response(),experiment_iteration))
+    except Exception as e:
+        LOGGER.error("DATAOWNER_ERROR "+str(e))
+        return Err((row,Exception,experiment_iteration))
+
+def run_experiment(row:pd.Series,experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
+    algorithm = row["ALGORITHM"]
+    if algorithm == "KNN" or  algorithm =="SKNN":
+        return classification_experiment(row=row, experiment_iteration=experiment_iteration)
+    else:
+        return clustering_experiment(row=row, experiment_iteration=experiment_iteration)
 
 
 def main(trace_df:pd.DataFrame,EXPERIMENT_ITERATION:int= 31)->Result[int, pd.DataFrame]:
+    # Lista de operaciones fallidas
     failed_operations:List[pd.Series]  = []
     try:
+        # Configuracion de la THREADPOOL. 
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+            # Tiempo de inicio de la experimentacion.
             start_time = time.time()
+            # Iteracion de los registros de la traza.
             for index,row in trace_df.iterrows():
+                # Lista de futuros (operaciones asincronas/no bloqueantes)
                 futures    = []
-
+                # Cada registro se repetira EXPERIMENT_ITERATION veces
                 for experiment_iteration in range(EXPERIMENT_ITERATION):
-                    
+                    # Lanzar la operacion a un thread utilizando la Thread Pool. 
                     fut = executor.submit(run_experiment,row,experiment_iteration)
-
+                    # Añadir a la lista de futuros el nuevo futuro.
                     futures.append(fut)
+                    # Duerme el thread para esperar INTERARRIVAL_TIME
                     time.sleep(row["INTERARRIVAL_TIME"])
-
+                # Espera para completar todos los EXPERIMENT_ITERATIONS 
                 for fut in as_completed(futures):
-                    result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, R.Response, int]] = fut.result()
+                    # Saca el resultado del futuro
+                    result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, Exception, int]] = fut.result()
+                    # Si falla 
                     if result.is_err:
+                        # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
                         (failed_row, error_response, experiment_iteration) = result.unwrap_err()
+                        # Sacamos el DatasetID
                         datasetId = failed_row["DATASET_ID"]
+                        # Mostramos informacion del error
                         LOGGER.error(str(error_response))
                         LOGGER.error("dataset_id={} iteration={} failed".format(datasetId,experiment_iteration))
                         print("_"*40)
+                        # Añadimos la fila a la lista de operaciones fallidas
                         failed_operations.append(failed_row)
                     else:
-                        (_row, response, experiment_iteration) = result.unwrap()
+                        # Extrae la parte buena con unwrap()
+                        (_row, _, experiment_iteration) = result.unwrap()
+                        # Mostramos informacion de la operacion exitosa.
                         datasetId = _row["DATASET_ID"]
                         LOGGER.debug("dataset_id={} iteration={} completed successfully".format(datasetId,experiment_iteration))
                         print("_"*40)
+                
             end_time = time.time()
             total_time = end_time - start_time
             LOGGER.debug("Total time {}".format(total_time))
@@ -180,8 +283,11 @@ def main(trace_df:pd.DataFrame,EXPERIMENT_ITERATION:int= 31)->Result[int, pd.Dat
         return Err(pd.DataFrame(failed_operations))
 
 if __name__ =="__main__":
+    # 1. Traza.
     trace_df      = pd.read_csv(TRACE_PATH)
+    # 2. Experimentos (programa principal).
     result        = main(trace_df=trace_df,EXPERIMENT_ITERATION=EXPERIMENT_ITERATION)
+    # 3. Reintento de experimentos fallidos. 
     current_tries = 0
     while result.is_err and current_tries < MAX_RETRIES:
         failed_rows       = result.unwrap_err()
@@ -191,7 +297,10 @@ if __name__ =="__main__":
         LOGGER.error("{} completed with {} failed operations".format(EXPERIMENT_ID, failed_rows.shape[0]))
         LOGGER.debug("SUCESS_PERCENTAGE={} ERROR_PERCENTAGE={}".format(sucess_percentage,error_percentage))
         current_tries += 1
-        result        =  main(trace_df=failed_rows,EXPERIMENT_ITERATION=1)
+        result =  main(
+            trace_df             = failed_rows,
+            EXPERIMENT_ITERATION = 1
+        )
     if result.is_ok:
         LOGGER.debug("{} completed successfully".format(EXPERIMENT_ID))
         sys.exit(0)

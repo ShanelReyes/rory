@@ -80,5 +80,7 @@ def test_secure():
             )
     except Exception as e:
         logger.error(str(e))
-        sem.release()
+        # sem.release()
         return ("SERVER_ERROR",500)
+    # finally:
+        # sem.release()

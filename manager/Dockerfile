@@ -1,4 +1,4 @@
-FROM python:3.8-slim
+FROM python:3.9-slim
 WORKDIR /app
 RUN apt update
 RUN apt install -y git
@@ -14,4 +14,6 @@ COPY ./requirements.txt .
 RUN pip install -r requirements.txt
 COPY ./src .
 # CMD [ "gunicorn","python","-u","/app/main.py"]
+# RUN ls -la
+# CMD ["tail","-f","/dev/null"]
 CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]

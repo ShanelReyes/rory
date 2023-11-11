@@ -2,14 +2,21 @@ import os, logging, requests, sys
 from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
+from routes.classification import classification
 from rory.core.logger.Logger import create_logger
 from mictlanx.v4.client import Client
 from mictlanx.utils.index import Utils
 from option import Some
 from dotenv import load_dotenv
 from retry.api import retry_call
+print("INIT_WORKER")
 app = Flask(__name__)
-load_dotenv()
+# print("HERE")
+DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
+print("DEBUG",DEBUG)
+if DEBUG:
+    load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
+# load_dotenv()
 
 NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
 PORT                 = int(os.environ.get("NODE_PORT",9000))
@@ -34,25 +41,34 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-MICTLANX_TIMEOUT                 = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_APP_ID                  = os.environ.get("MICTLANX_APP_ID" "APP_ID")
-MICTLANX_CLIENT_ID               = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
-MICTLANX_SECRET                  = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_PROXY_IP_ADDR           = os.environ.get("MICTLANX_PROXY_IP_ADDR","localhost")
-MICTLANX_PROXY_PORT              = int(os.environ.get("MICTLANX_PROXY_PORT","8080"))
-MICTLANX_XOLO_IP_ADDR            = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT               = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
-MICTLANX_REPLICA_MANAGER_IP_ADDR = os.environ.get("MICTLANX_REPLICA_MANAGER_IP_ADDR", "localhost")
-MICTLANX_REPLICA_MANAGER_PORT    = int(os.environ.get("MICTLANX_REPLICA_MANAGER_PORT", "20000"))
-MICTLANX_API_VERSION             = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_EXPIRES_IN              = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID" "APP_ID")
+MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
+MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
+MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
+MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
+MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
+MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
+MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")
+MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
+MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
+MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
+MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
+MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
+MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
 
 STORAGE_CLIENT  = Client(
-    client_id       = MICTLANX_CLIENT_ID,
-    peers           = list(Utils.peers_from_str(os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000"))),
-    debug           = False,
-    daemon          = False,
-    max_workers     = int(os.environ.get("MICTLANX_CLIENT_WORKERS","4"))
+    client_id    = MICTLANX_CLIENT_ID,
+    peers        = list(Utils.peers_from_str(MICTLANX_PEERS)),
+    debug        = MICTLANX_DEBUG,
+    daemon       = MICTLANX_DAEMON,
+    show_metrics = MICTLANX_SHOW_METRICS,
+    max_workers  = MICTLANX_MAX_WORKERS,
+    lb_algorithm = MICTLANX_CLIENT_LB_ALGORITHM,
+    bucket_id    = os.environ.get("MICTLANX_BUCKET_ID","rory"),
+    disable_log  = MICTLANX_DISABLED_LOG,
+    # output_path  = LOG_PATH
+
 )
 LOGGER = create_logger (
     name                   = NODE_ID,
@@ -71,6 +87,7 @@ def create_app():
     
     # Register blueprints
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
+    app.register_blueprint(classification)
     with app.app_context():
         current_app.config["request_counter"]  = 0
         current_app.config["NODE_PORT"]        = PORT
@@ -92,6 +109,7 @@ Description:
 def started_completed():
   def __inner():
     try:
+      print(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT)
       response = requests.post(
             "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT),
             headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)},

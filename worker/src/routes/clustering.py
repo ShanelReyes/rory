@@ -1,5 +1,7 @@
 import time, json
 import numpy as np
+import numpy.typing as npt
+from typing import Awaitable,Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.clustering.kmeans import kmeans as kMeans
 from rory.core.clustering.secure.local.dbsnnc import Dbsnnc
@@ -11,12 +13,22 @@ from rory.core.clustering.secure.distributed.dbskmeans import DBSKMeans
 from mictlanx.v3.client import Client 
 from mictlanx.v4.client import Client as V4Client
 from option import Result
-from mictlanx.v4.interfaces.responses import GetNDArrayResponse
+from mictlanx.utils.segmentation import Chunks
+from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
 from rory.core.interfaces.logger_metrics import LoggerMetrics
+from option import Option
 # 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
+def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str)->Tuple[npt.NDArray,Metadata]:
+    encryptedMatrix_result:Result[GetBytesResponse,Exception]                    = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks).result()
+    if encryptedMatrix_result.is_err:
+        raise Exception("{} not found".format(key))
+        # raise encryptedMatrix_result.unwrap_err()
+    encryptedMatrix_response = encryptedMatrix_result.unwrap()
+    encryptedMatrix                         = np.frombuffer(encryptedMatrix_response.value,dtype=dtype).reshape(shape)
+    return (encryptedMatrix,encryptedMatrix_response.metadata)
 
 @clustering.route("/test",methods=["GET","POST"])
 def test():
@@ -55,7 +67,6 @@ def skmeans_1(requestHeaders) -> Response:
     logger.debug("Worker starts SKMEANS_1 process -> {}".format(plainTextMatrixID))
     try:
         responseHeaders["Start-Time"] = str(arrivalTime)
-        print("BEFORE")
         encryptedMatrix_response = STORAGE_CLIENT.get_and_merge_ndarray(key=encryptedMatrixId)
         x                        = encryptedMatrix_response.result()
         encryptedMatrix_response:GetNDArrayResponse = x.unwrap()
@@ -134,12 +145,9 @@ def skmeans_1(requestHeaders) -> Response:
         )
 
         x = x.result()
-        print("X",x)
         y = y.result()
-        print("y",y)
         z = z.result() 
-        print("z",z)
-
+        
         logger.info(str(run1_logger_metrics))
       
         return Response( #Returns the final response as a label vector + the headers
@@ -186,11 +194,17 @@ def skmeans_2(requestHeaders):
     start_time              = requestHeaders.get("Start-Time","0.0")
     logger.debug("Worker starts SKMEANS_2 process -> {}".format(plainTextMatrixID))
     try:
-        UDM_response = Segmentation.get_matrix_or_error(
-            client = STORAGE_CLIENT, 
-            key    = UDM_id
-        )
+        
+        UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray(key=UDM_id)
+        #logger.debug("UDM_FUTURE {}".format(UDM_put_future))
+        UDM_result:Result[GetNDArrayResponse,Exception] = UDM_put_future.result()
+        #logger.debug("UDM_RESPONSE {}".format(UDM_result))
+        if UDM_result.is_err:
+            return Response(None, status=500, headers={"Error-Message":str(UDM_result.unwrap_err())})
+        UDM_response:GetNDArrayResponse   = UDM_result.unwrap()
+
         UDM             = UDM_response.value
+        
         Cent_i_response = Segmentation.get_matrix_or_error(
             client = STORAGE_CLIENT,
             key    = Cent_iId
@@ -199,8 +213,9 @@ def skmeans_2(requestHeaders):
         Cent_j_response = Segmentation.get_matrix_or_error(
             client = STORAGE_CLIENT,
             key    = Cent_jId
-        ) 
+        )
         Cent_j                   = Cent_j_response.value
+
         shiftMatrix_get_response = Segmentation.get_matrix_or_error(
             client = STORAGE_CLIENT,
             key    = shiftMatrixId
@@ -242,7 +257,6 @@ def skmeans_2(requestHeaders):
         else: #If Shift matrix is not zero
             skmeans         = SKMeans() 
             status          = Constants.ClusteringStatus.WORK_IN_PROGRESS
-            print("STATUS",status)
             responseHeaders["Clustering-Status"] = status #The status is changed to WORK IN PROGRESS
             attibutes_shape = eval(requestHeaders["Encrypted-Matrix-Shape"]) # extract the attributes of shape
             _UDM            = skmeans.run_2( # The second part of the skmeans starts
@@ -251,8 +265,9 @@ def skmeans_2(requestHeaders):
                 attributes  = int(attibutes_shape[1]),
                 shiftMatrix = shiftMatrix,
             )
-            print("RUN 2 FINISH")
             UDM_array = np.array(_UDM)
+            logger.debug("_UDMMATRIX SHAPE{}".format(UDM_array.shape))
+
             x = STORAGE_CLIENT.put_ndarray(
                 key       = UDM_id, 
                 ndarray   = UDM_array,
@@ -278,8 +293,6 @@ def skmeans_2(requestHeaders):
             )
 
             logger.info(str(run2_logger_metrics))
-            # x_result = x.result()
-            # print(x_result)
             return Response( #Return none and headers
                 response = None,
                 status   = 204, 
@@ -375,33 +388,77 @@ def dbskmeans_1(requestHeaders) -> Response:
     k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
     m                       = int(requestHeaders.get("M",3))
     algorithm               = Constants.ClusteringAlgorithms.DBSKMEANS
-    plaintext_matrix_id     = requestHeaders.get("Plaintext-Matrix-Id")
-    encrypted_matrix_id     = requestHeaders.get("Encrypted-Matrix-Id","")
-    encrypted_udm_id        = "{}-encrypted-UDM".format(plaintext_matrix_id) 
-    Cent_iId                = "{}-Cent_i".format(plaintext_matrix_id) #Build the id of Cent_i
-    Cent_jId                = "{}-Cent_j".format(plaintext_matrix_id) #Build the id of Cent_j
-    encryptedShiftMatrixId  = "{}-EncryptedShiftMatrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
+    plainTextMatrixID       = requestHeaders.get("Plaintext-Matrix-Id")
+    encryptedMatrixId       = requestHeaders.get("Encrypted-Matrix-Id","")
+    _encrypted_matrix_shape  = requestHeaders.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype  = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
+
+    _encrypted_udm_shape     = requestHeaders.get("Encrypted-Udm-Shape",-1)
+    _encrypted_udm_dtype     = requestHeaders.get("Encrypted-Udm-Dtype",-1)
+    logger.debug(str(requestHeaders))
+    logger.debug("DBSKMEANS_1 algorithm={}, m={}, k={}, plain_matrix_id={}, ems={}, emd={}, eus={}, eud={}".format(algorithm,m,k,plainTextMatrixID,_encrypted_matrix_shape,_encrypted_matrix_dtype,_encrypted_udm_shape,_encrypted_udm_dtype))
+    if _encrypted_matrix_dtype == -1:
+        return Response("Encrypted-Matrix-Dtype", status=500)
+    if _encrypted_matrix_shape == -1 :
+        return Response("Encrypted-Matrix-Shape header is required", status=500)
+
+    if _encrypted_udm_dtype == -1:
+        return Response("Encrypted-UDM-Dtype", status=500)
+    if _encrypted_udm_shape == -1 :
+        return Response("Encrypted-UDM-Shape header is required", status=500)
+    
+
+    
+    encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
+    encrypted_udm_shape:tuple    = eval(_encrypted_udm_shape)
+    
+    encryptedUdmId          = "{}-encrypted-UDM".format(plainTextMatrixID) 
+    Cent_iId                = "{}-Cent_i".format(plainTextMatrixID) #Build the id of Cent_i
+    Cent_jId                = "{}-Cent_j".format(plainTextMatrixID) #Build the id of Cent_j
+    encryptedShiftMatrixId  = "{}-EncryptedShiftMatrix".format(plainTextMatrixID) #Build the id of Encrypted Shift Matrix
+    num_chunks              = int(requestHeaders.get("Num-Chunks",-1))
     dbskmeans               = DBSKMeans()
     responseHeaders         = {}
-    
-    logger.debug("Worker starts SKMEANS_1 process -> {}".format(plaintext_matrix_id))
+    logger.debug("Worker starts DBSKMEANS_1 process -> {}".format(plainTextMatrixID))
+
+
+    if num_chunks == -1:
+        return Response("Num-Chunks header is required", status=503)
     try:
-        responseHeaders["Start-Time"] = str(arrivalTime)
-        print("BEFORE")
-        encryptedMatrix_response = STORAGE_CLIENT.get_and_merge_ndarray(key=encrypted_matrix_id)
-        x = encryptedMatrix_response.result()
-        print("CHUNKS_RES",x)
-        print("_"*20)
-        encryptedMatrix_response:GetNDArrayResponse = x.unwrap()
-        encryptedMatrix          = encryptedMatrix_response.value
-        responseHeaders["Encrypted-Matrix-Dtype"] = encryptedMatrix_response.metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
-        responseHeaders["Encrypted-Matrix-Shape"] = encryptedMatrix_response.metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        logger.debug("get encrypted matrix {}".format(encryptedMatrixId))
+        responseHeaders["Start-Time"]               = str(arrivalTime)
+        # encryptedMatrix_response                    = STORAGE_CLIENT.get_and_merge_ndarray(key=encryptedMatrixId)
+        # encryptedMatrix_result:Result[GetBytesResponse,Exception]                    = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=BUCKET_ID,key=encryptedMatrixId,num_chunks=num_chunks).result()
+        # if encryptedMatrix_result.is_err:
+            # return Response("Get encrypted matrix error: {}".format(encryptedMatrix_result.unwrap_err()), 500 )
+        # if en
+
+            # return Ok()
+        # encryptedMatrix_result:GetBytesResponse = x.unwrap() 
+        # Deserialize bytes to NDMAtrix with shape encrypted_matrix_shape
+        # encryptedMatrix                         = np.frombuffer(encryptedMatrix_result.value,dtype=_encrypted_matrix_dtype).reshape(encrypted_matrix_shape)
+        # encrypted_matrix_metadata:Metadata      =  encryptedMatrix_result.metadata
+        (encryptedMatrix, encrypted_matrix_metadata) = get_and_merge_ndarray(STORAGE_CLIENT=STORAGE_CLIENT,bucket_id=BUCKET_ID, key=encryptedMatrixId,num_chunks=num_chunks, shape=encrypted_matrix_shape,dtype=_encrypted_matrix_dtype)
+
+
+
+        responseHeaders["Encrypted-Matrix-Dtype"]   = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
+        responseHeaders["Encrypted-Matrix-Shape"]   = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        # 
+        # logger.debug("get udm before {}".format(encryptedUdmId))
+        logger.debug("ENCRYPTED_MATRIX GET SUCCESSFULLY")
         
-        udm_matrix_response:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_and_merge_ndarray(key=encrypted_udm_id).result().unwrap()
-        UDMMatrix                           = udm_matrix_response.value
-        responseHeaders["Udm-Matrix-Dtype"] = udm_matrix_response.metadata.tags.get("dtype",UDMMatrix.dtype) # Extract the type
-        responseHeaders["Udm-Matrix-Shape"] = udm_matrix_response.metadata.tags.get("shape",UDMMatrix.shape) # Extract the shape
-        
+        # udm_matrix_response:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_and_merge_ndarray(key=encryptedUdmId)
+        # udm_matrix_response:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=BUCKET_ID, key=encryptedUdmId, num_chunks=num_chunks)
+        # y                                      = udm_matrix_response.result()
+        # udm_matrix_response:GetNDArrayResponse = y.unwrap()
+        # UDMMatrix                              = udm_matrix_response.value
+        (UDMMatrix, udm_metadata) = get_and_merge_ndarray(STORAGE_CLIENT=STORAGE_CLIENT,bucket_id=BUCKET_ID, key=encryptedUdmId,num_chunks=num_chunks, shape=encrypted_udm_shape,dtype=_encrypted_udm_dtype)
+
+        responseHeaders["Encrypted-Udm-Dtype"]    = str(udm_metadata.tags.get("dtype",UDMMatrix.dtype)) # Extract the type
+        responseHeaders["Encrypted-Udm-Shape"]    = str(udm_metadata.tags.get("shape",UDMMatrix.shape)) # Extract the shape
+        logger.debug("ENCRYPTED_UDM_MATRIX GET SUCCESSFULLY")
+
         if(isStartStatus): #if the status is start
             __Cent_j = None #There is no Cent_j
         else: 
@@ -411,6 +468,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             )
             __Cent_j          = Cent_j_response.value
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS
+            logger.debug("CLIENT_I GET SUCCESSFULLY")
         
         S1,Cent_i,Cent_j,label_vector = dbskmeans.run1(
             status           = status,
@@ -426,6 +484,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             tags      = {},
             bucket_id = BUCKET_ID
         )
+        logger.debug("CLIENT_I PUT SUCCESSFULLY")
 
         y = STORAGE_CLIENT.put_ndarray( # Saving Cent_j to storage
             key       = Cent_jId, 
@@ -433,6 +492,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             tags      = {},
             bucket_id = BUCKET_ID
         )
+        logger.debug("CLIENT_J PUT SUCCESSFULLY")
 
         z = STORAGE_CLIENT.put_ndarray( # Saving S1 matrix to storage
             key       = encryptedShiftMatrixId,  
@@ -440,6 +500,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             tags      = {},
             bucket_id = BUCKET_ID
         )
+        logger.debug("ENCRYPTED_SHIFT_MATRIX_ID PUT SUCCESSFULLY")
         
         endTime                                      = time.time()
         serviceTime                                  = endTime - arrivalTime
@@ -450,10 +511,11 @@ def dbskmeans_1(requestHeaders) -> Response:
         x = x.result()
         y = y.result()
         z = z.result() 
+        #print(x,y,z)
         
         logger_metrics = LoggerMetrics(
             operation_type = "DBSKMEANS_1",
-            matrix_id      = plaintext_matrix_id,
+            matrix_id      = plainTextMatrixID,
             worker_id      = workerId,
             algorithm      = algorithm, 
             arrival_time   = arrivalTime, 
@@ -464,15 +526,16 @@ def dbskmeans_1(requestHeaders) -> Response:
             n_iterations   = responseHeaders.get("Iterations",0))
         logger.info(str(logger_metrics))
         
+        logger.debug("_"*100)
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({"labelVector":label_vector }),
             status   = 200,
             headers  = {**requestHeaders, **responseHeaders}
         )
     except Exception as e:
-        print("ERROR {}".format(e))
-        logger.error( encrypted_matrix_id+" "+str(e) )
-        return Response(None,status = 503,headers = {"error-Message":str(e)} )
+        # print("ERROR {}".format(e))
+        logger.error("DBSKMEANS_1_ERROR: "+encryptedMatrixId+" "+str(e) )
+        return Response(str(e),status = 503)
 
 """
 Description:
@@ -488,38 +551,81 @@ def dbskmeans_2(requestHeaders):
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.DBSKMEANS
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
-    k                       = requestHeaders.get("K",3)
-    m                       = requestHeaders.get("M",3)
+    k                       = int(requestHeaders.get("K",3))
+    m                       = int(requestHeaders.get("M",3))
+    num_chunks              = int(requestHeaders.get("NUM_CHUNKS",4))
     iterations              = int(requestHeaders.get("Iterations",0))
     start_time              = requestHeaders.get("Start-Time","0.0")
-    encryptedMatrixId       = requestHeaders["Encrypted-Matrix-Id"]
-    plainTextMatrixID       = requestHeaders["Plaintext-Matrix-Id"]
+    encryptedMatrixId       = requestHeaders.get("Encrypted-Matrix-Id",-1)
+    plainTextMatrixID       = requestHeaders.get("Plaintext-Matrix-Id",-1)
+    if encryptedMatrixId == -1 or plainTextMatrixID == -1:
+        return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
+    
     shiftMatrixId           = requestHeaders.get("Shift-Matrix-Id","{}-ShiftMatrix".format(plainTextMatrixID))
     shiftMatrixOpeId        = requestHeaders.get("Shift-Matrix-Ope-Id","{}-ShiftMatrixOpe".format(plainTextMatrixID))
+    
+    # encryptedMatrixId       = requestHeaders.get("Encrypted-Matrix-Id","")
+    _encrypted_matrix_shape  = requestHeaders.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype  = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
+
+    _encrypted_udm_shape     = requestHeaders.get("Encrypted-Udm-Shape",-1)
+    _encrypted_udm_dtype     = requestHeaders.get("Encrypted-Udm-Dtype",-1)
+
+    logger.debug("DBSKMEANS_2 algorithm={}, m={}, k={}, plain_matrix_id={}, ems={}, emd={}, eus={}, eud={}".format(algorithm,m,k,plainTextMatrixID,_encrypted_matrix_shape,_encrypted_matrix_dtype,_encrypted_udm_shape,_encrypted_udm_dtype))
+    
+    if _encrypted_matrix_dtype == -1:
+        return Response("Encrypted-Matrix-Dtype", status=500)
+    if _encrypted_matrix_shape == -1 :
+        return Response("Encrypted-Matrix-Shape header is required", status=500)
+
+    if _encrypted_udm_dtype == -1:
+        return Response("Encrypted-UDM-Dtype", status=500)
+    if _encrypted_udm_shape == -1 :
+        return Response("Encrypted-UDM-Shape header is required", status=500)
+
+
+    encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
+    encrypted_udm_shape:tuple    = eval(_encrypted_udm_shape)
     UDM_id                  = "{}-encrypted-UDM".format(plainTextMatrixID)
     Cent_iId                = "{}-Cent_i".format(plainTextMatrixID) #Build the id of Cent_i
     Cent_jId                = "{}-Cent_j".format(plainTextMatrixID) #Build the id of Cent_j
     responseHeaders         = {}
-    logger.debug("Worker starts SKMEANS_2 process -> {}".format(plainTextMatrixID))
+    logger.debug("Worker starts DBSKMEANS_2 process -> {}".format(plainTextMatrixID))
     try:
-        UDM_response:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_and_merge_ndarray(key=UDM_id).result().unwrap()
-        UDM             = UDM_response.value
+        (UDM, encrypted_matrix_metadata) = get_and_merge_ndarray(STORAGE_CLIENT=STORAGE_CLIENT,
+                                                                             bucket_id=BUCKET_ID, 
+                                                                             key=UDM_id,
+                                                                             num_chunks=num_chunks, 
+                                                                             shape=encrypted_udm_shape,
+                                                                             dtype=_encrypted_udm_dtype
+                                                                             )
+        logger.debug(str(encrypted_matrix_metadata))
+        # logger.debug("_"*50)
+        # UDM_response:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_and_merge_ndarray(key=UDM_id)
+        # y                               = UDM_response.result()
+        # UDM_response:GetNDArrayResponse = y.unwrap()``
+        # UDM                             = UDM_response.value
+        
         Cent_i_response = Segmentation.get_matrix_or_error(
             client = STORAGE_CLIENT,
             key    = Cent_iId
         )
         Cent_i          = Cent_i_response.value
+
+        logger.debug("CENT_I GET SUCCESSFULLY")
         Cent_j_response = Segmentation.get_matrix_or_error(
             client = STORAGE_CLIENT,
             key    = Cent_jId
         ) 
-        Cent_j                   = Cent_j_response.value
+        Cent_j  = Cent_j_response.value
+        logger.debug("CENT_J GET SUCCESSFULLY")
 
-        shiftMatrix_get_response = Segmentation.get_matrix_or_error(
-            client = STORAGE_CLIENT,
-            key    = shiftMatrixId
-        )
-        shiftMatrix = shiftMatrix_get_response.value
+        # shiftMatrix_get_response = Segmentation.get_matrix_or_error(
+        #     client = STORAGE_CLIENT,
+        #     key    = shiftMatrixId
+        # )
+        # shiftMatrix = shiftMatrix_get_response.value
+        
         isZero = Utils.verify_mean_error(
             old_matrix = Cent_i, 
             new_matrix = Cent_j,
@@ -557,25 +663,82 @@ def dbskmeans_2(requestHeaders):
             dbskmeans               = DBSKMeans() 
             status                  = Constants.ClusteringStatus.WORK_IN_PROGRESS #The status is changed to WORK IN PROGRESS
             responseHeaders["Clustering-Status"] = status
-            attibutes_shape         = eval(requestHeaders["Encrypted-Matrix-Shape"]) # extract the attributes of shape
+            # attibutes_s/hape         = eval(requestHeaders["Encrypted-Matrix-Shape"]) # extract the attributes of shape
+            #print("Get shiftMatrix")
             shiftMatrixOpe_response = Segmentation.get_matrix_or_error(
                 client = STORAGE_CLIENT,
                 key = shiftMatrixOpeId
             )
-            shiftMatrixOpe = shiftMatrixOpe_response.value
+            shiftMatrixOpe:npt.NDArray = shiftMatrixOpe_response.value
+
+            logger.debug("SHIFT_MATRIX_OPE GET SUCCESSFULLY")
+            #print("UDM run 2")
+            udm_start_time = time.time()
+            logger.debug("ENCRYPTED_MATRIX_SHAPE {}".format(encrypted_matrix_shape))
+            logger.debug("ENCRYPTED_UDM_SHAPE {}".format(UDM.shape))
+            logger.debug("SHIF_MATRIX_OPE {}".format(shiftMatrixOpe.shape))
+            # logger.debug("")
             _UDMMatrix     = dbskmeans.run_2( # The second part of the skmeans starts
                 k                = k,
                 UDM              = UDM,
-                attributes       = int(attibutes_shape[1]),
+                attributes       = int(encrypted_matrix_shape[1]),
                 shiftMatrix      = shiftMatrixOpe,
             )
-            UDM_array = np.array(_UDMMatrix)
-            _ = STORAGE_CLIENT.put_ndarray(
+            logger.debug("_UDMMATRIX SHAPE{}".format(_UDMMatrix.shape))
+            logger.debug("RUN_2 COMPLETED SUCCESSFULLY")
+
+            #print("Put UDM")
+            # UDM_array = np.array(_UDMMatrix)
+            # _ = STORAGE_CLIENT.put_ndarray(
+            #     key       = UDM_id, 
+            #     ndarray   = _UDMMatrix,
+            #     tags      = {},
+            #     bucket_id = BUCKET_ID
+            # ).result() # UDM is extracted from the storage system
+            
+            maybe_UDM_chunks:Option[Chunks] = Chunks.from_ndarray(
+                ndarray    = _UDMMatrix,
+                group_id   = UDM_id,
+                num_chunks = num_chunks
+            )
+            logger.debug("CHUNKS_FROM_NDARRAY COMPLETED SUCCESSFULLY")
+
+            if maybe_UDM_chunks.is_none:
+                logger.error("Something went wrong segment encrypted-UDM.")
+                return Response(
+                    status   = 500,
+                    response = "{}".format(str(maybe_UDM_chunks.unwrap_err()))
+                )
+            
+            UDM_chunks = maybe_UDM_chunks.unwrap()
+            
+            put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
                 key       = UDM_id, 
-                ndarray   = UDM_array,
-                ags       = {},
-                bucket_id = BUCKET_ID
-            ).result() # UDM is extracted from the storage system
+                chunks    = UDM_chunks, 
+                tags      = {}
+            )
+            logger.debug("ENCRYPTED_UDM_MATRIX PUT SUCCESSFULLY")
+
+            for i,put_chunk_result in enumerate(put_chunks_generator_results):
+                udm_end_time = time.time()
+                udm_time     = udm_end_time - udm_start_time
+                encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
+                    operation_type = "GENERATION_AND_ENCRYPT_UDM_CHUNK",
+                    matrix_id      = plainTextMatrixID,
+                    algorithm      = algorithm,
+                    arrival_time   = udm_start_time,
+                    end_time       = udm_end_time, 
+                    service_time   = udm_time,
+                    m_value        = m
+                ) 
+                if put_chunk_result.is_err:
+                    logger.error("Something went wrong storage and encrypt the chunk.")
+                    return Response(
+                        status   = 500,
+                        response = "{}".format(str(put_chunk_result.unwrap_err()))
+                    )
+                logger.info(str(encrypt_logger_metrics)+","+str(i))
+
             end_time                        = time.time()
             service_time                    = end_time - arrivalTime  #Service time is calculated
             responseHeaders["End-Time"]     = str(end_time)
@@ -587,13 +750,14 @@ def dbskmeans_2(requestHeaders):
                 worker_id      = workerId,
                 algorithm      = algorithm, 
                 arrival_time   = arrivalTime, 
-                end_time       = endTime, 
+                end_time       = end_time, 
                 service_time   = service_time,
                 m_value        = m,
                 k_value        = k,
                 n_iterations   = iterations
             )
             logger.info(str(logger_metrics))
+            logger.debug("_"*50)
             
             return Response( #Return none and headers
                 response = None,
@@ -601,12 +765,8 @@ def dbskmeans_2(requestHeaders):
                 headers  = {**requestHeaders, **responseHeaders}
             )
     except Exception as e:
-        logger.error(encryptedMatrixId+" "+str(e))
-        return Response(
-            response = None,
-            status   = 503,
-            headers  = {"Error-Message":str(e)} 
-        )
+        logger.error("DBSKMEANS_2_ERROR: "+encryptedMatrixId+" "+str(e) )
+        return Response(str(e),status = 503)
 
 """
 Description:
@@ -616,9 +776,14 @@ Description:
 def dbskmeans():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
+    logger                  = current_app.config["logger"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
+    logger.debug("DBSKMEANS "+str(filteredHeaders))
+    
     step_index      = int(filteredHeaders.get("Step-Index",1))
     response        = Response()
+    logger.debug("STEP_INDEX {}".format(step_index))
+    
     if step_index == 1:
         return dbskmeans_1(filteredHeaders)
     elif step_index == 2:
