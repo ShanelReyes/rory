@@ -60,17 +60,21 @@ def deploy_nodes(
             HOST_SOURCE_PATH = "{}/source".format(HOST_BASE_PATH)
             HOST_SINK_PATH   = "{}/sink".format(HOST_BASE_PATH)
             HOST_LOG_PATH    = "{}/log".format(HOST_BASE_PATH)
+            HOST_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(HOST_BASE_PATH)
 
             CONTAINER_SOURCE_PATH = "{}/source".format(WORKER_BASE_PATH)
             CONTAINER_SINK_PATH   = "{}/sink".format(WORKER_BASE_PATH)
             CONTAINER_LOG_PATH    = "{}/log".format(WORKER_BASE_PATH)
-
+            CONTAINER_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(WORKER_BASE_PATH)
+            #/rory/rory-worker-0/mictlanx -> /rory/mictlanx
             mounts = {
                     HOST_SOURCE_PATH:CONTAINER_SOURCE_PATH,
                     HOST_SINK_PATH:CONTAINER_SINK_PATH,
                     HOST_LOG_PATH:CONTAINER_LOG_PATH,
+                    HOST_MICTLANX_CLIENT_PATH:CONTAINER_MICTLANX_CLIENT_PATH
 
             }
+            
             selected_node = swarm_nodes[i % N]
             payload       = SummonContainerPayload(
                 image         = DOCKER_IMAGE, 

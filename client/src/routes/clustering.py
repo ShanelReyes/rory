@@ -58,7 +58,6 @@ def skmeans():
         num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
-        WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm               = Constants.ClusteringAlgorithms.SKMEANS
@@ -73,10 +72,11 @@ def skmeans():
         k                       = requestHeaders.get("K")
         experiment_iteration    = requestHeaders.get("Experiment-Iteration","0")
         MAX_ITERATIONS          = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
+        WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
         requestId               = "request-{}".format(plaintext_matrix_id)
         plaintext_matrix_path   = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixFilename, extension)
         logger.debug("_"*50)
-        logger.debug("Client starts to process {} at {}".format(plaintext_matrix_id,arrivalTime))
+        logger.debug("SKMEANS algorithm={}, m={}, k={}, plain_matrix_id={}, encrypted_matrix_id={}".format(algorithm,m,k,plaintext_matrix_id,encrypted_matrix_id))
         
         if extension == "csv":
             plaintext_matrix = pd.read_csv(
@@ -89,9 +89,16 @@ def skmeans():
         else:
             return Response(response = None, status = 500, headers={"Error-Message":"Extension invalida"})
         
-        r                       = plaintext_matrix.shape[0]
-        a                       = plaintext_matrix.shape[1]
-        encryption_start_time   = time.time()
+        r           = plaintext_matrix.shape[0]
+        a           = plaintext_matrix.shape[1]
+        cores       = os.cpu_count()
+        max_workers = num_chunks if max_workers > num_chunks else max_workers
+        max_workers = cores if max_workers > cores else max_workers
+        logger.debug("ENCRYPT_WORKERS {}".format(max_workers))        
+        encryption_start_time = time.time()
+        logger.debug("NUM_CHUNKS {}".format(num_chunks))
+        logger.debug("SHAPE {}".format(plaintext_matrix.shape))
+
         encrypted_matrix_chunks = Segmentation.segment_and_encrypt_liu_with_executor( #Encrypt 
             executor         = executor,
             key              = encrypted_matrix_id,
@@ -100,7 +107,7 @@ def skmeans():
             n                = a*r*m,
             num_chunks       = num_chunks
         )
-        logger.debug("SEGMENTATION")
+        logger.debug("SEGMENTATION AND ENCRYPT {}".format(plaintext_matrix_id))
         logger.debug("_"*35)
         chunks = encrypted_matrix_chunks.iter()
 
@@ -132,7 +139,6 @@ def skmeans():
                 )
             logger.info(str(encrypt_logger_metrics)+","+str(i))
         
-        encryption_end_time    = time.time()
         encryption_time        = encryption_end_time - encryption_start_time
         encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
             operation_type = "ENCRYPT",
@@ -184,6 +190,7 @@ def skmeans():
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
+        logger.debug("GET WORKER SUCCESSFULLY")
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
         stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
@@ -202,7 +209,7 @@ def skmeans():
             worker_id      = workerId
         )
         logger.info(str(get_worker_logger_metrics))
-        #print("CONNECT WITH WORKER")
+        
         worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = workerId,
             port       = jsonResponse["workerPort"],
@@ -210,24 +217,24 @@ def skmeans():
             algorithm  = algorithm,
         )
 
-        status                   = Constants.ClusteringStatus.START #Set the status to start
-        #print("STATUS: ",status)
-        workerResponse           = None 
+        status         = Constants.ClusteringStatus.START #Set the status to start
+        workerResponse = None 
         interaction_arrival_time = time.time()
         iterations   = 0
-        init_headers = {
-            "Plaintext-Matrix-Id": plaintext_matrix_id,
-            "K":str(k),
-            "M":str(m), 
-            "Experiment-Iteration": str(experiment_iteration), 
-            "Max-Iterations":str(MAX_ITERATIONS) 
-        }
-        #print("INIT HEADERS", init_headers)
+        # init_headers = {
+        #     "Plaintext-Matrix-Id": plaintext_matrix_id,
+        #     "K":str(k),
+        #     "M":str(m), 
+        #     "Experiment-Iteration": str(experiment_iteration), 
+        #     "Max-Iterations":str(MAX_ITERATIONS) 
+        # }
+        logger.debug("BEFORE WHILE")
+
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             
             #print("ENTRA AL WHILE")
             inner_interaction_arrival_time = time.time()
-            extra_headers = init_headers if iterations == 0 else {}
+            # extra_headers = init_headers if iterations == 0 else {}
             run1_headers  = {
                 "Step-Index"             : "1",
                 "Clustering-Status"      : str(status),
@@ -235,71 +242,83 @@ def skmeans():
                 "Request-Id"             : requestId,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                **extra_headers
+                "Encrypted-Matrix-Dtype" : "float64",
+                "Encrypted-Udm-Dtype"    : "float64",
+                "Num-Chunks"             : str(num_chunks),
+                "Iterations"             : str(iterations),
+                "K":str(k),
+                "M":str(m), 
+                "Experiment-Iteration": str(experiment_iteration), 
+                "Max-Iterations":str(MAX_ITERATIONS) 
             }
+            logger.debug(str(run1_headers))
+            #s.headers.update(run1_headers)
             
-            s.headers.update(run1_headers)
-            #print("INIT RUN")
+            logger.debug("UPDATE RUN_1 HEADERS")
+            workerResponse    = worker.run(
+                timeout = WORKER_TIMEOUT, 
+                headers = run1_headers
+            ) #Run 1 starts
 
-            workerResponse    = worker.run(timeout=WORKER_TIMEOUT) #Run 1 starts
             logger.debug("RUN1_WORKER_RESPONSE {}".format(workerResponse))
-            workerResponse.raise_for_status()
-            run1_service_time = float(workerResponse.headers.get("Service-Time",0))
-
-            s.headers.update({
-                "Clustering-Status":workerResponse.headers.get("Clustering-Status",str(status)),
-                "Plaintext-Matrix-Id": workerResponse.headers.get("Plaintext-Matrix-Id",plaintext_matrix_id),
-                "Request-Id":workerResponse.headers.get("Request-Id",requestId),
-                "Encrypted-Matrix-Id": workerResponse.headers.get("Encrypted-Matrix-Id",encrypted_matrix_id),
-                "Encrypted-Shift-Matrix-Id": workerResponse.headers.get("Encrypted-Shift-Matrix-Id","ENCRYPTED_SHIF_MATRIX"),
-                "K":workerResponse.headers.get("K",str(k)),
-                "M":workerResponse.headers.get("M",str(m)),
-                "Experiment-Iteration":workerResponse.headers.get("Experiment-Iteration",str(experiment_iteration)),
-                "Max-Iterations":workerResponse.headers.get("Max-Iterations",str(MAX_ITERATIONS))
-            }) # the current headers are updated with the ones that come from the worker
+            
+            if workerResponse.status_code !=200:
+                return Response("Worker error: {}".format(workerResponse.content),status=500)
             
             stringWorkerResponse              = workerResponse.content.decode("utf-8") #Response from worker
             jsonWorkerResponse                = json.loads(stringWorkerResponse) #pass to json
             encryptedShiftMatrixId            = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
-            #print("GET_MATRIX BEFORE")
             encryptedShiftMatrix_get_response = Segmentation.get_matrix_or_error(
-                client = STORAGE_CLIENT, 
-                key    = encryptedShiftMatrixId
+                client    = STORAGE_CLIENT, 
+                key       = encryptedShiftMatrixId,
+                bucket_id = BUCKET_ID
             )
-            logger.debug(str(encryptedShiftMatrix_get_response))
+            
+            logger.debug("ENCRYPTED_SHIFT_MATRIX GET SUCCESSFULLY")
 
-            encryptedShiftMatrix              = encryptedShiftMatrix_get_response.value
-            shiftMatrix_chipher_schema_res    = liu.decryptMatrix( #Shift Matrix is decrypted
+            encryptedShiftMatrix           = encryptedShiftMatrix_get_response.value
+            shiftMatrix_chipher_schema_res = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
                 secret_key        = dataowner.sk,
                 m                 = int(m)
             )
             shiftMatrix   = shiftMatrix_chipher_schema_res.matrix
-
+            logger.debug("DECRYPT MATRIX WITH LIU SUCCESSFULLY")
 
             shiftMatrixId = "{}-ShiftMatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
-            x = STORAGE_CLIENT.put_ndarray(
+            x:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
                 key       = shiftMatrixId,
                 ndarray   = shiftMatrix,
                 tags      = {},
                 bucket_id = BUCKET_ID
             ).result() #Shift matrix is saved to the storage system
-            logger.debug(str(x))
+            
+            logger.debug("SHIFT_MATRIX PUT SUCCESSFULLY")
 
             status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             run2_headers = {
-                    "Step-Index"        : "2",
-                    "Clustering-Status" : str(status),
-                    "Shift-Matrix-Id"   : shiftMatrixId,
+                    "Step-Index"             : "2",
+                    "Clustering-Status"      : str(status),
+                    "Shift-Matrix-Id"        : shiftMatrixId,
+                    "Plaintext-Matrix-Id": plaintext_matrix_id,
+                    "Encrypted-Matrix-Id"    :encrypted_matrix_id,
+                    "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
+                    "Encrypted-Matrix-Dtype" : "float64",
+                    "Num-Chunks"             : str(num_chunks),
+                    "Iterations"             :str(iterations),
+                    "K":str(k),
+                    "M":str(m), 
+                    "Experiment-Iteration": str(experiment_iteration), 
+                    "Max-Iterations":str(MAX_ITERATIONS) 
             }
-            s.headers.update(run2_headers)
-            #print("RUN2 BEFORE")
-            workerResponse      = worker.run(timeout=WORKER_TIMEOUT) #Start run 2
-            workerResponse.raise_for_status()
-            runw_service_time   = float(workerResponse.headers.get("Service-Time",0))
-            s.headers.update(workerResponse.headers) # The headers are updated
+            # s.headers.update(run2_headers)
+            workerResponse      = worker.run(
+                timeout = WORKER_TIMEOUT,
+                headers = run2_headers
+            ) #Start run 2
+
             service_time_worker = workerResponse.headers.get("Service-Time",0) 
-            iterations          = int(s.headers.get("Iterations",0)) # Extract the current number of iterations
+            iterations+=1
             if (iterations >= MAX_ITERATIONS): #If the number of iterations is equal to the maximum
                 status              = Constants.ClusteringStatus.COMPLETED #Change the status to complete
                 startTime           = float(s.headers.get("Start-Time",0))
@@ -365,9 +384,7 @@ def skmeans():
         )
     except Exception as e:
         logger.error("CLIENT_ERROR "+str(e))
-        return Response(response = None, status = 500, headers={"Error-Message":str(e)})
-    # finally:
-        # executor.
+        return Response(response= str(e) , status= 500)
     
     
 @clustering.route("/kmeans",methods = ["POST"])
@@ -385,12 +402,14 @@ def kmeans():
         requestHeaders          = request.headers #Headers for the request
         plainTextMatrixId       = requestHeaders.get("Plaintext-Matrix-Id","matrix-0")
         plainTextMatrixFilename = requestHeaders.get("Plaintext-Matrix-Filename","matrix-0")
+
         extension               = requestHeaders.get("Extension","csv")
         k                       = requestHeaders.get("K","3")
         MAX_ITERATIONS          = int(requestHeaders.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",100)))
         requestId               = "request-{}".format(plainTextMatrixId)
         plaintextMatrix_path    = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixFilename, extension)
-        
+        logger.debug("KMEANS algorithm={}, k={}, plain_matrix_id={}".format(algorithm,k,plainTextMatrixId))
+
         if extension == "csv":
             plaintextMatrix = pd.read_csv(
                 plaintextMatrix_path, 
@@ -411,7 +430,9 @@ def kmeans():
             tags      = {},
             bucket_id = BUCKET_ID
         ).result()
-        #print("AFTER_PUT")
+        
+        logger.debug("PLAINTEXT_MATRIX PUT SUCCESSFULLY")
+        
         get_worker_arrival_time     = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         mr          = managerResponse.getWorker( #Gets the worker from the manager
@@ -422,6 +443,7 @@ def kmeans():
         )
         get_worker_end_time       = time.time()
         get_worker_service_time   = get_worker_end_time - get_worker_arrival_time 
+        logger.debug("GET WORKER COMPLETED SUCCESSFULLY")
 
         stringResponse = mr.content.decode("utf-8") #Decode the manager's response
         jsonResponse   = json.loads(stringResponse) # Pass the response to json
@@ -442,7 +464,8 @@ def kmeans():
             port       = jsonResponse["workerPort"],
             session    = s,
             algorithm  = algorithm
-        )
+        )   
+        logger.debug("RORY WORKER COMPLETED SUCCESSFULLY")
 
         interaction_arrival_time = time.time()
         workerResponse           = worker.run(
@@ -452,6 +475,8 @@ def kmeans():
             },
             timeout = WORKER_TIMEOUT
         )
+        logger.debug("WORKER_RUN COMPLETED SUCCESSFULLY")
+
         interaction_end_time       = time.time()
         interaction_service_time   = interaction_end_time - interaction_arrival_time 
         interaction_logger_metrics = LoggerMetrics(
@@ -514,6 +539,8 @@ def dbskmeans():
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
+        
+    
         algorithm               = Constants.ClusteringAlgorithms.DBSKMEANS
         s                       = Session()
         requestHeaders          = request.headers #Headers for the request
@@ -529,7 +556,8 @@ def dbskmeans():
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
         requestId               = "request-{}".format(plaintext_matrix_id)
         plaintext_matrix_path   = "{}/{}.{}".format(SOURCE_PATH, plainTextMatrixFilename, extension)
-        logger.debug("Client starts to process {} at {}".format(plaintext_matrix_id,arrivalTime))
+        iterations   = 0
+        logger.debug("DBSKMEANS algorithm={}, m={}, k={}, plain_matrix_id={}, encrypted_matrix_id={}, encrypted_udm_id={}".format(algorithm,m,k,plaintext_matrix_id,encrypted_matrix_id, encrypted_udm_id))
 
         if extension == "csv":
             plaintext_matrix = pd.read_csv(
@@ -542,7 +570,6 @@ def dbskmeans():
         else:
             return Response(response = None, status = 500, headers={"Error-Message":"Extension invalida"})
         
-        #plaintext_matrix        = pd.read_csv(plaintext_matrix_path, header=None).values
         r                       = plaintext_matrix.shape[0]
         a                       = plaintext_matrix.shape[1]
         cores                   = os.cpu_count()
@@ -562,8 +589,10 @@ def dbskmeans():
             max_workers      = max_workers,
             executor         = executor
         )
+        
         logger.debug("SEGMENTATION AND ENCRYPT {}".format(plaintext_matrix_id))
         put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+            bucket_id = "{}-{}".format(BUCKET_ID,iterations),
             key       = encrypted_matrix_id, 
             chunks    = encrypted_matrix_chunks, 
             tags      = {}
@@ -589,7 +618,6 @@ def dbskmeans():
                 )
             logger.info(str(encrypt_logger_metrics)+","+str(i))
          
-        encrypt_end_time       = time.time() 
         encryption_time     = encryption_end_time - encryption_start_time
         encrypt_logger_metrics = LoggerMetrics( #Write times of encrypt in logger
             operation_type = "ENCRYPT",
@@ -602,12 +630,12 @@ def dbskmeans():
         ) 
      
         logger.info(str(encrypt_logger_metrics))
-        # UDM
         udm_start_time = time.time()
         udm = dataowner.get_U(
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
         )
+
         encrypted_matrix_UDM_chunks = Segmentation.segment_and_encrypt_fdhope_with_executor( #Encrypt 
             key              = encrypted_udm_id,
             plaintext_matrix = udm,
@@ -617,16 +645,17 @@ def dbskmeans():
             max_workers      = max_workers,
             algorithm        = algorithm,
             threshold        = 0.0,
-            executor=executor
+            executor         = executor
         )
-        logger.debug("SEGMENTATION UDM")
+        logger.debug("SEGMENT AND ENCRYPT WITH FDHOPE")
 
         put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+            bucket_id = "{}-{}".format(BUCKET_ID,iterations),
             key       = encrypted_udm_id, 
             chunks    = encrypted_matrix_UDM_chunks, 
-            # bucket_id = BUCKET_ID,
             tags      = {}
         )
+        logger.debug("ENCRYPTED_UDM PUT CHUNKS")
 
         for i,put_chunk_result in enumerate(put_chunks_generator_results):
             udm_end_time = time.time()
@@ -668,6 +697,7 @@ def dbskmeans():
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
+        logger.debug("GET WORKER")
         get_worker_end_time       = time.time() 
         get_worker_service_time   = get_worker_end_time - get_worker_start_time
 
@@ -696,138 +726,121 @@ def dbskmeans():
         )
         logger.debug("<<0>>")
         status           = Constants.ClusteringStatus.START #Set the status to start
-        workerResponse   = None 
+        workerResponse2   = None 
         interaction_arrival_time = time.time()
-        iterations   = 0
-        init_headers = {
-            "Plaintext-Matrix-Id": plaintext_matrix_id,
-            "K":str(k),
-            "M":str(m), 
-            "Experiment-Iteration": str(experiment_iteration), 
-            "Max-Iterations":str(MAX_ITERATIONS) 
-        }
-        logger.debug("<<1>>")
+        # init_headers = {
+            # "Plaintext-Matrix-Id": plaintext_matrix_id,
+        # }
+        logger.debug("1. BEFORE WHILE")
+
+        initial_udm_shape = (r,r,a)
+        global_start_time = time.time()
         while (status   != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             inner_interaction_arrival_time = time.time()
-            extra_headers = init_headers if iterations == 0 else {}
+            # extra_headers = init_headers if iterations == 0 else {}
             run1_headers  = {
                 "Step-Index"             : "1",
+                "K"                      : str(k),
                 "Clustering-Status"      : str(status),
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Request-Id"             : requestId,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
                 "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype" : "float64",
-                "Encrypted-Udm-Shape" : "({},{},{})".format(r,r,a),
-                "Num-Chunks": str(num_chunks),
-                    "Iterations":str(iterations),
-                **extra_headers
+                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Udm-Shape"    : str(initial_udm_shape),
+                "Num-Chunks"             : str(num_chunks),
+                "Iterations"             :str(iterations),
+                "K":str(k),
+                "M":str(m), 
+                "Experiment-Iteration": str(experiment_iteration), 
+                "Max-Iterations":str(MAX_ITERATIONS) 
+                # **extra_headers
             }
             # s.headers.update(run1_headers)
             logger.debug(str(run1_headers))
-            logger.debug("<<2>>")
-            workerResponse         = worker.run(timeout = WORKER_TIMEOUT,headers =run1_headers) #Run 1 starts
-            # run1_service_time      = float(workerResponse.headers.get("Service-Time",0))
-            
-            logger.debug("<<2.1>>")
-            # _run_headers1 =     { 
-            #     "Clustering-Status":workerResponse.headers.get("Clustering-Status",str(status)),
-            #     "Plaintext-Matrix-Id": workerResponse.headers.get("Plaintext-Matrix-Id",plaintext_matrix_id),
-            #     "Request-Id":workerResponse.headers.get("Request-Id",requestId),
-            #     "Encrypted-Matrix-Id": workerResponse.headers.get("Encrypted-Matrix-Id",encrypted_matrix_id),
-            #     "Encrypted-Shift-Matrix-Id": workerResponse.headers.get("Encrypted-Shift-Matrix-Id","ENCRYPTED_SHIF_MATRIX"),
-            #     "K":workerResponse.headers.get("K",str(k)),
-            #     "M":workerResponse.headers.get("M",str(m)),
-            #     "Experiment-Iteration":workerResponse.headers.get("Experiment-Iteration",str(experiment_iteration)),
-            #     "Max-Iterations":workerResponse.headers.get("Max-Iterations",str(MAX_ITERATIONS)),
-            #     "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-            #     "Encrypted-Matrix-Dtype" : "float64",
-            #     "Encrypted-Udm-Dtype" : "float64",
-            #     "Encrypted-Udm`-Shape" : "({},{},{})".format(r,r,a),
-            #     "Num-Chunks": str(num_chunks),
-            # }
-            # s.headers.update(
-# ) # the current headers are updated with the ones that come from the worker
-            logger.debug("<<2.2>>")
+            logger.debug("2. UPDATE RUN_1 HEADERS")
+            workerResponse1         = worker.run(timeout = WORKER_TIMEOUT,headers =run1_headers) #Run 1 starts
 
-            if workerResponse.status_code !=200:
-                return Response("Worker error: {}".format(workerResponse.content),status=500)
-            stringWorkerResponse          = workerResponse.content.decode("utf-8") #Response from worker
-            jsonWorkerResponse            = json.loads(stringWorkerResponse) #pass to json
-            logger.debug("<<2.3>>")
-            logger.debug("<<3>>")
-            encryptedShiftMatrixId        = workerResponse.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
+            logger.debug("<<2.1>>")
+            logger.debug("RUN1_WORKER_RESPONSE {}".format(workerResponse1))
+
+            if workerResponse1.status_code !=200:
+                return Response("Worker error: {}".format(workerResponse1.content),status=500)
+            stringWorkerResponse              = workerResponse1.content.decode("utf-8") #Response from worker
+            jsonWorkerResponse                = json.loads(stringWorkerResponse) #pass to json
+            logger.debug("JSON LOADS")
+
+            encryptedShiftMatrixId            = workerResponse1.headers.get("Encrypted-Shift-Matrix-Id") # Extract id from Shift matrix
             encryptedShiftMatrix_get_response = Segmentation.get_matrix_or_error(
-                client = STORAGE_CLIENT, 
-                key    = encryptedShiftMatrixId
+                bucket_id = "{}-{}".format(BUCKET_ID,iterations),
+                client    = STORAGE_CLIENT, 
+                key       = encryptedShiftMatrixId
             )
-            logger.debug("<<4>>")
+            logger.debug("ENCRYPTED_SHIFT_MATRIX GET SUCCESSFULLY")
             encryptedShiftMatrix   = encryptedShiftMatrix_get_response.value
             cipher_schema_res      = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix  = encryptedShiftMatrix.tolist(),
                 secret_key         = dataowner.sk,
                 m                  = int(m)
             )
+            logger.debug("DECRYPT SHIFT_MATRIX WITH LIU SUCCESSFULLY")
+
             shiftMatrixOpe_res     = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
                 plaintext_matrix   = cipher_schema_res.matrix, 
                 messagespace       = dataowner.messageIntervals,
                 cipherspace        = dataowner.cypherIntervals
             )
-            logger.debug("<<5>>")
             shiftMatrixOpe   = shiftMatrixOpe_res.matrix
+            logger.debug("ENCRYPT SHIFT_MATRIX WITH OPE SUCCESSFULLY")
+
             shiftMatrixId    = "{}-ShiftMatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
             shiftMatrixOpeId = "{}-ShiftMatrixOpe".format(plaintext_matrix_id) # The id of the Shift matrix is formed
-            
-            x:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
-                key       = shiftMatrixId,
-                ndarray   = cipher_schema_res.matrix,
-                tags      = {},
-                bucket_id = BUCKET_ID
-            ).result()#.unwrap() #Shift matrix is saved to the storage system
-            #print("SHIFT_MATRIX_RESULT {}".format(x))
             
             y:Result[PutResponse,Exception]  = STORAGE_CLIENT.put_ndarray(
                 key       = shiftMatrixOpeId,
                 ndarray   = shiftMatrixOpe,
                 tags      = {},
-                bucket_id = BUCKET_ID
+                bucket_id = "{}-{}".format(BUCKET_ID,iterations)
             ).result()#.unwrap() #Shift matrix is saved to the storage system
-            logger.debug("<<6>>")
-            #print("SHIFT_MATRIX_OPE__RESULT {}".format(y))
-
+            logger.debug("SHIFT_MATRIX PUT SUCCESSFULLY")
             status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             run2_headers = {
-                    # **_run_headers1,
-                    "Step-Index"          : "2",
-                    "Clustering-Status"   : str(status),
-                    "Shift-Matrix-Id"     : shiftMatrixId,
-                    "Shift-Matrix-Ope-Id" : shiftMatrixOpeId,
-                    "Plaintext-Matrix-Id": workerResponse.headers.get("Plaintext-Matrix-Id",plaintext_matrix_id),
-                    "Encrypted-Matrix-Id": workerResponse.headers.get("Encrypted-Matrix-Id",encrypted_matrix_id),
+                    "Step-Index"             : "2",
+                    "Clustering-Status"      : str(status),
+                    "Shift-Matrix-Id"        : shiftMatrixId,
+                    "Shift-Matrix-Ope-Id"    : shiftMatrixOpeId,
+                    "Plaintext-Matrix-Id"    : workerResponse1.headers.get("Plaintext-Matrix-Id",plaintext_matrix_id),
+                    "Encrypted-Matrix-Id"    : workerResponse1.headers.get("Encrypted-Matrix-Id",encrypted_matrix_id),
                     "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
                     "Encrypted-Matrix-Dtype" : "float64",
-                    "Encrypted-Udm-Dtype" : "float64",
-                    "Encrypted-Udm-Shape" : "({},{},{})".format(r,r,a),
-                    "Num-Chunks": str(num_chunks),
-                    "Iterations":str(iterations)
+                    "Encrypted-Udm-Dtype"    : "float64",
+                    "Encrypted-Udm-Shape"    : str(initial_udm_shape),
+                    # "({},{},{})".format(r,r,a),
+                    "Num-Chunks"             : str(num_chunks),
+                    "Iterations"             : str(iterations),
+                    "K":str(k),
+                    "M":str(m), 
+                    "Experiment-Iteration": str(experiment_iteration), 
+                    "Max-Iterations":str(MAX_ITERATIONS) 
             }
-            # s.headers.update(run2_headers)
-
-            workerResponse    = worker.run(timeout = WORKER_TIMEOUT,headers= run2_headers) #Start run 2
-            runw_service_time = float(workerResponse.headers.get("Service-Time",0))
             
-            # s.headers.update(workerResponse.headers) # The headers are updated
-            service_time_worker = workerResponse.headers.get("Service-Time",0) 
-
-            # iterations          = int(s.headers.get("Iterations",0)) # Extract the current number of iterations
+            
+            workerResponse2    = worker.run(
+                timeout = WORKER_TIMEOUT,
+                headers = run2_headers
+            ) #Start run 2
+            workerResponse2.raise_for_status()
+            initial_udm_shape = workerResponse2.headers.get("Encrypted-Udm-Shape")
+            service_time_worker = workerResponse2.headers.get("Service-Time",0) 
             iterations+=1
             if (iterations >= MAX_ITERATIONS): #If the number of iterations is equal to the maximum
                 status              = Constants.ClusteringStatus.COMPLETED #Change the status to complete
+                # start_time          = start_time
                 startTime           = float(s.headers.get("Start-Time",0))
                 service_time_worker = time.time() - startTime #The service time is calculated
             else: 
-                status = int(workerResponse.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
+                status = int(workerResponse2.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime                          = time.time() # Get the time when it ends
             inner_interaction_service_time   = endTime-inner_interaction_arrival_time
             inner_interaction_logger_metrics = LoggerMetrics(
@@ -874,7 +887,6 @@ def dbskmeans():
             n_iterations   = iterations
         )
         logger.info(str(logger_metrics))
-
 
         return Response(
             response = json.dumps({

@@ -67,6 +67,7 @@ STORAGE_CLIENT  = Client(
     lb_algorithm = MICTLANX_CLIENT_LB_ALGORITHM,
     bucket_id    = os.environ.get("MICTLANX_BUCKET_ID","rory"),
     disable_log  = MICTLANX_DISABLED_LOG,
+    output_path  = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx") 
     # output_path  = LOG_PATH
 
 )

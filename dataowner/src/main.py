@@ -178,16 +178,23 @@ def classification_experiment(row:pd.Series,experiment_iteration:int)->Result[Tu
             headers = headers, 
             timeout = CLIENT_TIMEOUT
         )
-        response   = ClientResponse.fromResponse(_response)
+        _response.raise_for_status()
+        response:ClientResponse   = ClientResponse.fromResponse(_response)
+        encrypted_model_shape = response.headers.get("Encrypted-Model-Shape")
+        encrypted_model_Dtype = response.headers.get("Encrypted-Model-Dtype")
 
         LOGGER.debug("INIT_PREDICT {} {}".format(matrixId,experiment_iteration))
+
         headers_pred = {
             "Model-Id": modelId,
             "Records-Test-Id": recordsTestId,
             "M": str(row["M"]),
             "Extension": DATASET_EXTENSION,
             "Client-Id": CLIENT_ID,
-            "Experiment-Iteration": str(experiment_iteration)
+            "Experiment-Iteration": str(experiment_iteration),
+            "Encrypted-Model-Shape": str(encrypted_model_shape),
+            "Encrypted-Model-Dtype": str(encrypted_model_Dtype)
+
         }
         url_predict = "http://{}:{}/classification/{}/predict".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
         _response   = client_request(

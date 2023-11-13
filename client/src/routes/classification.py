@@ -27,7 +27,6 @@ from mictlanx.v4.interfaces.responses import GetNDArrayResponse
 from mictlanx.utils.segmentation import Chunks,Chunk
 from mictlanx.v3.interfaces.payloads import PutNDArrayPayload
 from concurrent.futures import ProcessPoolExecutor
-# from 
 
 classification = Blueprint("classification",__name__,url_prefix = "/classification")
 
@@ -69,33 +68,37 @@ def sknn_train():
         m                  = requestHeaders.get("M","3")
         model_path         = "{}/{}.{}".format(SOURCE_PATH, model_id, extension)
         model_labels_path  = "{}/{}.{}".format(SOURCE_PATH, model_labels_id, extension)
-        logger.debug("INIT_TRAIN 02 {} {} {}".format(model_id, model_labels_id, encrypted_model_id))
+        logger.debug("SKNN TRAIN algorithm={}, m={}, model_id={}, model_labels_id={}, encrypted_model_id={}".format(algorithm, m, model_id, model_labels_id, encrypted_model_id))
 
-        model_path_exists = not os.path.exists(model_path) 
+        model_path_exists = os.path.exists(model_path) 
         model_path_labels_exists = os.path.exists(model_labels_path)
         logger.debug("model_path_exists={}, MPLEAA={} Ext={}".format(model_path_exists,model_path_labels_exists,extension))
-        if model_path_exists or not model_path_labels_exists:
+        if not model_path_exists or not model_path_labels_exists:
             return Response(response="Either model or label vector not found", status=500)
         else:
-            logger.debug("_"*50)
+            
             logger.debug("Client starts to process {} at {}".format(model_id,arrivalTime))
             with open(model_path, "rb") as f:
                 model = np.load(f)
-            
+            logger.debug("OPEN MODEL SUCCESSFULLY")
+
             with open(model_labels_path, "rb") as f:
                 model_labels:npt.NDArray = np.load(f)
                 model_labels = model_labels.astype(np.int16)
-            # Save model labels 
+            logger.debug("OPEN MODEL_LABELS SUCCESSFULLY")
+            
             X = STORAGE_CLIENT.put_ndarray(
                 key       = model_labels_id,
                 ndarray   = model_labels,
                 tags      = {},
                 bucket_id = BUCKET_ID
             ).result()
-            
+            logger.debug("MODEL LABELS PUT SUCCESSFULLY")
+
             encryption_start_time = time.time()
             r                     = model.shape[0]
             a                     = model.shape[1]
+            encrypted_model_shape = "({},{},{})".format(r,a,m),
 
             encrypted_model_chunks:Chunks = Segmentation.segment_and_encrypt_liu_with_executor( #Encrypt 
                 executor         = executor,
@@ -105,7 +108,7 @@ def sknn_train():
                 n                  = a*r*m,
                 num_chunks       = num_chunks
             )
-            logger.debug("SEGMENTATION")
+            logger.debug("SEGMENT AND ENCRYPT WITH LIU")
             logger.debug("_"*35)
             chunks = encrypted_model_chunks.iter()
 
@@ -161,14 +164,17 @@ def sknn_train():
                 service_time   = response_time
             )
             logger.info(str(logger_metrics))
-
+            logger.debug("_"*50)
             return Response(
                 response = json.dumps({
                     "responseTime": str(response_time),
                     "algorithm"   : algorithm,
                 }),
                 status  = 200,
-                headers = {}
+                headers = {
+                    "Encrypted-Model-Shape":encrypted_model_shape,
+                    "Encrypted-Model-Dtype":"float64"
+                }
             )
     except Exception as e:
         logger.error("CLIENT_ERROR "+str(e))
@@ -187,6 +193,7 @@ def sknn_predict():
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
         num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
         if executor == None:
@@ -199,16 +206,33 @@ def sknn_predict():
         encrypted_records_test_id = "encrypted-{}".format(records_test_id) # The id of the encrypted matrix is built
         extension                 = requestHeaders.get("Extension","npy")
         m                         = requestHeaders.get("M","3")
+        _encrypted_model_shape    = requestHeaders.get("Encrypted-Model-Shape",-1)
+        _encrypted_model_dtype    = requestHeaders.get("Encrypted-Model-Dtype",-1)
         records_test_path         = "{}/{}.{}".format(SOURCE_PATH, records_test_id, extension)
+        logger.debug("SKNN PREDICT algorithm={}, m={}, model_id={}, records_test_id={}".format(algorithm, m, model_id, records_test_id))
         
-        logger.debug("_"*50)
-        logger.debug("Client starts to process {} at {}".format(records_test_id,arrivalTime))
+        if _encrypted_model_dtype == -1:
+            return Response("Encrypted-Model-Dtype", status=500)
+        if _encrypted_model_shape == -1 :
+            return Response("Encrypted-Model-Shape header is required", status=500)
+    
+
         with open(records_test_path, "rb") as f:
             records_test = np.load(f)    
+        logger.debug("OPEN RECORDS SUCCESSFULLY")
+
         
+        r           = records_test.shape[0]
+        a           = records_test.shape[1]
+        cores       = os.cpu_count()
+        max_workers = num_chunks if max_workers > num_chunks else max_workers
+        max_workers = cores if max_workers > cores else max_workers
+        logger.debug("ENCRYPT_WORKERS {}".format(max_workers))        
         encryption_start_time = time.time()
-        r                     = records_test.shape[0]
-        a                     = records_test.shape[1]
+        logger.debug("NUM_CHUNKS {}".format(num_chunks))
+        logger.debug("RECORDS SHAPE {}".format(records_test.shape))
+        encryption_start_time = time.time()
+
         encrypted_records_chunks:Chunks = Segmentation.segment_and_encrypt_liu_with_executor( #Encrypt 
             executor         = executor,
             key              = encrypted_records_test_id,
@@ -218,8 +242,8 @@ def sknn_predict():
             num_chunks       = num_chunks
         )
 
-        logger.debug("SEGMENTATION")
-        logger.debug("_"*35)
+        logger.debug("SEGMENTATION AND ENCRYPT WITH LIU")
+        
         chunks = encrypted_records_chunks.iter()
 
         logger.debug("{} {} {}".format(type(encrypted_records_test_id), encrypted_records_chunks,type(BUCKET_ID)))
@@ -272,6 +296,7 @@ def sknn_predict():
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
+        logger.debug("GET WORKER SUCCESSFULLY")
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
         stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
@@ -297,14 +322,23 @@ def sknn_predict():
             algorithm  = algorithm,
         )
         worker_arrival_time = time.time()
+        logger.debug("RORY WORKER SUCCESSFULLY")
+        run_headers = {
+            "Records-Test-Id"         : records_test_id,
+            "Model-Id"                : model_id,
+            "Encrypted-Model-Shape"   : _encrypted_model_shape,
+            "Encrypted-Records-Shape" : "({},{},{})".format(r,a,m),
+            "Encrypted-Model-Dtype"   : _encrypted_model_dtype,
+            "Encrypted-Records-Dtype" : "float64",
+            "Num-Chunks"              : str(num_chunks),
 
+        }
         workerResponse = worker.run(
-            headers    = {
-                "Records-Test-Id": records_test_id,
-                "Model-Id": model_id
-            },
+            headers    = run_headers,
             timeout = WORKER_TIMEOUT
         )
+        logger.debug("RUN_WORKER_RESPONSE {}".format(workerResponse))
+
         worker_end_time       = time.time()
         worker_service_time   = worker_end_time - worker_arrival_time 
         interaction_logger_metrics = LoggerMetrics(
@@ -333,7 +367,7 @@ def sknn_predict():
             worker_id      = workerId
         )
         logger.info(str(logger_metrics))
-
+        logger.debug("_"*50)
         return Response(
             response = json.dumps({
                 "labelVector" : jsonWorkerResponse.get("labelVector",[]),
@@ -374,17 +408,20 @@ def knn_train():
     logger.debug("Client starts to process {} at {}".format(model_id,arrivalTime))
     with open(model_path, "rb") as f:
         model = np.load(f)
+    logger.debug("OPEN MODEL SUCCESSFULLY")
     
     with open(model_labels_path, "rb") as f:
         model_labels:npt.NDArray = np.load(f)
         model_labels             = model_labels.astype(np.int16)
-    
+    logger.debug("OPEN MODEL_LABELS SUCCESSFULLY")
+
     model_result = STORAGE_CLIENT.put_ndarray(
         key       = model_id,
         ndarray   = model,
         tags      = {},
         bucket_id = BUCKET_ID
     ).result()
+    logger.debug("MODEL RESULT PUT SUCCESSFULLY")
 
     model_labels_result = STORAGE_CLIENT.put_ndarray(
         key       = model_labels_id,
@@ -392,6 +429,7 @@ def knn_train():
         tags      = {},
         bucket_id = BUCKET_ID
     ).result()
+    logger.debug("MODEL LABELS RESULT PUT SUCCESSFULLY")
 
     managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
     get_worker_start_time = time.time()
@@ -402,6 +440,7 @@ def knn_train():
             "Start-Get-Worker-Time" : str(get_worker_start_time) 
         }
     )
+    logger.debug("GET WORKER SUCCESSFULLY")
     get_worker_end_time     = time.time() 
     get_worker_service_time = get_worker_end_time - get_worker_start_time
     stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
@@ -425,6 +464,7 @@ def knn_train():
         session    = s,
         algorithm  = algorithm,
     )
+    logger.debug("RORY WORKER SUCCESSFULLY")
     worker_arrival_time = time.time()
     workerResponse = worker.run(
         headers    = {
@@ -498,7 +538,8 @@ def knn_predict():
         logger.debug("Client starts to process {} at {}".format(records_test_id,arrivalTime))
         
         with open(records_test_path, "rb") as f:
-            records_test = np.load(f)    
+            records_test = np.load(f)   
+        logger.debug("OPEN RECORDS SUCCESSFULLY") 
         
         model_result  = STORAGE_CLIENT.put_ndarray(
             key       = records_test_id,
@@ -506,7 +547,8 @@ def knn_predict():
             tags      = {},
             bucket_id = BUCKET_ID
         ).result()
-        
+        logger.debug("MODEL_RESULT PUT SUCCESSFULLY")
+
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_start_time = time.time()
         mr                    = managerResponse.getWorker( #Gets the worker from the manager
@@ -516,6 +558,7 @@ def knn_predict():
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
+        logger.debug("GET WORKER SUCCESSFULLY")
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
         stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
@@ -539,6 +582,7 @@ def knn_predict():
             session    = s,
             algorithm  = algorithm,
         )
+        logger.debug("RORY WORKER SUCCESSFULLY")
         worker_arrival_time = time.time()
 
         workerResponse = worker.run(
@@ -548,6 +592,8 @@ def knn_predict():
             },
             timeout = WORKER_TIMEOUT
         )
+        logger.debug("RUN_WORKER_RESPONSE {}".format(workerResponse))
+        
         worker_end_time     = time.time()
         worker_service_time = worker_end_time - worker_arrival_time 
         interaction_logger_metrics = LoggerMetrics(

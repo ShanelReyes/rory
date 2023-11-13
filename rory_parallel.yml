@@ -38,6 +38,7 @@ services:
       - /rory/rory-client-0/source:/rory/source
       - /rory/rory-client-0/sink:/rory/sink
       - /rory/rory-client-0/log:/rory/log
+      - /rory/mictlanx:/rory/mictlanx
     networks:
       - mictlanx
 
@@ -88,6 +89,8 @@ services:
       - /rory/rory-manager-0/source:/rory/source
       - /rory/rory-manager-0/sink:/rory/sink
       - /rory/rory-manager-0/log:/rory/log
+      - /rory/mictlanx:/rory/mictlanx
+
     networks:
       - mictlanx
 networks:
