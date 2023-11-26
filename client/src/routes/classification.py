@@ -93,6 +93,7 @@ def sknn_train():
                 tags      = {},
                 bucket_id = BUCKET_ID
             ).result()
+            
             logger.debug("MODEL LABELS PUT SUCCESSFULLY")
 
             encryption_start_time = time.time()
@@ -431,60 +432,60 @@ def knn_train():
     ).result()
     logger.debug("MODEL LABELS RESULT PUT SUCCESSFULLY")
 
-    managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-    get_worker_start_time = time.time()
-    mr                    = managerResponse.getWorker( #Gets the worker from the manager
-        headers = {
-            "Algorithm"             : algorithm,
-            "Start-Request-Time"    : str(arrivalTime),
-            "Start-Get-Worker-Time" : str(get_worker_start_time) 
-        }
-    )
-    logger.debug("GET WORKER SUCCESSFULLY")
-    get_worker_end_time     = time.time() 
-    get_worker_service_time = get_worker_end_time - get_worker_start_time
-    stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
-    jsonResponse            = json.loads(stringResponse) # Pass the response to json
-    workerId                =  "localhost" if TESTING else jsonResponse["workerId"]
+    # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+    # get_worker_start_time = time.time()
+    # mr                    = managerResponse.getWorker( #Gets the worker from the manager
+    #     headers = {
+    #         "Algorithm"             : algorithm,
+    #         "Start-Request-Time"    : str(arrivalTime),
+    #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
+    #     }
+    # )
+    # logger.debug("GET WORKER SUCCESSFULLY")
+    # get_worker_end_time     = time.time() 
+    # get_worker_service_time = get_worker_end_time - get_worker_start_time
+    # stringResponse          = mr.content.decode("utf-8") #Decode the manager's response
+    # jsonResponse            = json.loads(stringResponse) # Pass the response to json
+    # workerId                =  "localhost" if TESTING else jsonResponse["workerId"]
 
-    get_worker_logger_metrics = LoggerMetrics( # Write times of worker communication in logger
-        operation_type = "GET_WORKER",
-        matrix_id      = model_id,
-        algorithm      = algorithm,
-        arrival_time   = get_worker_start_time, 
-        end_time       = get_worker_end_time, 
-        service_time   = get_worker_service_time,
-        worker_id      = workerId
-    )
-    logger.info(str(get_worker_logger_metrics))
+    # get_worker_logger_metrics = LoggerMetrics( # Write times of worker communication in logger
+    #     operation_type = "GET_WORKER",
+    #     matrix_id      = model_id,
+    #     algorithm      = algorithm,
+    #     arrival_time   = get_worker_start_time, 
+    #     end_time       = get_worker_end_time, 
+    #     service_time   = get_worker_service_time,
+    #     worker_id      = workerId
+    # )
+    # logger.info(str(get_worker_logger_metrics))
 
-    worker         = RoryWorker( #Allows to establish the connection with the worker
-        workerId   = workerId,
-        port       = jsonResponse["workerPort"],
-        session    = s,
-        algorithm  = algorithm,
-    )
-    logger.debug("RORY WORKER SUCCESSFULLY")
-    worker_arrival_time = time.time()
-    workerResponse = worker.run(
-        headers    = {
-            "Model-Id": model_id,
-        },
-        timeout = WORKER_TIMEOUT
-    )
+    # worker         = RoryWorker( #Allows to establish the connection with the worker
+    #     workerId   = workerId,
+    #     port       = jsonResponse["workerPort"],
+    #     session    = s,
+    #     algorithm  = algorithm,
+    # )
+    # logger.debug("RORY WORKER SUCCESSFULLY")
+    # worker_arrival_time = time.time()
+    # workerResponse = worker.run(
+    #     headers    = {
+    #         "Model-Id": model_id,
+    #     },
+    #     timeout = WORKER_TIMEOUT
+    # )
 
-    worker_end_time       = time.time()
-    worker_service_time   = worker_end_time - worker_arrival_time 
-    interaction_logger_metrics = LoggerMetrics(
-        operation_type = "WORKER",
-        matrix_id      = model_id,
-        algorithm      = algorithm, 
-        arrival_time   = worker_arrival_time, 
-        end_time       = worker_end_time, 
-        service_time   = worker_service_time,
-        worker_id      = workerId
-    )
-    logger.info(str(interaction_logger_metrics))
+    # worker_end_time       = time.time()
+    # worker_service_time   = worker_end_time - worker_arrival_time 
+    # interaction_logger_metrics = LoggerMetrics(
+    #     operation_type = "WORKER",
+    #     matrix_id      = model_id,
+    #     algorithm      = algorithm, 
+    #     arrival_time   = worker_arrival_time, 
+    #     end_time       = worker_end_time, 
+    #     service_time   = worker_service_time,
+    #     worker_id      = workerId
+    # )
+    # logger.info(str(interaction_logger_metrics))
     endTime             = time.time() # Get the time when it ends
     response_time       = endTime - arrivalTime # Get the service time
     
@@ -494,14 +495,12 @@ def knn_train():
         algorithm      = algorithm, 
         arrival_time   = arrivalTime, 
         end_time       = endTime, 
-        service_time   = response_time,
-        worker_id      = workerId
+        service_time   = response_time
     )
     logger.info(str(logger_metrics))
 
     return Response(
         response = json.dumps({
-            "serviceTime" : worker_service_time,
             "responseTime": str(response_time),
             "algorithm"   : algorithm,
         }),
@@ -541,13 +540,13 @@ def knn_predict():
             records_test = np.load(f)   
         logger.debug("OPEN RECORDS SUCCESSFULLY") 
         
-        model_result  = STORAGE_CLIENT.put_ndarray(
+        records_result  = STORAGE_CLIENT.put_ndarray(
             key       = records_test_id,
             ndarray   = records_test,
             tags      = {},
             bucket_id = BUCKET_ID
         ).result()
-        logger.debug("MODEL_RESULT PUT SUCCESSFULLY")
+        logger.debug("RECORDS_TEST PUT SUCCESSFULLY")
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_start_time = time.time()

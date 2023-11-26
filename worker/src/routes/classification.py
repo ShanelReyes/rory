@@ -5,7 +5,8 @@ from typing import Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.utils.constants import Constants
 from rory.core.classification.secure.sknn import SecureKNearestNeighbors as SKNN
-from sklearn.neighbors import KNeighborsClassifier
+from rory.core.classification.knn import KNearestNeighbors as KNN
+#from sklearn.neighbors import KNeighborsClassifier
 from mictlanx.v4.client import Client as V4Client
 from mictlanx.v4.interfaces.responses import Metadata
 import pickle
@@ -50,7 +51,6 @@ def sknn_train():
 @classification.route("/sknn/predict",methods = ["POST"])
 def sknn_pedict():
     arrivalTime              = time.time() #Worker start time
-    headers                  = request.headers
     headers                  = request.headers
     to_remove_headers        = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders          = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
@@ -167,93 +167,94 @@ def sknn_pedict():
 
 @classification.route("/knn/train",methods = ["POST"])
 def knn_train():
-    arrivalTime             = time.time() #Worker start time
-    headers                 = request.headers
-    headers                 = request.headers
-    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
-    filteredHeaders         = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
-    logger                  = current_app.config["logger"]
-    workerId                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")    
-    model_id                = filteredHeaders.get("Model-Id","model-0") #iris
-    model_object_id         = "{}_object".format(model_id)
-    model_labels_id         = "{}_labels".format(model_id) #iris_model_labels
-    extension               = filteredHeaders.get("Extension","npy")
-    algorithm               = Constants.ClassificationAlgorithms.KNN_TRAIN
-    responseHeaders         = {}
+    pass
+    # arrivalTime             = time.time() #Worker start time
+    # headers                 = request.headers
+    # headers                 = request.headers
+    # to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
+    # filteredHeaders         = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    # logger                  = current_app.config["logger"]
+    # workerId                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    # STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    # BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")    
+    # model_id                = filteredHeaders.get("Model-Id","model-0") #iris
+    # model_object_id         = "{}_object".format(model_id)
+    # model_labels_id         = "{}_labels".format(model_id) #iris_model_labels
+    # extension               = filteredHeaders.get("Extension","npy")
+    # algorithm               = Constants.ClassificationAlgorithms.KNN_TRAIN
+    # responseHeaders         = {}
 
-    try:
-        logger.debug("KNN_TRAIN algorithm={}, model_id={}".format(algorithm,model_id))
-        #logger.debug("KNN_TRAIN process -> {}".format(model_id))
-        responseHeaders["Start-Time"] = str(arrivalTime)
+    # try:
+    #     logger.debug("KNN_TRAIN algorithm={}, model_id={}".format(algorithm,model_id))
+    #     #logger.debug("KNN_TRAIN process -> {}".format(model_id))
+    #     responseHeaders["Start-Time"] = str(arrivalTime)
 
-        model_result        = STORAGE_CLIENT.get_ndarray(key = model_id).result()
-        model               = model_result.unwrap().value
-        logger.debug("MODEL GET SUCCESSFULLY")
+    #     model_result        = STORAGE_CLIENT.get_ndarray(key = model_id).result()
+    #     model               = model_result.unwrap().value
+    #     logger.debug("MODEL GET SUCCESSFULLY")
 
-        model_labels_result = STORAGE_CLIENT.get_ndarray(key = model_labels_id).result()
-        model_labels        = model_labels_result.unwrap().value
-        logger.debug("MODEL_LABELS GET SUCCESSFULLY")
+    #     model_labels_result = STORAGE_CLIENT.get_ndarray(key = model_labels_id).result()
+    #     model_labels        = model_labels_result.unwrap().value
+    #     logger.debug("MODEL_LABELS GET SUCCESSFULLY")
         
-        metric      = "manhattan"
-        n_neighbors =  1
+    #     metric      = "manhattan"
+    #     n_neighbors =  1
         
-        knn = KNeighborsClassifier(
-            n_neighbors = n_neighbors, 
-            metric      = metric,
-            weights     = "uniform",
-            algorithm   = "brute"
-        )
-        logger.debug("INIT KNeighborsClassifier COMPLETED SUCCESSFULLY")
+    #     knn = KNeighborsClassifier(
+    #         n_neighbors = n_neighbors, 
+    #         metric      = metric,
+    #         weights     = "uniform",
+    #         algorithm   = "brute"
+    #     )
+    #     logger.debug("INIT KNeighborsClassifier COMPLETED SUCCESSFULLY")
 
-        knn.fit(model, model_labels)
-        logger.debug("KNN_FIT COMPLETED SUCCESSFULLY")
+    #     knn.fit(model, model_labels)
+    #     logger.debug("KNN_FIT COMPLETED SUCCESSFULLY")
 
-        model_bytes = pickle.dumps(knn)
+    #     model_bytes = pickle.dumps(knn)
 
-        x = STORAGE_CLIENT.put(
-            key   = model_object_id,
-            value = model_bytes,
-            tags  = {
-                "n_neighbors":str(n_neighbors),
-                "metric":metric
-            },
-            bucket_id = BUCKET_ID
-        )
-        logger.debug("MODEL_OBJECT PUT SUCCESSFULLY")
+    #     x = STORAGE_CLIENT.put(
+    #         key   = model_object_id,
+    #         value = model_bytes,
+    #         tags  = {
+    #             "n_neighbors":str(n_neighbors),
+    #             "metric":metric
+    #         },
+    #         bucket_id = BUCKET_ID
+    #     )
+    #     logger.debug("MODEL_OBJECT PUT SUCCESSFULLY")
 
-        x           = x.result()
-        endTime     = time.time()
-        serviceTime = endTime - arrivalTime
+    #     x           = x.result()
+    #     endTime     = time.time()
+    #     serviceTime = endTime - arrivalTime
         
-        logger_metrics = LoggerMetrics(
-            operation_type = algorithm, 
-            matrix_id      = model_id, 
-            worker_id      = workerId,
-            algorithm      = algorithm, 
-            arrival_time   = arrivalTime, 
-            end_time       = endTime, 
-            service_time   = serviceTime,
-        )
-        logger.info(str(logger_metrics))
+    #     logger_metrics = LoggerMetrics(
+    #         operation_type = algorithm, 
+    #         matrix_id      = model_id, 
+    #         worker_id      = workerId,
+    #         algorithm      = algorithm, 
+    #         arrival_time   = arrivalTime, 
+    #         end_time       = endTime, 
+    #         service_time   = serviceTime,
+    #     )
+    #     logger.info(str(logger_metrics))
       
-        return Response( #Returns the final response as a label vector + the headers
-            response = json.dumps({
-                "serviceTime" : endTime,
-                "responseTime": str(serviceTime),
-                "algorithm"   : algorithm,
-            }),
-            status   = 200,
-            headers  = responseHeaders
-        )
-    except Exception as e:
-        print(e)
-        return Response(
-            response = None,
-            status   = 503,
-            headers  = {"Error-Message":str(e)}
-        )
+    #     return Response( #Returns the final response as a label vector + the headers
+    #         response = json.dumps({
+    #             "serviceTime" : endTime,
+    #             "responseTime": str(serviceTime),
+    #             "algorithm"   : algorithm,
+    #         }),
+    #         status   = 200,
+    #         headers  = responseHeaders
+    #     )
+    # except Exception as e:
+    #     print(e)
+    #     return Response(
+    #         response = None,
+    #         status   = 503,
+    #         headers  = {"Error-Message":str(e)}
+    #     )
 
 
 @classification.route("/knn/predict",methods = ["POST"])
@@ -267,7 +268,7 @@ def knn_predict():
     workerId                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     model_id                = filteredHeaders.get("Model-Id","model-0") #iris
-    model_object_id         = "{}_object".format(model_id)
+    #model_id                = "{}_obj".format(model_id)
     model_labels_id         = "{}_labels".format(model_id) #iris_model_labels
     records_test_id         = filteredHeaders.get("Records-Test-Id","matrix-0")
     algorithm               = Constants.ClassificationAlgorithms.KNN_PREDICT
@@ -277,33 +278,29 @@ def knn_predict():
         logger.debug("KNN_PREDICT algorithm={}, model_id={}, records_test_id={}".format(algorithm,model_id,records_test_id))
         #logger.debug("Worker starts KNN_PREDICT process -> {}".format(model_id))
         responseHeaders["Start-Time"] = str(arrivalTime)
-        
-        model_bytes_result:Result[GetBytesResponse,Exception] =  STORAGE_CLIENT.get(
-            key = model_object_id
-        ).result()
 
-        if model_bytes_result.is_err:
-            return Response("MODEL_BYTES_NOT_FOUND", status=500)
-        
-        model_bytes_response:GetBytesResponse = model_bytes_result.unwrap()
+        model_result = STORAGE_CLIENT.get_ndarray(key = model_id).result()
+        model        = model_result.unwrap().value
         logger.debug("MODEL GET SUCCESSFULLY")
 
-        records_test_result = STORAGE_CLIENT.get_ndarray(
-            key = records_test_id
-        ).result()
-        records_test             = records_test_result.unwrap().value
-        logger.debug("RECORDS_TEST GET SUCCESSFULLY")
+        model_labels_result = STORAGE_CLIENT.get_ndarray(key = model_labels_id).result()
+        model_labels  = model_labels_result.unwrap().value
+        logger.debug("MODEL_LABELS GET SUCCESSFULLY")
 
-        knn:KNeighborsClassifier = pickle.loads(model_bytes_response.value)
-        predicted_labels = knn.predict(
-            records_test
+        record_result = STORAGE_CLIENT.get_ndarray(key = records_test_id).result()
+        records  = record_result.unwrap().value
+        logger.debug("RECORDS GET SUCCESSFULLY")
+
+        label_vector = KNN.predict(
+            dataset      = records,
+            model        = model,
+            model_labels = model_labels
         )
         logger.debug("KNN_PREDICT COMPLETED SUCCESSFULLY")
-
         endTime                         = time.time()
         serviceTime                     = endTime - arrivalTime
         responseHeaders["Service-Time"] = str(serviceTime)
-
+        
         logger_metrics = LoggerMetrics(
             operation_type = algorithm, 
             matrix_id      = records_test_id, 
@@ -315,7 +312,7 @@ def knn_predict():
         logger.info(str(logger_metrics))
 
         return Response( #Returns the final response as a label vector + the headers
-            response = json.dumps({"labelVector":predicted_labels.tolist()}),
+            response = json.dumps({"labelVector":label_vector.tolist()}),
             status   = 200,
             headers  = {**responseHeaders}
         )

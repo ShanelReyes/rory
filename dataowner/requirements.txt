@@ -24,4 +24,4 @@ humanfriendly==10.0.0
 
 --extra-index-url https://test.pypi.org/simple/ 
 mictlanx==0.0.75
-rory==0.0.89
+rory==0.0.103

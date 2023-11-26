@@ -5,6 +5,7 @@ from typing import Awaitable,Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.clustering.kmeans import kmeans as kMeans
 from rory.core.clustering.secure.local.dbsnnc import Dbsnnc
+from rory.core.clustering.nnc import Nnc
 from rory.core.utils.Utils import Utils
 from rory.core.utils.SegmentationUtils import Segmentation
 from rory.core.utils.constants import Constants
@@ -20,17 +21,25 @@ from rory.core.interfaces.logger_metrics import LoggerMetrics
 from option import Option,Some
 from functools import reduce
 import operator
+from logging import Logger
+
+from rory.core.logger import Dumblogger
 # 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
-def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str)->Tuple[npt.NDArray,Metadata]:
+def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str,logger:Logger)->Tuple[npt.NDArray,Metadata]:
+    # logger = kwargs.get("logger",Dumblogger())
+    
     encryptedMatrix_result:Result[GetBytesResponse,Exception]                    = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks).result()
     if encryptedMatrix_result.is_err:
         raise Exception("{} not found".format(key))
     
     encryptedMatrix_response = encryptedMatrix_result.unwrap()
     _encryptedMatrix         = np.frombuffer(encryptedMatrix_response.value,dtype=dtype)
+    logger.debug("SHAPE "+str(shape))
+    logger.debug("RAW_SHAPE "+str(_encryptedMatrix.shape))
     expected_shape           = reduce(operator.mul,shape)
+    logger.debug("EXPECTED_SHAPE "+str(expected_shape))
     if not _encryptedMatrix.size == expected_shape:
         raise Exception("Matrix sizes are not equal: calculated: {} != expected: {}".format(_encryptedMatrix.size, expected_shape ))
     
@@ -104,7 +113,8 @@ def skmeans_1(requestHeaders) -> Response:
             key            = encryptedMatrixId,
             num_chunks     = num_chunks, 
             shape          = encrypted_matrix_shape,
-            dtype          = _encrypted_matrix_dtype
+            dtype          = _encrypted_matrix_dtype,
+            logger=logger
         )
 
         responseHeaders["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
@@ -483,7 +493,9 @@ def dbskmeans_1(requestHeaders) -> Response:
             key            = encryptedMatrixId,
             num_chunks     = num_chunks, 
             shape          = encrypted_matrix_shape,
-            dtype          = _encrypted_matrix_dtype
+            dtype          = _encrypted_matrix_dtype,
+            logger=logger
+            
         )
         logger.debug("ENCRYPTED_MATRIX GET AND MERGE SUCCESSFULLY")
 
@@ -506,7 +518,8 @@ def dbskmeans_1(requestHeaders) -> Response:
             key            = encryptedUdmId,
             num_chunks     = num_chunks,
             shape          = encrypted_udm_shape,
-            dtype          = _encrypted_udm_dtype
+            dtype          = _encrypted_udm_dtype,
+            logger=logger
         )
 
         responseHeaders["Encrypted-Udm-Dtype"]    = str(udm_metadata.tags.get("dtype",UDMMatrix.dtype)) # Extract the type
@@ -669,7 +682,8 @@ def dbskmeans_2(requestHeaders):
             key            = UDM_id,
             num_chunks     = num_chunks, 
             shape          = encrypted_udm_shape,
-            dtype          = _encrypted_udm_dtype
+            dtype          = _encrypted_udm_dtype,
+            logger=logger
         )
         responseHeaders["Encrypted-Udm-Dtype"] = str(udm_metadata.tags.get("dtype",UDMMatrix.dtype)) # Extract the type
         responseHeaders["Encrypted-Udm-Shape"] = str(udm_metadata.tags.get("shape",UDMMatrix.shape)) # Extract the shape
@@ -880,25 +894,182 @@ def dbskmeans():
 
 @clustering.route("/dbsnnc", methods = ["POST"])
 def dbsnnc():
-    arrivalTime           = time.time() #System startup time
-    headers               = request.headers
-    head                  = ["User-Agent","Accept-Encoding","Connection"]
-    filteredHeaders       = dict(list(filter(lambda x: not x[0] in head, headers.items())))
-    algorithm             = Constants.ClusteringAlgorithms.DBSNNC
-    logger                = current_app.config["logger"]
-    STORAGE_CLIENT:Client = current_app.config["STORAGE_CLIENT"]
-    workerId              = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    plainTextMatrixId     = filteredHeaders.get("Plaintext-Matrix-Id")
-    encryptedMatrixId     = filteredHeaders.get("Encrypted-Matrix-Id","")
-    encrypted_threshold   = filteredHeaders.get("Encrypted-Threshold")
-    UDMId                 = "{}-encrypted-UDM".format(plainTextMatrixId)  
-    responseHeaders       = {}
-    try:        
-        UDMMatrix_response = STORAGE_CLIENT.get_ndarray(key = UDMId).unwrap()
-        UDMMatrix          = UDMMatrix_response.value
-        result             = Dbsnnc.run(
-            EDM                 = UDMMatrix,
-            encrypted_threshold = float(encrypted_threshold)
+    arrivalTime             = time.time() #System startup time
+    headers                 = request.headers
+    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
+    filteredHeaders         = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    algorithm               = Constants.ClusteringAlgorithms.DBSNNC
+    logger                  = current_app.config["logger"]
+    STORAGE_CLIENT:Client   = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    m                       = int(filteredHeaders.get("M",3))
+    workerId                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    plainTextMatrixID       = filteredHeaders.get("Plaintext-Matrix-Id")
+    encryptedMatrixId       = filteredHeaders.get("Encrypted-Matrix-Id",-1)
+    encrypted_threshold     = float(filteredHeaders.get("Encrypted-Threshold"))
+    dm_id                   = "{}-DM".format(plainTextMatrixID) 
+    _encrypted_matrix_shape = filteredHeaders.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype = filteredHeaders.get("Encrypted-Matrix-Dtype",-1)
+    _encrypted_dm_shape     = filteredHeaders.get("Encrypted-Dm-Shape",-1)
+    _encrypted_dm_dtype     = filteredHeaders.get("Encrypted-Dm-Dtype",-1)
+
+    logger.debug(str(filteredHeaders))
+    logger.debug("DBSNNC algorithm={}, m={}, plain_matrix_id={}, ems={}, emd={}, eus={}, eud={}".format(algorithm,m,plainTextMatrixID,_encrypted_matrix_shape,_encrypted_matrix_dtype, _encrypted_dm_shape,_encrypted_dm_dtype))
+
+    if _encrypted_matrix_dtype == -1:
+        return Response("Encrypted-Matrix-Dtype", status=500)
+    if _encrypted_matrix_shape == -1 :
+        return Response("Encrypted-Matrix-Shape header is required", status=500)
+    
+    if _encrypted_dm_dtype == -1:
+        return Response("Encrypted-DM-Dtype", status=500)
+    if _encrypted_dm_shape == -1 :
+        return Response("Encrypted-DM-Shape header is required", status=500)
+    
+    encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
+    encrypted_dm_shape:tuple     = eval(_encrypted_dm_shape)
+
+    encryptedDmId   = "{}-encrypted-DM".format(plainTextMatrixID) 
+    num_chunks      = int(filteredHeaders.get("Num-Chunks",-1))
+    responseHeaders = {}
+    logger.debug("Worker starts DBSNNC process -> {}".format(plainTextMatrixID))
+
+    if num_chunks == -1:
+        return Response("Num-Chunks header is required", status=503)
+    
+    try:      
+        logger.debug("get encrypted matrix {}".format(encryptedMatrixId))
+        responseHeaders["Start-Time"] = str(arrivalTime)
+        
+        logger.debug("Encrypted Matrix Id {}".format(encryptedMatrixId))
+        logger.debug("Encrypted Matrix Shape {}".format(encrypted_matrix_shape))
+        logger.debug("Encrypted Matrix Dtype {}".format(_encrypted_matrix_dtype))
+        logger.debug("Bucket_id {}".format(BUCKET_ID))
+
+        (encryptedMatrix, encrypted_matrix_metadata) = get_and_merge_ndarray(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID, 
+            key            = encryptedMatrixId,
+            num_chunks     = num_chunks, 
+            shape          = encrypted_matrix_shape,
+            dtype          = _encrypted_matrix_dtype,
+            logger         = logger
+        )
+
+        responseHeaders["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
+        responseHeaders["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        logger.debug("ENCRYPTED_MATRIX GET AND MERGE SUCCESSFULLY")
+
+        # dm_matrix_response = Segmentation.get_matrix_or_error(
+        #     client    = STORAGE_CLIENT,
+        #     key       = dm_id,
+        #     bucket_id = BUCKET_ID
+        # )
+        logger.debug("Encrypted Dm Id {}".format(encryptedDmId))
+        logger.debug("Encrypted Dm Shape {}".format(encrypted_dm_shape))
+        logger.debug("Encrypted Dm Dtype {}".format(_encrypted_dm_dtype))
+        logger.debug("Bucket_id {}".format(BUCKET_ID))
+        
+        (DMMatrix, dm_metadata) = get_and_merge_ndarray(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = encryptedDmId,
+            num_chunks     = num_chunks,
+            shape          = encrypted_dm_shape,
+            dtype          = _encrypted_dm_dtype,
+            logger         = logger
+        )
+
+        responseHeaders["Encrypted-Dm-Dtype"] = str(dm_metadata.tags.get("dtype",DMMatrix.dtype)) # Extract the type
+        responseHeaders["Encrypted-Dm-Shape"] = str(dm_metadata.tags.get("shape",DMMatrix.shape)) # Extract the shape
+        logger.debug("ENCRYPTED_UDM_MATRIX GET AND MERGE SUCCESSFULLY")
+
+        
+        result = Dbsnnc.run(
+            distance_matrix     = DMMatrix,
+            encrypted_threshold = encrypted_threshold
+        )
+        endTime                         = time.time()
+        serviceTime                     = endTime - arrivalTime
+        responseHeaders["Service-Time"] = str(serviceTime)
+        
+        logger_metrics = LoggerMetrics(
+            operation_type = algorithm,
+            matrix_id      = plainTextMatrixID,
+            worker_id      = workerId,
+            algorithm      = algorithm,
+            arrival_time   = arrivalTime, 
+            end_time       = endTime, 
+            service_time   = serviceTime
+        )
+        logger.info(str(logger_metrics))
+
+        return Response( #Returns the final response as a label vector + the headers
+            response = json.dumps({"labelVector":result.label_vector}),
+            status   = 200,
+            headers  = responseHeaders
+        )
+    except Exception as e:
+        logger.error(e)
+        return Response(
+            response = None,
+            status   = 503,
+            headers  = {"Error-Message":e})
+    
+@clustering.route("/nnc", methods = ["POST"])
+def nnc():
+    arrivalTime             = time.time() #System startup time
+    headers                 = request.headers
+    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
+    filteredHeaders         = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    algorithm               = Constants.ClusteringAlgorithms.NNC
+    logger                  = current_app.config["logger"]
+    STORAGE_CLIENT:Client   = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    workerId                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    plainTextMatrixId       = filteredHeaders.get("Plaintext-Matrix-Id")
+    threshold               = float(filteredHeaders.get("Threshold"))
+    dm_id                   = "{}-DM".format(plainTextMatrixId) 
+    responseHeaders         = {}
+
+    logger.debug(str(filteredHeaders))
+    logger.debug("NNC algorithm={}, plain_matrix_id={}".format(algorithm,plainTextMatrixId))
+
+    responseHeaders = {}
+    logger.debug("Worker starts NNC process -> {}".format(plainTextMatrixId))
+
+    try:      
+        logger.debug("get plaintext matrix {}".format(plainTextMatrixId))
+        responseHeaders["Start-Time"] = str(arrivalTime)
+
+        plainTextMatrix_response = Segmentation.get_matrix_or_error(
+            client    = STORAGE_CLIENT,
+            key       = plainTextMatrixId,
+            bucket_id = BUCKET_ID
+        ) 
+        plainTextMatrix                           = plainTextMatrix_response.value
+        responseHeaders["Plaintext-Matrix-Dtype"] = plainTextMatrix_response.metadata.tags.get("dtype",plainTextMatrix.dtype) #["tags"]["dtype"] #Save the data type
+        responseHeaders["Plaintext-Matrix-Shape"] = plainTextMatrix_response.metadata.tags.get("shape",plainTextMatrix.shape) #Save the shape
+        
+        logger.debug("PLAINTEXT_MATRIX GET SUCCESSFULLY")
+
+        endTime        = time.time()
+        serviceTime    = endTime - arrivalTime
+
+        dm_matrix_response = Segmentation.get_matrix_or_error(
+            client    = STORAGE_CLIENT,
+            key       = dm_id,
+            bucket_id = BUCKET_ID
+        )
+
+        DMMatrix                           = dm_matrix_response.value
+        responseHeaders["Dm-Matrix-Dtype"] = dm_matrix_response.metadata.tags.get("dtype",DMMatrix.dtype) # Extract the type
+        responseHeaders["Dm-Matrix-Shape"] = dm_matrix_response.metadata.tags.get("shape",DMMatrix.shape) # Extract the shape
+        logger.debug("ENCRYPTED_DM_MATRIX GET SUCCESSFULLY")
+        
+        result = Nnc.run(
+            distance_matrix = DMMatrix,
+            threshold       = threshold
         )
         endTime                         = time.time()
         serviceTime                     = endTime - arrivalTime
@@ -921,7 +1092,7 @@ def dbsnnc():
             headers  = responseHeaders
         )
     except Exception as e:
-        print(e)
+        logger.error(e)
         return Response(
             response = None,
             status   = 503,
