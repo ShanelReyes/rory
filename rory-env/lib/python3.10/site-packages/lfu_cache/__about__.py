@@ -1,0 +1,7 @@
+__title__ = 'python-lfu'
+__description__ = 'A Python LFU cache implementation with O(1) eviction scheme'
+__url__ = 'https://github.com/psykidellic/python-lfu'
+__author__ = 'Ritesh Nadhani'
+__author_email__ = 'riteshn@gmail.com'
+__license__ = 'Unilicense'
+__version__ = '0.0.1'

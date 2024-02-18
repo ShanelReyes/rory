@@ -7,30 +7,35 @@ services:
       - 3000:3000
     environment:
       - NODE_ID=rory-client-0
-      - NODE_PORT=3000
       - NODE_IP_ADDR=rory-client-0
+      - NODE_PORT=3000
       - SERVER_IP_ADDR=0.0.0.0
       - RORY_MANAGER_IP_ADDR=rory-manager-0
       - RORY_MANAGER_PORT=6000
-      - LOGGER_NAME=rory-client-0
-      - MAX_ITERATIONS=10
-      - MAX_THREADS=1
       - NUM_CHUNKS=4
       - MAX_WORKERS=1
-      - XOLO_ENABLE=0
-      - DEBUG=0
+      - WORKER_TIMEOUT=300
+      - MAX_ITERATIONS=10
+      - M=3
       - RELOAD=0
       - LIU_ROUND=1
       - TESTING=0
-      - M=3
+      - RORY_DEBUG=0
+      - LOGGER_NAME=rory-client-0
+      - MAX_RETRIES=10
+      - MAX_DELAY=3
+      - JITTER=(.1,.5)
+      - MICTLANX_CLIENT_ID=rory-client-0
+      - MICTLANX_TIMEOUT=120
       - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
-      - MICTLANX_CLIENT_LB_ALGORITHM=2CHOICES_UF
-      - MICTLANX_CLIENT_WORKERS=12
       - MICTLANX_DEBUG=0
       - MICTLANX_DAEMON=0
       - MICTLANX_SHOW_METRICS=0
       - MICTLANX_DISABLED_LOG=1
-      - CUSTOM_PYTHON_PATH=/app
+      - MICTLANX_MAX_WORKERS=12
+      - MICTLANX_CLIENT_LB_ALGORITHM=2CHOICES_UF
+      - MICTLANX_BUCKET_ID=rory
+      - MICTLANX_OUTPUT_PATH=/rory/mictlanx
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink
       - LOG_PATH=/rory/log
@@ -50,47 +55,49 @@ services:
       - 6000:6000
     environment:
       - NODE_ID=rory-manager-0
-      - NODE_PORT=6000
       - NODE_IP_ADDR=rory-manager-0
+      - NODE_PORT=6000
       - SERVER_IP_ADDR=0.0.0.0
+      - NODE_PREFIX=rory-worker-
       - INIT_WORKERS=1
       - WORKER_INIT_PORT=9000
       - DOCKER_IMAGE_NAME=shanelreyes/rory
       - DOCKER_IMAGE_TAG=worker
-      - DEBUG=0
+      - DOCKER_NETWORK_ID=mictlanx
       - RELOAD=0
       - TESTING=0
       - MAX_RETRIES=10
-      - MAX_THREADS=2
+      - LOAD_BALANCING=0
       - WORKER_MAX_THREADS=2
       - WORKER_MEMORY=1000000000
       - WORKER_CPU=2
-      - LOAD_BALANCING=0
+      - WORKER_TIMEOUT=300
+      - SWARM_NODES=2,3,4,8
+      - RORY_DEBUG=0
+      - WORKER_MAX_RETRIES=10
+      - WORKER_MAX_DELAY=3
+      - WORKER_JITTER=(.1,.5)
       - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0
       - MICTLANX_SUMMONER_PORT=15000
       - MICTLANX_SUMMONER_MODE=docker
-      - MICTLANX_SUMMONER_API_VERSION=3
+      - MICTLANX_API_VERSION=3
       - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000
+      - MICTLANX_TIMEOUT=120
       - MICTLANX_CLIENT_LB_ALGORITHM=2CHOICES_UF
+      - MICTLANX_MAX_WORKERS=12
       - MICTLANX_DEBUG=0
       - MICTLANX_DAEMON=0
       - MICTLANX_SHOW_METRICS=0
-      - MICTLANX_MAX_WORKERS=12
       - MICTLANX_DISABLED_LOG=1
-      - WORKER_MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
-      - CUSTOM_PYTHON_PATH=/app
-      - LOGGER_NAME=rory-manager-0
       - SOURCE_PATH=/rory/source
       - SINK_PATH=/rory/sink
       - LOG_PATH=/rory/log
       - WORKER_BASE_PATH=/rory
-      - XOLO_ENABLE=0
     volumes:
       - /rory/rory-manager-0/source:/rory/source
       - /rory/rory-manager-0/sink:/rory/sink
       - /rory/rory-manager-0/log:/rory/log
       - /rory/mictlanx:/rory/mictlanx
-
     networks:
       - mictlanx
 networks:

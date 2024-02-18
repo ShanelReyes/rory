@@ -9,8 +9,8 @@ services:
     ports:
       - 7000:7000
     environment:
-      - USER_ID=1001
-      - GROUP_ID=1002
+      - USER_ID=6666
+      - GROUP_ID=6666
       - BIN_NAME=peer
       - NODE_ID=mictlanx-peer-0
       - NODE_PORT=7000
@@ -38,8 +38,8 @@ services:
     ports:
       - 7001:7001
     environment:
-      - USER_ID=1001
-      - GROUP_ID=1002
+      - USER_ID=6666
+      - GROUP_ID=6666
       - BIN_NAME=peer
       - NODE_ID=mictlanx-peer-1
       - NODE_PORT=7001
@@ -67,9 +67,9 @@ services:
       ports:
         - 15000:15000
       environment:
-        - USER_ID=1000
-        - GROUP_ID=1000
-        - DOCKER_GID=1001
+        - USER_ID=6666
+        - GROUP_ID=6666
+        - DOCKER_GID=6667
         - BIN_NAME=summoner 
         - BASE_PATH=/mictlanx
         - LOCAL_PATH=/mictlanx/local

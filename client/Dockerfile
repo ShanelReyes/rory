@@ -14,13 +14,5 @@ ENV FLASK_ENV="production"
 COPY ./requirements.txt .
 RUN pip install -r requirements.txt
 
-# RUN useradd -s /bin/bash -m sreyes
-# RUN mkdir /mictlanx
-# RUN mkdir /rory
-# RUN chown sreyes:sreyes /mictlanx
-# RUN chown sreyes:sreyes /rory
-# USER sreyes
-
 COPY ./src .
-#CMD [ "python","-u","/app/main.py"]
 CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]

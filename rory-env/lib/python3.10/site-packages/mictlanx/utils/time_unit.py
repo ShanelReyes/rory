@@ -1,0 +1,1 @@
+sec_to_nanos = lambda x: x* 1e+9

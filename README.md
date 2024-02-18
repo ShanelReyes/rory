@@ -20,17 +20,17 @@
   <summary>Table of Contents</summary>
   <ol>
     <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
+      <a href="#getting-started">Prerequisites</a>
+      <!-- <ul> -->
+        <!-- <li><a href="#prerequisites">Prerequisites</a></li> -->
+        <!-- <li><a href="#installation">Installation</a></li> -->
+      <!-- </ul> -->
     </li>
-    <li><a href="#usage">Usage</a></li>
+    <li><a href="#usage">Local usage</a></li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
+    <!-- <li><a href="#acknowledgments">Acknowledgments</a></li> -->
   </ol>
 </details>
 
@@ -52,44 +52,121 @@ System architecure brief description
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- GETTING STARTED -->
-## Getting Started
+<!-- ## Getting Started
 
-Getting started description ... 
+Getting started description ...  -->
 
-### Prerequisites
+## Prerequisites
 
-This is an example of how to list things you need to use the software and how to install them.
-* Flask
+
+The following prerequisites must be met in order to use the software correctly.
+1. Environment parameters
+  ```bash
+    export ROOT_BASE_PATH=/rory
+    export BASE_PATH=/home/sreyes/rory
+    export MANAGER_PATH=$BASE_PATH/manager
+    export CLIENT_PATH=$BASE_PATH/client
+    export WORKER_PATH=$BASE_PATH/worker
+    export MICTLANX_PATH=$BASE_PATH/Mictlanx
+
+    export MANAGER_GUNICORN_CONFIG_FILE=$MANAGER_PATH/src/gunicorn_config.py
+    export WORKER_GUNICORN_CONFIG_FILE=$WORKER_PATH/src/gunicorn_config.py
+    export CLIENT_GUNICORN_CONFIG_FILE=$CLIENT_PATH/src/gunicorn_config.py
+  ```
+
+2. Folder creation
+  ```bash
+    $ROOT_BASE_PATH/source
+    $ROOT_BASE_PATH/sink
+    $ROOT_BASE_PATH/log
+  ```
+
+3. Installation of dependencies 
+  
   ```sh
+    pip3 install -r /rory/manager/requirements.txt
+    pip3 install -r /rory/cliente/requirements.txt
+    pip3 install -r /rory/worker/requirements.txt
+  ```
+
+
+<!-- * Flask
+  ```bash
   pip install flask
   ```
-* Another software dependencie
-
-### Installation
+* Another software dependencie -->
 
 
-1. Clone the repo
+
+## Local use of the system
+
+1. Turn on virtual environment
+  ```sh
+    source $BASE_PATH/rory-env/bin/activate
+  ```
+
+2. Satisfy the prerequisites mentioned above.
+
+
+3. Running Mictlanx
+  ```sh
+      docker compose -f $MICTLANX_PATH/mictlanx.yml up -d
+  ```
+
+4. Execute each of the components 
+    - **MANAGER**
+      
+      Locate in `$MANAGER_PATH/src` and and type in the terminal:
+
+      ```sh
+        gunicorn --config $MANAGER_GUNICORN_CONFIG_FILE main:app
+      ```
+
+    - **WORKER** 
+
+      Locate in `$WORKER_PATH/src` and and type in the terminal:
+
+      ```sh
+        gunicorn --config $WORKER_GUNICORN_CONFIG_FILE main:app
+      ```
+
+    - **CLIENT**
+      
+      Locate in `$CLIENT_PATH/src` and and type in the terminal:
+
+      ```sh
+        gunicorn --config $CLIENT_GUNICORN_CONFIG_FILE main:app
+      ```
+
+5. Send a request, for example:
+   
+  - **Manager** `curl -X GET http://localhost:6000/clustering/test`
+  - **Worker** `curl -X GET http://localhost:9000/clustering/test`
+  - **Client** `curl -X GET http://localhost:3000/clustering/test`
+
+
+<!-- 1. Clone the repo
    ```sh
    git clone https://github.com/ShanelReyes/rory.git
    ```
-2. Install Python packages
+1. Install Python packages
    ```sh
    pip install -t /path/to/requirements.txt
-   ```
+   ``` -->
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
 
 <!-- USAGE EXAMPLES -->
-## Usage
+<!-- ## Usage
 
 Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
 
 _For more examples, please refer to the [Documentation](https://example.com)_
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
+ -->
 
 
 <!-- CONTRIBUTING -->
@@ -129,12 +206,11 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 
 <!-- ACKNOWLEDGMENTS -->
-## Acknowledgments
+<!-- ## Acknowledgments
 
 Use this space to list resources you find helpful and would like to give credit to. I've included a few of my favorites to kick things off!
 
 <!-- * [Apache Kafka](https://www.confluent.io/) -->
 
-<p align="right">(<a href="#top">back to top</a>)</p>
-
+<!-- <p align="right">(<a href="#top">back to top</a>)</p> -->
 

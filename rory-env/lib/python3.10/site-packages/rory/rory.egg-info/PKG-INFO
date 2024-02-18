@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: rory
+Version: 0.0.1
+Summary: Core modules of Secure Clustering System (SCS)
+Author-email: Nacho Castillo <jesus.castillo.b@cinvestav.mx>, Shanel Reyes <sreyes@cinvestav.mx>
+Project-URL: Github, https://github.com/ShanelReyes/scs-core
+Description-Content-Type: text/markdown

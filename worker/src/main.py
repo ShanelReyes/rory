@@ -3,20 +3,15 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.classification import classification
-from rory.core.logger.Logger import create_logger
 from mictlanx.v4.client import Client
 from mictlanx.utils.index import Utils
-from option import Some
 from dotenv import load_dotenv
 from retry.api import retry_call
-print("INIT_WORKER")
+from mictlanx.logger.log import Log
 app = Flask(__name__)
-# print("HERE")
 DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
-print("DEBUG",DEBUG)
 if DEBUG:
     load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
-# load_dotenv()
 
 NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
 PORT                 = int(os.environ.get("NODE_PORT",9000))
@@ -49,43 +44,40 @@ MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost
 MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
 MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")
+MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")#mictlanx-peer-2:localhost:7002")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
-MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
+MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
-MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
+MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",1)))
 
 STORAGE_CLIENT  = Client(
-    client_id    = MICTLANX_CLIENT_ID,
-    peers        = list(Utils.peers_from_str(MICTLANX_PEERS)),
-    debug        = MICTLANX_DEBUG,
-    daemon       = MICTLANX_DAEMON,
-    show_metrics = MICTLANX_SHOW_METRICS,
-    max_workers  = MICTLANX_MAX_WORKERS,
-    lb_algorithm = MICTLANX_CLIENT_LB_ALGORITHM,
-    bucket_id    = os.environ.get("MICTLANX_BUCKET_ID","rory"),
-    disable_log  = MICTLANX_DISABLED_LOG,
-    output_path  = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx") 
-    # output_path  = LOG_PATH
-
+    client_id       = MICTLANX_CLIENT_ID,
+    peers           = list(Utils.peers_from_str(MICTLANX_PEERS)),
+    debug           = MICTLANX_DEBUG,
+    daemon          = MICTLANX_DAEMON,
+    show_metrics    = MICTLANX_SHOW_METRICS,
+    max_workers     = MICTLANX_MAX_WORKERS,
+    lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
+    bucket_id       = os.environ.get("MICTLANX_BUCKET_ID","rory"),
+    disable_log     = MICTLANX_DISABLED_LOG,
+    log_output_path = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
 )
-LOGGER = create_logger (
+
+LOGGER = Log(
     name                   = NODE_ID,
-    LOG_FILENAME           = NODE_ID,
-    LOG_PATH               = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.INFO or record.levelno == logging.ERROR or record.levelno == logging.DEBUG,
-    file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
+    path                   = LOG_PATH,
+    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    interval               = 24,
+    when                   = "h"
 )
-
 
 """
 Description:
   Function that create a context using Flask. Establishes the connection between client, manager and worker. 
 """
 def create_app():
-    
     # Register blueprints
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     app.register_blueprint(classification)
@@ -100,8 +92,6 @@ def create_app():
         current_app.config["LOG_PATH"]         = LOG_PATH
         current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
         current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
-    # return app
-
 
 """
 Description:
@@ -110,28 +100,40 @@ Description:
 def started_completed():
   def __inner():
     try:
-      print(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT)
       response = requests.post(
             "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT),
             headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)},
             timeout = 300
       )
       response.raise_for_status()
-      LOGGER.debug("STARTED_RESPONSE {}".format(response.content))
+      LOGGER.debug({
+         "event":"MANAGER.STARTED_COMPLETED",
+         "manager_ip_addr":RORY_MANAGER_IP_ADDR,
+         "manager_port":RORY_MANAGER_PORT,
+         "node_id":NODE_ID,
+         "port":PORT
+      })
       return response
     except Exception as e:
-      print("ERROR",e)
-      LOGGER.error(str(e))
+      LOGGER.error({
+         "msg":str(e)
+      })
       raise e
   result = retry_call(__inner, tries=MAX_RETRIES, delay=1,backoff=1)
-  LOGGER.debug("WORKER_STARTED_RESPONSE {}".format(result))
 
 if __name__ == 'main' or __name__ == "__main__":
   try:
+    LOGGER.debug({
+        "event":"WORKER_STARTED",
+        "node_id":NODE_ID,
+        "port":PORT,
+        "debug":DEBUG,
+        "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
+        "mictlanx_timeout":MICTLANX_TIMEOUT,
+    })
     create_app()
     t1 = Thread(target= started_completed, daemon= True, args = () )
     t1.start()
   except Exception as e:
     print(e)
     sys.exit(1)
-  # finally:

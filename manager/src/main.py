@@ -1,4 +1,4 @@
-import os, logging, sys
+import os, sys
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
@@ -8,37 +8,42 @@ from load_balancing.random import  Random
 from deployworkers import deploy_nodes
 from mictlanx.v3.services.summoner import Summoner
 from mictlanx.v3.services.xolo import Xolo 
-from mictlanx.v3.interfaces.payloads import SummonContainerPayload,ExposedPort
-from option import NONE,Some
+from mictlanx.logger.log import Log
+from option import Some
 from rory.core.logger.Logger import create_logger
 from dotenv import load_dotenv
-# print("INIT_MANAGER")
+import logging
+import time
 
 app = Flask(__name__)
-DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
+DEBUG              = bool(int(os.environ.get("RORY_DEBUG",0)))
 if DEBUG:
     load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
 
-NODE_ID               = os.environ.get("NODE_ID","rory-manager-0")
-IP_ADDR               = os.environ.get("NODE_IP_ADDR",NODE_ID)
-PORT                  = int(os.environ.get("NODE_PORT",6000))
-NODE_PREFIX           = os.environ.get("NODE_PREFIX","rory-worker-")
-init_workers          = int(os.environ.get("INIT_WORKERS","0")) #worker iniciales que se levantan
-DOCKER_IMAGE_NAME     = os.environ.get("DOCKER_IMAGE_NAME","shanelreyes/rory")
-DOCKER_IMAGE_TAG      = os.environ.get("DOCKER_IMAGE_TAG","worker")
-DOCKER_IMAGE          = os.environ.get("DOCKER_IMAGE","{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG))
-DOCKER_NETWORK_ID     = os.environ.get("DOCKER_NETWORK_ID","mictlanx") 
-init_port             = int(os.environ.get("WORKER_INIT_PORT",3000))
-RELOAD                = bool(int(os.environ.get("RELOAD",0)))
-SERVER_IP_ADDR        = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
-XOLO_ENABLE           = bool(int(os.environ.get("XOLO_ENABLE","0")))
-WORKER_MAX_THREADS    = int(os.environ.get("WORKER_MAX_THREADS",2)) #Cantidad de threats para gunicorn
-WORKER_MEMORY         = os.environ.get("WORKER_MEMORY","1000000000")
-WORKER_CPU            = os.environ.get("WORKER_CPU",2)
-WORKER_MICTLANX_PEERS = os.environ.get("WORKER_MICTLANX_PEERS")
-WORKER_TIMEOUT        = int(os.environ.get("WORKER_TIMEOUT",300))
+NODE_ID            = os.environ.get("NODE_ID","rory-manager-0")
+IP_ADDR            = os.environ.get("NODE_IP_ADDR",NODE_ID)
+PORT               = int(os.environ.get("NODE_PORT",6000))
+SERVER_IP_ADDR     = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
+NODE_PREFIX        = os.environ.get("NODE_PREFIX","rory-worker-")
+init_workers       = int(os.environ.get("INIT_WORKERS","0")) #worker iniciales que se levantan
+init_port          = int(os.environ.get("WORKER_INIT_PORT",9000))
+DOCKER_IMAGE_NAME  = os.environ.get("DOCKER_IMAGE_NAME","shanelreyes/rory")
+DOCKER_IMAGE_TAG   = os.environ.get("DOCKER_IMAGE_TAG","worker")
+DOCKER_IMAGE       = os.environ.get("DOCKER_IMAGE","{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG))
+DOCKER_NETWORK_ID  = os.environ.get("DOCKER_NETWORK_ID","mictlanx") 
+RELOAD             = bool(int(os.environ.get("RELOAD",0)))
+TESTING            = bool(int(os.environ.get("TESTING","1")))
+MAX_RETRIES        = int(os.environ.get("MAX_RETRIES",100))
+LOAD_BALANCING     = int(os.environ.get("LOAD_BALANCING","0"))
+WORKER_MAX_THREADS = int(os.environ.get("WORKER_MAX_THREADS",2)) #Cantidad de threats para gunicorn
+WORKER_MEMORY      = os.environ.get("WORKER_MEMORY","1000000000")
+WORKER_CPU         = os.environ.get("WORKER_CPU",2)
+WORKER_TIMEOUT     = int(os.environ.get("WORKER_TIMEOUT",300))
+SWARM_NODES        = os.environ.get("SWARM_NODES","2,3,4,8").split(",")
+WORKER_MAX_RETRIES = os.environ.get("MAX_RETRIES","10")
+WORKER_MAX_DELAY   = os.environ.get("MAX_DELAY","2")
+WORKER_JITTER      = os.environ.get("JITTER","(.1,.5)")
 
-#CREAR FOLDERS
 SOURCE_PATH = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH   = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH    = os.environ.get("LOG_PATH","/rory/log")
@@ -49,20 +54,12 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-TESTING                      = bool(int(os.environ.get("TESTING","1")))
-MAX_RETRIES                  = int(os.environ.get("MAX_RETRIES",100))
-LOAD_BALANCING               = int(os.environ.get("LOAD_BALANCING","0"))
 MICTLANX_SUMMONER_IP_ADDR    = os.environ.get("MICTLANX_SUMMONER_IP_ADDR","localhost")
-MICTLANX_SUMMONER_PORT       = os.environ.get("MICTLANX_SUMMONER_PORT",15000)
+MICTLANX_SUMMONER_PORT       = int(os.environ.get("MICTLANX_SUMMONER_PORT",15000))
 MICTLANX_SUMMONER_MODE       = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION",3))
-MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID","APP_ID")
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
-MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
-MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000")
+MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS",12))
@@ -77,48 +74,78 @@ REPLICATOR = Summoner(
     port        = MICTLANX_SUMMONER_PORT,
     api_version = Some(MICTLANX_API_VERSION)
 )
-xolo = Xolo(
-    ip_addr     = Some(MICTLANX_XOLO_IP_ADDR) ,
-    port        = Some(MICTLANX_XOLO_PORT),
-    api_version = Some(MICTLANX_API_VERSION) 
-)
-# DEPLOY_NODES
-deploy_nodes(
-    summoner               = REPLICATOR,
-    NODE_ID                = NODE_ID,
-    PORT                   = str(PORT),
-    WORKER_MAX_THREADS     = WORKER_MAX_THREADS,
-    DOCKER_IMAGE           = DOCKER_IMAGE,
-    DOCKER_NETWORK_ID      = DOCKER_NETWORK_ID,
-    MICTLANX_APP_ID        = MICTLANX_APP_ID,
-    MICTLANX_CLIENT_ID     = MICTLANX_CLIENT_ID,
-    MICTLANX_SECRET        = MICTLANX_SECRET,
-    xolo                   = xolo,
-    MICTLANX_SUMMONER_MODE = MICTLANX_SUMMONER_MODE,
-    init_workers           = init_workers,
-    MICTLANX_EXPIRES_IN    = MICTLANX_EXPIRES_IN,
-    NODE_PREFIX            = NODE_PREFIX,
-    init_port              = init_port,
-    XOLO_ENABLE            = XOLO_ENABLE,
-    WORKER_MEMORY          = WORKER_MEMORY,
-    WORKER_CPU             = WORKER_CPU,
-    WORKER_MICTLANX_PEERS  = WORKER_MICTLANX_PEERS,
-    MICTLANX_CLIENT_LB_ALGORITHM = MICTLANX_CLIENT_LB_ALGORITHM,
-    MICTLANX_DEBUG         = MICTLANX_DEBUG,
-    MICTLANX_DAEMON        = MICTLANX_DAEMON,
-    MICTLANX_SHOW_METRICS  = MICTLANX_SHOW_METRICS,
-    MICTLANX_MAX_WORKERS   = MICTLANX_MAX_WORKERS,
-    MICTLANX_DISABLED_LOG  = MICTLANX_DISABLED_LOG
-)
 
-LOGGER = create_logger(
+LOGGER = Log(
     name                   = NODE_ID,
-    LOG_FILENAME           = NODE_ID,
-    LOG_PATH               = LOG_PATH,
+    path                   = LOG_PATH,
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
-    file_handler_filter    = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO,
+    interval               = 24,
+    when                   = "h"
 )
-
+if init_workers > 0:
+    deploy_workers_start_time = time.time()
+    LOGGER.debug({
+        "event":"DEPLOY_NODES",
+        "node_id":NODE_ID,
+        "port":PORT,
+        "init_workers":init_workers,
+        "worker_memory":WORKER_MEMORY,
+        "worker_cpu":WORKER_CPU,
+        "init_port":init_port,
+        "docker_image":DOCKER_IMAGE,
+        "peers":MICTLANX_PEERS,
+        "swarm_nodes":",".join(SWARM_NODES)
+    })
+    deploy_nodes_result = deploy_nodes(
+        log= LOGGER,
+        summoner                     = REPLICATOR,
+        NODE_ID                      = NODE_ID,
+        PORT                         = str(PORT),
+        WORKER_MAX_THREADS           = WORKER_MAX_THREADS,
+        DOCKER_IMAGE                 = DOCKER_IMAGE,
+        DOCKER_NETWORK_ID            = DOCKER_NETWORK_ID,
+        MICTLANX_CLIENT_ID           = MICTLANX_CLIENT_ID,
+        MICTLANX_SUMMONER_MODE       = MICTLANX_SUMMONER_MODE,
+        init_workers                 = init_workers,
+        NODE_PREFIX                  = NODE_PREFIX,
+        init_port                    = init_port,
+        WORKER_MEMORY                = WORKER_MEMORY,
+        WORKER_CPU                   = WORKER_CPU,
+        WORKER_MICTLANX_PEERS        = MICTLANX_PEERS,
+        MAX_RETRIES                  = WORKER_MAX_RETRIES,
+        MAX_DELAY                    = WORKER_MAX_DELAY,
+        JITTER                       = WORKER_JITTER,
+        MICTLANX_CLIENT_LB_ALGORITHM = MICTLANX_CLIENT_LB_ALGORITHM,
+        MICTLANX_DEBUG               = MICTLANX_DEBUG,
+        MICTLANX_DAEMON              = MICTLANX_DAEMON,
+        MICTLANX_SHOW_METRICS        = MICTLANX_SHOW_METRICS,
+        MICTLANX_MAX_WORKERS         = MICTLANX_MAX_WORKERS,
+        MICTLANX_DISABLED_LOG        = MICTLANX_DISABLED_LOG,
+        swarm_nodes                  = SWARM_NODES
+    )
+    if deploy_nodes_result.is_err:
+        LOGGER.error({
+            "msg":str(deploy_nodes_result.unwrap_err())
+        })
+        sys.exit(1)
+    else:
+        LOGGER.info({
+            "event":"DEPLOY_NODES",
+            "node_id":NODE_ID,
+            "port":PORT,
+            "init_workers":init_workers,
+            "worker_memory":WORKER_MEMORY,
+            "worker_cpu":WORKER_CPU,
+            "worker_max_retries":WORKER_MAX_RETRIES,
+            "worker_max_delay":WORKER_MAX_DELAY,
+            "worker_jitter":WORKER_JITTER,
+            "init_port":init_port,
+            "docker_image":DOCKER_IMAGE,
+            "peers":MICTLANX_PEERS,
+            "swarm_nodes":",".join(SWARM_NODES),
+            "service_time":time.time() - deploy_workers_start_time
+        })
+        
 
 """
 Description:
@@ -137,7 +164,6 @@ def create_app(*args):
         current_app.config["lb"]                 = balancers[LOAD_BALANCING]
         current_app.config["workers"]            = {}
         current_app.config["replicator"]         = REPLICATOR
-        current_app.config["xolo"]               = xolo
         current_app.config["NODE_ID"]            = NODE_ID
         current_app.config["NODE_PORT"]          = PORT
         current_app.config["NODE_PREFIX"]        = NODE_PREFIX
@@ -149,10 +175,28 @@ def create_app(*args):
         current_app.config["DOCKER_NETWORK_ID"]  = DOCKER_NETWORK_ID
         current_app.config["MICTLANX_TIMEOUT"]   = MICTLANX_TIMEOUT
         current_app.config["WORKER_TIMEOUT"]     = WORKER_TIMEOUT
+        current_app.config["INIT_WORKER_PORT"]   = init_port
 
 if __name__ == 'main' or __name__ == "__main__":
     try:
-        #print("ANTES DE INICIAR LA APP")
+        LOGGER.debug({
+            "event":"MANAGER_STARTED",
+            "load_balancing_algorithm":LOAD_BALANCING,
+            "node_id":NODE_ID,
+            "port":PORT,
+            "node_prefix":NODE_PREFIX,
+            "debug":DEBUG,
+            "docker_image_name":DOCKER_IMAGE_NAME,
+            "docker_image_tag":DOCKER_IMAGE_TAG,
+            "docker_image":DOCKER_IMAGE,
+            "docker_network_id":DOCKER_NETWORK_ID,
+            "worker_timeout":WORKER_TIMEOUT,
+            "worker_memory":WORKER_MEMORY,
+            "worker_cpu":WORKER_CPU,
+            "worker_max_threads":WORKER_MAX_THREADS,
+            "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
+            "mictlanx_timeout":MICTLANX_TIMEOUT,
+        })
         create_app()
     except Exception as e:
         print(e)

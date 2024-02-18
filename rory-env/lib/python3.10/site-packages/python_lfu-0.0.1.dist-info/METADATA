@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: python-lfu
+Version: 0.0.1
+Summary: A Python LFU cache implementation with O(1) eviction scheme
+Home-page: https://github.com/psykidellic/python-lfu
+Author: Ritesh Nadhani
+Author-email: riteshn@gmail.com
+License: Unilicense
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Software Development :: Build Tools
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Requires-Python: >=3.6
+
+A Python LFU cache implementation with O(1) eviction scheme
+
+

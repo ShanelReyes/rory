@@ -1,47 +1,46 @@
-import os, logging, sys, time
+import os, logging, sys
 from flask import Flask,current_app
-from rory.core.logger.Logger import create_logger
-from rory.core.security.cryptosystem.liu import Liu
-from rory.core.security.dataowner import DataOwner
-from rory.core.interfaces.rorymanager import RoryManager,DumbRoryManager
-from routes.clustering import clustering
-from routes.classification import classification
-from mictlanx.v4.client import Client
-from mictlanx.utils.index import Utils
-from mictlanx.v3.services.xolo import Xolo
 from option import Some
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
+from mictlanx.v4.client import Client
+from mictlanx.utils.index import Utils
+from mictlanx.v3.services.xolo import Xolo
+from rory.core.security.cryptosystem.liu import Liu
+from rory.core.security.dataowner import DataOwner
+from rory.core.interfaces.rorymanager import RoryManager
+from routes.clustering import clustering
+from routes.classification import classification
+from mictlanx.logger.log import Log
+
 app = Flask(__name__)
-
 ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env")
-STR_DEBUG = os.environ.get("RORY_DEBUG",0) 
-# print("STR_DEBUG",STR_DEBUG)
-# print("NEV_FILE_OATH",ENV_FILE_PATH)
-DEBUG                 = bool(int(STR_DEBUG))
+STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
+DEBUG         = bool(int(STR_DEBUG))
 
-print("DEBUG",DEBUG)
 if DEBUG:
     load_dotenv(ENV_FILE_PATH)
 
 NODE_ID              = os.environ.get("NODE_ID","rory-client-0")
-NODE_ID_METRICS      = "{}-Metrics".format(NODE_ID)
-PORT                 = int(os.environ.get("NODE_PORT",3000))
-IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
+NODE_IP_ADDR         = os.environ.get("NODE_IP_ADDR",NODE_ID)
+NODE_PORT            = int(os.environ.get("NODE_PORT",3000))
+SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
-DEBUG                = bool(int(os.environ.get("DEBUG",0)))
-RELOAD               = bool(int(os.environ.get("RELOAD",0)))
-LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","1")))
-SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
 MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",4)) #Total of process for encryption
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
+MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
+M                    = int(os.environ.get("M","3"))
+RELOAD               = bool(int(os.environ.get("RELOAD",0)))
+LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","1")))
+TESTING_ENV          = os.environ.get("TESTING","1")
+LOGGER_NAME          = os.environ.get("LOGGER_NAME","rory-client-0")
+SOURCE_PATH          = os.environ.get("SOURCE_PATH","/rory/source")
+SINK_PATH            = os.environ.get("SINK_PATH","/rory/sink")
+LOG_PATH             = os.environ.get("LOG_PATH","/rory/log")
+TESTING              = bool(int(TESTING_ENV))
 
-#CREAR FOLDERS
-SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
-SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
-LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
 try:
     os.makedirs(SOURCE_PATH,exist_ok = True)
     os.makedirs(SINK_PATH,  exist_ok = True)
@@ -49,59 +48,43 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-LOGGER_NAME    = os.environ.get("LOGGER_NAME","rory-client-0")
-MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS",10))
-TESTING_ENV    = os.environ.get("TESTING","1")
-TESTING        = bool(int(TESTING_ENV))
-M              = int(os.environ.get("M","3"))
 
-# MICTLANX
-MICTLANX_TIMEOUT      = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_APP_ID       = os.environ.get("MICTLANX_APP_ID","APP_ID")
-MICTLANX_CLIENT_ID    = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
-MICTLANX_SECRET       = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_XOLO_IP_ADDR = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT    = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
-MICTLANX_API_VERSION  = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_EXPIRES_IN   = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_PEERS        = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")
-MICTLANX_DEBUG        = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
-MICTLANX_DAEMON       = bool(int(os.environ.get("MICTLANX_DAEMON",0)))
-MICTLANX_SHOW_METRICS = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
-MICTLANX_DISABLED_LOG = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
-
-MICTLANX_MAX_WORKERS = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
+MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
+MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
+MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001") #mictlanx-peer-2:localhost:7002")
+MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
+MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
+MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
+MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
+MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
-
-xolo            = Xolo(
-    ip_addr     = Some(MICTLANX_XOLO_IP_ADDR), 
-    port        = Some(MICTLANX_XOLO_PORT), 
-    api_version = Some(MICTLANX_API_VERSION)
-)
+MICTLANX_BUCKET_ID           = os.environ.get("MICTLANX_BUCKET_ID","rory") 
+MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
 
 STORAGE_CLIENT = Client(
-    client_id    = MICTLANX_CLIENT_ID,
-    peers        = list(Utils.peers_from_str(MICTLANX_PEERS)),
-    daemon       = MICTLANX_DEBUG,
-    debug        = MICTLANX_DAEMON,
-    show_metrics = MICTLANX_SHOW_METRICS,
-    max_workers  = MICTLANX_MAX_WORKERS,
-    lb_algorithm = MICTLANX_CLIENT_LB_ALGORITHM,
-    bucket_id    = os.environ.get("MICTLANX_BUCKET_ID","rory"),
-    disable_log  = MICTLANX_DISABLED_LOG,
-    output_path  = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx") 
-    # lb_algorithm="2CHOICES_UF"
+    client_id       = MICTLANX_CLIENT_ID,
+    peers           = list(Utils.peers_from_str(MICTLANX_PEERS)),
+    daemon          = MICTLANX_DEBUG,
+    debug           = MICTLANX_DAEMON,
+    show_metrics    = MICTLANX_SHOW_METRICS,
+    max_workers     = MICTLANX_MAX_WORKERS,
+    lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
+    bucket_id       = MICTLANX_BUCKET_ID,
+    disable_log     = MICTLANX_DISABLED_LOG,
+    log_output_path = MICTLANX_OUTPUT_PATH
 )
+
 MANAGER = RoryManager(
     hostname = RORY_MANAGER_IP_ADDR,
     port     = RORY_MANAGER_PORT,
 )
-LOGGER = create_logger(
+LOGGER = Log(
     name                   = LOGGER_NAME,
-    LOG_FILENAME           = NODE_ID,
-    LOG_PATH               = LOG_PATH,
+    path                   = LOG_PATH,
     console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
-    file_handler_filter    = lambda record:  record.levelno == logging.INFO,
+    interval               = 24,
+    when                   = "h"
 )
 LIU  = Liu(
     round = LIU_ROUND
@@ -111,9 +94,9 @@ DATAOWNER = DataOwner(
     liu_scheme = LIU,
 )
 
-cores                   = os.cpu_count()
-max_workers             = cores if MAX_WORKERS > cores else MAX_WORKERS
-executor = ProcessPoolExecutor(max_workers=max_workers)
+cores       = os.cpu_count()
+max_workers = cores if MAX_WORKERS > cores else MAX_WORKERS
+executor    = ProcessPoolExecutor(max_workers=max_workers)
 """
 Description:
     Function that create a context using Flask. Establishes the connection between client, manager and worker. 
@@ -150,9 +133,25 @@ Description:
 """
 if __name__ == 'main' or __name__ == "__main__":
     try:
+        LOGGER.debug({
+            "event":"CLIENT_STARTED",
+            "soruce_path":SOURCE_PATH,
+            "sink_path":SINK_PATH,
+            "node_id":NODE_ID,
+            "log_path":LOG_PATH,
+            "debug":DEBUG,
+            "max_iterations":MAX_ITERATIONS,
+            "testing":TESTING,
+            "num_chunks":NUM_CHUNKS,
+            "max_workers":MAX_WORKERS,
+            "mictlanx_timeout":MICTLANX_TIMEOUT,
+            "worker_timeout":WORKER_TIMEOUT 
+        })
         create_app()
     except Exception as e:
-        print(e)
+        LOGGER.error({
+            "msg":str(e)
+        })
         executor.shutdown()
         STORAGE_CLIENT.shutdown()
         sys.exit(1)
