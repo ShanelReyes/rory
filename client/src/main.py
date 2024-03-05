@@ -64,15 +64,13 @@ MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mict
 
 STORAGE_CLIENT = Client(
     client_id       = MICTLANX_CLIENT_ID,
-    peers           = list(Utils.peers_from_str(MICTLANX_PEERS)),
-    daemon          = MICTLANX_DEBUG,
-    debug           = MICTLANX_DAEMON,
-    show_metrics    = MICTLANX_SHOW_METRICS,
+    bucket_id       = MICTLANX_BUCKET_ID,
+    routers           = list(Utils.routers_from_str(MICTLANX_PEERS)),
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-    bucket_id       = MICTLANX_BUCKET_ID,
-    disable_log     = MICTLANX_DISABLED_LOG,
-    log_output_path = MICTLANX_OUTPUT_PATH
+    debug     = MICTLANX_DISABLED_LOG,
+    log_output_path = MICTLANX_OUTPUT_PATH, 
+ 
 )
 
 MANAGER = RoryManager(

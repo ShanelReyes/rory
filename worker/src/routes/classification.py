@@ -1,14 +1,15 @@
 import time, json
 from flask import Blueprint,current_app,request,Response
 from rory.core.utils.constants import Constants
-from rory.core.classification.secure.sknn import SecureKNearestNeighbors as SKNN
+from rory.core.classification.secure.distributed.sknn import SecureKNearestNeighbors as SKNN
 from rory.core.classification.knn import KNearestNeighbors as KNN
 from mictlanx.v4.client import Client as V4Client
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 from utils.utils import Utils
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse
+from mictlanx.utils.segmentation import Chunks
 import numpy.typing as npt
-from option import Result
+from option import Result, Some
 
 classification = Blueprint("classification",__name__,url_prefix = "/classification")
 
@@ -24,30 +25,26 @@ def test():
         }
     )
 
-@classification.route("/sknn/predict",methods = ["POST"])
-def sknn_pedict():
-    local_start_time              = time.time() #Worker start time
+
+def sknn_pedict_1(requestHeaders):
+    local_start_time         = time.time() #Worker start time
     headers                  = request.headers
-    to_remove_headers        = ["User-Agent","Accept-Encoding","Connection"]
-    filtered_headers          = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     logger                   = current_app.config["logger"]
-    worker_id                 = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
-    # m                        = int(filtered_headers.get("M",3))
-    model_id                 = filtered_headers.get("Model-Id","model-0") #iris
+    m                        = int(requestHeaders.get("M",3))
+    model_id                 = requestHeaders.get("Model-Id","model-0") #iris
     encrypted_model_id       = "encrypted-{}".format(model_id) #encrypted-iris_model
     model_labels_id          = "{}_labels".format(model_id) #iris_model_labels
-    records_test_id          = filtered_headers.get("Records-Test-Id","matrix-0")
+    records_test_id          = requestHeaders.get("Records-Test-Id","matrix-0")
     encrypted_records_id     = "encrypted-{}".format(records_test_id) # The id of the encrypted matrix is built
     algorithm                = Constants.ClassificationAlgorithms.SKNN_PREDICT
-    _encrypted_model_shape   = filtered_headers.get("Encrypted-Model-Shape",-1)
-    _encrypted_model_dtype   = filtered_headers.get("Encrypted-Model-Dtype",-1)
-    _encrypted_records_shape = filtered_headers.get("Encrypted-Records-Shape",-1)
-    _encrypted_records_dtype = filtered_headers.get("Encrypted-Records-Dtype",-1)
+    _encrypted_model_shape   = requestHeaders.get("Encrypted-Model-Shape",-1)
+    _encrypted_model_dtype   = requestHeaders.get("Encrypted-Model-Dtype",-1)
+    _encrypted_records_shape = requestHeaders.get("Encrypted-Records-Shape",-1)
+    _encrypted_records_dtype = requestHeaders.get("Encrypted-Records-Dtype",-1)
 
-    # logger.debug(str(filtered_headers))
-    # logger.debug("SKNN_PREDICT algorithm={}, m={}, model_id={}, encrypted_model_id={}, records_test_id={}, encrypted_records_id={}, ems={}, emd={}".format(algorithm,m,model_id,encrypted_model_id,records_test_id,encrypted_records_id,_encrypted_records_shape,_encrypted_records_dtype))
     
     if _encrypted_model_dtype == -1:
         return Response("Encrypted-Model-Dtype", status=500)
@@ -61,11 +58,11 @@ def sknn_pedict():
     
     encrypted_model_shape:tuple   = eval(_encrypted_model_shape)
     encrypted_records_shape:tuple = eval(_encrypted_records_shape)
-    num_chunks                    = int(filtered_headers.get("Num-Chunks",-1))
-    response_headers               = {}
+    num_chunks                    = int(requestHeaders.get("Num-Chunks",-1))
+    response_headers              = {}
 
     logger.debug({
-        "event":"SKNN.PREDICT.STARTED",
+        "event":"SKNN.PREDICT.1.STARTED",
         "worker_id":worker_id,
         "model_id":model_id,
         "encrypted_model_id":encrypted_model_id,
@@ -85,26 +82,26 @@ def sknn_pedict():
         logger.debug({
             "event":"GET.MERGE.NDARRAY.BEFORE",
             "bucket_id":BUCKET_ID,
-            "key":encrypted_model_id,
+            "encrypted_model_id":encrypted_model_id,
             "shape":_encrypted_model_shape,
             "dtype":_encrypted_model_dtype,
             "num_chunks":num_chunks
         })
         get_merge_encrypted_model_start_time = time.time()
         (encrypted_model, encrypted_model_metadata) = Utils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID, 
-            key            = encrypted_model_id,
-            num_chunks     = num_chunks, 
-            shape          = encrypted_model_shape,
-            dtype          = _encrypted_model_dtype
+            STORAGE_CLIENT     = STORAGE_CLIENT,
+            bucket_id          = BUCKET_ID, 
+            key = encrypted_model_id,
+            num_chunks         = num_chunks, 
+            shape              = encrypted_model_shape,
+            dtype              = _encrypted_model_dtype
         )
 
         get_merge_encrypted_model_st = time.time()- get_merge_encrypted_model_start_time
         logger.info({
             "event":"GET.MERGE.NDARRAY",
             "bucket_id":BUCKET_ID,
-            "key":encrypted_model_id,
+            "encrypted_model_id":encrypted_model_id,
             "num_chunks":num_chunks,
             "shape":_encrypted_model_shape,
             "dtype":_encrypted_model_dtype,
@@ -114,35 +111,10 @@ def sknn_pedict():
         response_headers["Encrypted-Model-Dtype"] = encrypted_model_metadata.tags.get("dtype",encrypted_model.dtype) #["tags"]["dtype"] #Save the data type
         response_headers["Encrypted-Model-Shape"] = encrypted_model_metadata.tags.get("shape",encrypted_model.shape) #Save the shape
         
-
-        # ___________________________________________________________________
-
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "key":model_labels_id,
-            "bucket_id":BUCKET_ID,
-        })
-        model_labels_get_start_time = time.time()
-        model_labels= Utils.get_matrix_or_error(
-            client=STORAGE_CLIENT,
-            key = model_labels_id,
-            bucket_id=BUCKET_ID
-        ).value
-
-        model_labels_get_st = time.time() - model_labels_get_start_time
-        logger.debug({
-            "event":"GET.NDARRAY",
-            "bucket_id":BUCKET_ID,
-            "key":model_labels_id,
-            "shape":str(model_labels.shape), 
-            "dtype":str(model_labels.dtype),
-            "service_time":model_labels_get_st
-        })
-        # ___________________________________________________________________
         logger.debug({
             "event":"GET.MERGE.NDARRAY.BEFORE",
             "bucket_id":BUCKET_ID,
-            "key":encrypted_model_id,
+            "encrypted_records_id":encrypted_records_id,
             "shape":_encrypted_records_shape,
             "dtype":_encrypted_records_dtype,
             "num_chunks":num_chunks
@@ -168,60 +140,199 @@ def sknn_pedict():
             "dtype":_encrypted_model_dtype,
             "service_time":get_merge_encrypted_records_st
         })
-        # ___________________________________________________________________
-        # logger.debug("ENCRYPTED_RECORDS GET SUCCESSFULLY")
 
-        # time.sleep(1000)
         logger.debug({
-            "event":"SKNN.PREDICT.BEFORE",
+            "event":"CALCULATE.DISTANCES.BEFORE",
+            "encrypted_records_id":encrypted_records_id,
             "encrypted_records_shape":str(encrypted_records.shape),
             "encrypted_records_dtype":str(encrypted_records.dtype),
+            "encrypted_model_id":encrypted_model_id,
             "encrypted_model_shape":str(encrypted_model.shape),
-            "encrypted_model_dtype":str(encrypted_model.dtype),
-            "models_labels_shape":str(model_labels.shape),
-            "models_labels_dtype":str(model_labels.dtype),
+            "encrypted_model_dtype":str(encrypted_model.dtype)
         })
         sknn_predict_start_time = time.time()
-        label_vector = SKNN.predict(
-            dataset      = encrypted_records,
-            model        = encrypted_model,
-            model_labels = model_labels
-        )
-        sknn_pedict_st = time.time() - sknn_predict_start_time
+
+        all_distances = SKNN.calculate_distances(
+			dataset = encrypted_records,
+			model   = encrypted_model,
+		)
+
         logger.info({
-            "event":"SKNN.PREDICT",
+            "event":"CALCULATE.DISTANCES",
+            "encrypted_records_id":encrypted_records_id,
             "encrypted_records_shape":str(encrypted_records.shape),
             "encrypted_records_dtype":str(encrypted_records.dtype),
+            "encrypted_model_id":encrypted_model_id,
             "encrypted_model_shape":str(encrypted_model.shape),
-            "encrypted_model_dtype":str(encrypted_model.dtype),
-            "models_labels_shape":str(model_labels.shape),
-            "models_labels_dtype":str(model_labels.dtype),
-            "service_time": sknn_pedict_st
+            "encrypted_model_dtype":str(encrypted_model.dtype)
         })
 
-        # logger.debug("SKNN_PREDICT COMPLETED SUCCESSFULLY")
+        distances_id = "distances-{}".format(records_test_id) 
+        distances_shape = all_distances.shape
+        distances_dtype = all_distances.dtype
+
+        logger.debug({
+            "event":"PUT.CHUNKS.BEFORE",
+            "encrypted_records_id":encrypted_records_id,
+            "encrypted_model_id":encrypted_model_id,
+            "distances_shape":str(distances_shape),
+            "distances_dtype":str(distances_dtype)
+        })
+                
+        maybe_chunks = Chunks.from_ndarray(
+            ndarray = all_distances,
+            group_id = distances_id,
+            chunk_prefix = Some(distances_id),
+            num_chunks = num_chunks
+        )
+
+        if maybe_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        _ = STORAGE_CLIENT.delete_by_ball_id(
+            ball_id   = distances_id, 
+            bucket_id = BUCKET_ID
+        )
+
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+            key       = distances_id, 
+            chunks    = maybe_chunks.unwrap(), 
+            bucket_id = BUCKET_ID,
+            tags      = {}
+        )
+
+        for i,put_chunk_result in enumerate(put_chunks_generator_results):
+            if put_chunk_result.is_err:
+                logger.error("Something went wrong storage the chunk.")
+                return Response(
+                    status   = 500,
+                    response = "{}".format(str(put_chunk_result.unwrap_err()))
+                )
+
+        logger.debug({
+            "event":"PUT.CHUNKS",
+            "encrypted_records_id":encrypted_records_id,
+            "encrypted_model_id":encrypted_model_id,
+            "distances_shape":str(distances_shape),
+            "distances_dtype":str(distances_dtype)
+        })
+
+        end_time     = time.time()
+        service_time = end_time - local_start_time
+        
+        logger.info({
+            "event":"SKNN.PREDICT.1.COMPLETED",
+            "algorithm":algorithm,
+            "worker_service_time":service_time
+        })
+  
+        return Response( #Returns the final response as a label vector + the headers
+            response = json.dumps({
+                # "label_vector":label_vector.tolist(),
+                "distances_id":distances_id,
+                "distances_shape":str(distances_shape),
+                "distances_dtype":str(distances_dtype),
+                "service_time":service_time
+            }),
+            status   = 200,
+        )
+    except Exception as e:
+        logger.error({
+            "msg":str(e)
+        })
+        # print(e)
+        return Response(
+            response = None,
+            status   = 503,
+            headers  = {"Error-Message":str(e)}
+        )
+
+
+def sknn_predict_2(requestHeaders):
+    local_start_time        = time.time() #Worker start time
+    headers                 = request.headers
+    logger                  = current_app.config["logger"]
+    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    model_id                = requestHeaders.get("Model-Id","model-0") #iris
+    model_labels_id         = "{}_labels".format(model_id) #iris_model_labels
+    records_test_id         = requestHeaders.get("Records-Test-Id","matrix-0")
+    min_distances_index_id  = "distances-index-{}".format(records_test_id)
+    algorithm               = Constants.ClassificationAlgorithms.SKNN_PREDICT
+
+    try:
+        logger.debug({
+        "event":"SKNN.PREDICT.2.STARTED",
+        "worker_id":worker_id,
+        "model_id":model_id,
+        "models_labels_id":model_labels_id,
+        "records_test_id":records_test_id,
+        "min_distances_index_id":min_distances_index_id,
+        "algorithm":algorithm,
+    })
+        
+        logger.debug({
+            "event":"GET.NDARRAY.BEFORE",
+            "key":model_labels_id,
+            "bucket_id":BUCKET_ID,
+        })
+        model_labels_get_start_time = time.time()
+        model_labels= Utils.get_matrix_or_error(
+            client=STORAGE_CLIENT,
+            key = model_labels_id,
+            bucket_id=BUCKET_ID
+        ).value
+
+        model_labels_get_st = time.time() - model_labels_get_start_time
+
+        logger.debug({
+            "event":"GET.NDARRAY",
+            "bucket_id":BUCKET_ID,
+            "key":model_labels_id,
+            "shape":str(model_labels.shape), 
+            "dtype":str(model_labels.dtype),
+            "service_time":model_labels_get_st
+        })
+
+        logger.debug({
+            "event":"GET.MATRIX.BEFORE",
+            "bucket_id":BUCKET_ID,
+            "models_labels_id":model_labels_id,
+            "min_distances_index_id":min_distances_index_id
+        })
+
+        min_distances_index = Utils.get_matrix_or_error(
+            client=STORAGE_CLIENT,
+            key = min_distances_index_id,
+            bucket_id=BUCKET_ID
+        ).value
+
+        logger.debug({
+            "event":"GET.MATRIX",
+            "models_labels_id":model_labels_id,
+            "min_distances_index_id":min_distances_index_id
+        })
+
+        logger.debug({
+            "event":"GET.LABEL.VECTOR.BEFORE",
+            "models_labels_id":model_labels_id,
+            "min_distances_index_id":min_distances_index_id
+        })
+
+        label_vector = SKNN.get_label_vector(
+            model_labels = model_labels,
+            min_indexes = min_distances_index
+        )
         end_time                         = time.time()
         service_time                     = end_time - local_start_time
-        # response_headers["Service-Time"] = str(service_time)
-        logger.info({
-            "event":"SKNN.PREDICT.COMPLETED",
-            "algorithm":algorithm,
-            "predict_service_time":sknn_pedict_st,
-            "get_encrypted_records_service_time":get_merge_encrypted_records_st,
-            "get_model_service_time":get_merge_encrypted_model_st,
-            "get_model_labels_service_time":model_labels_get_st,
-            "service_time":service_time
-        })
+        requestHeaders["Service-Time"] = str(service_time)
 
-        # logger_metrics = LoggerMetrics(
-        #     operation_type = algorithm, 
-        #     matrix_id      = records_test_id, 
-        #     worker_id      = worker_id,
-        #     algorithm      = algorithm, 
-        #     arrival_time   = local_start_time, 
-        #     end_time       = end_time, 
-        #     service_time   = service_time)
-        # logger.info(str(logger_metrics))
+        logger.info({
+            "event":"SKNN.PREDICT.2.COMPLETED",
+            "algorithm":algorithm,
+            "worker_service_time":service_time
+        })
 
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({
@@ -243,6 +354,19 @@ def sknn_pedict():
         )
 
 
+@classification.route("/sknn/predict",methods = ["POST"])
+def sknn_predict():
+    headers         = request.headers
+    head            = ["User-Agent","Accept-Encoding","Connection"]
+    filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
+    step_index      = int(filteredHeaders.get("Step-Index",1))
+    response        = Response()
+    if step_index == 1:
+        return sknn_pedict_1(filteredHeaders)
+    elif step_index == 2:
+        return sknn_predict_2(filteredHeaders)
+    else:
+        return response
 
 @classification.route("/knn/predict",methods = ["POST"])
 def knn_predict():

@@ -62,57 +62,56 @@ def getAll():
 
 @workers.route("/deploy", methods = ["POST"])
 def deploy_worker():
-    arrival_time                       = time.time()
-    headers                            = request.headers
-    replicator:Summoner                = current_app.config["replicator"]
-    NODE_ID                            = current_app.config["NODE_ID"]
-    PORT                               = current_app.config["NODE_PORT"]
-    DOCKER_IMAGE                       = current_app.config["DOCKER_IMAGE"]
-    DOCKER_NETWORK_ID                  = current_app.config["DOCKER_NETWORK_ID"]
-    INIT_PORT                          = int(current_app.config["INIT_WORKER_PORT"])
-    logger                             = current_app.config["logger"]
-    current_workers                    = current_app.config["workers"]
-    n_workers                          = len(current_workers)
-
-    worker_port                        = str(n_workers+INIT_PORT)
-    HOST_PORT                          = headers.get("Host-Port",worker_port)
-    container_id                       = headers.get("Container-Id","worker-{}".format(n_workers))
-    CONTAINER_PORT                     = headers.get("Container-Port", worker_port)
-    WORKER_MEMORY                      = headers.get("Worker-Memory","1000000000")
-    WORKER_CPU                         = headers.get("Worker-Cpu","1")
-    DEBUG                              = headers.get("Debug","0")
-    RELOAD                             = headers.get("Reload","0")
-    LIU_ROUND                          = headers.get("Liu-Round","1")
-    SINK_PATH                          = headers.get("Sink-Path","/sink")
-    SOURCE_PATH                        = headers.get("Source-Path","/source")
-    LOG_PATH                           = headers.get("Log-Path","/log")
-    TESTING                            = headers.get("Testing","0")
-    MAX_ITERATIONS                     = headers.get("Max-Iterations","10")
-    M                                  = headers.get("M","3")
-    WORKER_MAX_THREADS                 = headers.get("Max-Threads","4")
-    WORKER_MICTLANX_PEERS              = headers.get("Mictlanx-Peers","mictlanx-peer-0:mictlanx-peer-0:7000")
-    MICTLANX_CLIENT_LB_ALGORITHM       = headers.get("Mictlanx-Lb-Algorithm","2CHOICES_UF")
-    MICTLANX_DEBUG                     = headers.get("Mictlanx-Debug","0")
-    MICTLANX_DAEMON                    = headers.get("Mictlanx-Daemon","0")
-    MICTLANX_SHOW_METRICS              = headers.get("Mictlanx-Show-Metrics","0")
-    MICTLANX_MAX_WORKERS               = headers.get("Mictlanx-Max-Workers","4")
-    MICTLANX_DISABLED_LOG              = headers.get("Mictlanx-Disabled-Log","1")
+    arrival_time                 = time.time()
+    headers                      = request.headers
+    replicator:Summoner          = current_app.config["replicator"]
+    NODE_ID                      = current_app.config["NODE_ID"]
+    PORT                         = current_app.config["NODE_PORT"]
+    DOCKER_IMAGE                 = current_app.config["DOCKER_IMAGE"]
+    DOCKER_NETWORK_ID            = current_app.config["DOCKER_NETWORK_ID"]
+    INIT_PORT                    = int(current_app.config["INIT_WORKER_PORT"])
+    logger                       = current_app.config["logger"]
+    current_workers              = current_app.config["workers"]
+    n_workers                    = len(current_workers)
+    worker_port                  = str(n_workers+INIT_PORT)
+    HOST_PORT                    = headers.get("Host-Port",worker_port)
+    container_id                 = headers.get("Container-Id","worker-{}".format(n_workers))
+    CONTAINER_PORT               = headers.get("Container-Port", worker_port)
+    WORKER_MEMORY                = headers.get("Worker-Memory","1000000000")
+    WORKER_CPU                   = headers.get("Worker-Cpu","1")
+    DEBUG                        = headers.get("Debug","0")
+    RELOAD                       = headers.get("Reload","0")
+    LIU_ROUND                    = headers.get("Liu-Round","1")
+    SINK_PATH                    = headers.get("Sink-Path","/sink")
+    SOURCE_PATH                  = headers.get("Source-Path","/source")
+    LOG_PATH                     = headers.get("Log-Path","/log")
+    TESTING                      = headers.get("Testing","0")
+    MAX_ITERATIONS               = headers.get("Max-Iterations","10")
+    M                            = headers.get("M","3")
+    WORKER_MAX_THREADS           = headers.get("Max-Threads","4")
+    WORKER_MICTLANX_PEERS        = headers.get("Mictlanx-Peers","mictlanx-peer-0:mictlanx-peer-0:7000")
+    MICTLANX_CLIENT_LB_ALGORITHM = headers.get("Mictlanx-Lb-Algorithm","2CHOICES_UF")
+    MICTLANX_DEBUG               = headers.get("Mictlanx-Debug","0")
+    MICTLANX_DAEMON              = headers.get("Mictlanx-Daemon","0")
+    MICTLANX_SHOW_METRICS        = headers.get("Mictlanx-Show-Metrics","0")
+    MICTLANX_MAX_WORKERS         = headers.get("Mictlanx-Max-Workers","4")
+    MICTLANX_DISABLED_LOG        = headers.get("Mictlanx-Disabled-Log","1")
 
     envs =     {
-            "NODE_INDEX"                      : str(n_workers),
-            "NODE_IP_ADDR"                    : container_id,
-            "NODE_PORT"                       : CONTAINER_PORT,
-            "RORY_MANAGER_IP_ADDR"            : NODE_ID,
-            "RORY_MANAGER_PORT"               : str(PORT),
-            "DEBUG"                           : DEBUG,
-            "RELOAD"                          : RELOAD,
-            "LIU_ROUND"                       : LIU_ROUND,
-            "SOURCE_PATH"                     : SOURCE_PATH,
-            "SINK_PATH"                       : SINK_PATH, 
-            "LOG_PATH"                        : LOG_PATH,
-            "MAX_ITERATIONS"                  : MAX_ITERATIONS,
-            "TESTING"                         : TESTING,
-            "M"                               : M,
+            "NODE_INDEX"           : str(n_workers),
+            "NODE_IP_ADDR"         : container_id,
+            "NODE_PORT"            : CONTAINER_PORT,
+            "RORY_MANAGER_IP_ADDR" : NODE_ID,
+            "RORY_MANAGER_PORT"    : str(PORT),
+            "DEBUG"                : DEBUG,
+            "RELOAD"               : RELOAD,
+            "LIU_ROUND"            : LIU_ROUND,
+            "SOURCE_PATH"          : SOURCE_PATH,
+            "SINK_PATH"            : SINK_PATH, 
+            "LOG_PATH"             : LOG_PATH,
+            "MAX_ITERATIONS"       : MAX_ITERATIONS,
+            "TESTING"              : TESTING,
+            "M"                    : M,
             "MAX_THREADS":WORKER_MAX_THREADS,
             "MICTLANX_PEERS":WORKER_MICTLANX_PEERS,
             "MICTLANX_CLIENT_LB_ALGORITHM":MICTLANX_CLIENT_LB_ALGORITHM,

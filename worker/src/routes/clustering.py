@@ -1327,7 +1327,7 @@ def dbskmeans():
 
 @clustering.route("/dbsnnc", methods = ["POST"])
 def dbsnnc():
-    local_start_time             = time.time() #System startup time
+    local_start_time        = time.time() #System startup time
     headers                 = request.headers
     to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
     filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
@@ -1366,9 +1366,10 @@ def dbsnnc():
         return Response("Num-Chunks header is required", status=503)
     
     logger.debug({
-        "event":"DBSNNC.1.STARTED",
+        "event":"DBSNNC.STARTED",
         "algorithm":algorithm,
         "worker_id":worker_id,
+        "bucket_id":BUCKET_ID,
         "plaintext_matrix_id":plaintext_matrix_id,
         "encrypted_matrix_id":encrypted_matrix_id,
         "encrypted_dm_id":encrypted_dm_id,
@@ -1388,6 +1389,8 @@ def dbsnnc():
             "num_chunks":num_chunks,
             "encrypted_matrix_shape":_encrypted_matrix_shape,
             "encrypted_matrix_dtype":_encrypted_matrix_dtype,
+            "bucket_id":BUCKET_ID,
+            
         })
         get_merge_encrypted_matrix_start_time = time.time()
         (encryptedMatrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
@@ -1440,21 +1443,26 @@ def dbsnnc():
         responseHeaders["Encrypted-Dm-Dtype"] = str(dm_metadata.tags.get("dtype",distance_matrix.dtype)) # Extract the type
         responseHeaders["Encrypted-Dm-Shape"] = str(dm_metadata.tags.get("shape",distance_matrix.shape)) # Extract the shape
         
+        dbsnnc_run_start_time = time.time()
         logger.debug({
             "event":"DBSNNC.RUN.BEFORE",
             "algorithm":algorithm,
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
+            "encrypted_threshold":encrypted_threshold
         })
         result = Dbsnnc.run(
             distance_matrix     = distance_matrix,
             encrypted_threshold = encrypted_threshold
         )
-        end_time                         = time.time()
-        service_time                     = end_time - local_start_time
+        end_time     = time.time()
+        dbsnnc_service_time = end_time - dbsnnc_run_start_time
+        service_time = end_time - local_start_time
+        # responseHeaders["Service-Time"] = str(service_time)
 
         logger.info({
-            "event":"DBSNNC.RUN",
+            "event":"DBSNNC.COMPLETED",
+            "worker_id":worker_id,
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
@@ -1462,9 +1470,9 @@ def dbsnnc():
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
             "num_chunks":num_chunks,
+            "dbsnnc_run_service_time":dbsnnc_service_time,
             "service_time":service_time
         })
-        responseHeaders["Service-Time"] = str(service_time)
         
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({
@@ -1483,20 +1491,44 @@ def dbsnnc():
     
 @clustering.route("/nnc", methods = ["POST"])
 def nnc():
-    local_start_time      = time.time() #System startup time
-    headers               = request.headers
-    to_remove_headers     = ["User-Agent","Accept-Encoding","Connection"]
-    filtered_headers      = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
-    algorithm             = Constants.ClusteringAlgorithms.NNC
-    logger                = current_app.config["logger"]
-    STORAGE_CLIENT:Client = current_app.config["STORAGE_CLIENT"]
-    BUCKET_ID:str         = current_app.config.get("BUCKET_ID","rory")
-    worker_id             = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    plaintext_matrix_id   = filtered_headers.get("Plaintext-Matrix-Id")
-    threshold             = float(filtered_headers.get("Threshold"))
-    dm_id                 = "{}-dm".format(plaintext_matrix_id) 
-    response_headers      = {}
-    response_headers      = {}
+    local_start_time        = time.time() #System startup time
+    headers                 = request.headers
+    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
+    filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    algorithm               = Constants.ClusteringAlgorithms.NNC
+    logger                  = current_app.config["logger"]
+    STORAGE_CLIENT:Client   = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
+    threshold               = float(filtered_headers.get("Threshold"))
+    _plaintext_matrix_shape = filtered_headers.get("Plaintext-Matrix-Shape",-1)
+    _plaintext_matrix_dtype = filtered_headers.get("Plaintext-Matrix-Dtype",-1)
+    _dm_shape               = filtered_headers.get("Dm-Shape",-1)
+    _dm_dtype               = filtered_headers.get("Dm-Dtype",-1)
+    dm_id                   = "{}-dm".format(plaintext_matrix_id) 
+    response_headers        = {}
+    response_headers        = {}
+    
+    if _plaintext_matrix_dtype == -1:
+        return Response("Encrypted-Matrix-Dtype", status=500)
+    if _plaintext_matrix_shape == -1 :
+        return Response("Encrypted-Matrix-Shape header is required", status=500)
+    
+    if _dm_dtype == -1:
+        return Response("Encrypted-DM-Dtype", status=500)
+    if _dm_shape == -1 :
+        return Response("Encrypted-DM-Shape header is required", status=500)
+    
+    plaintext_matrix_shape:tuple = eval(_plaintext_matrix_shape)
+    dm_shape:tuple               = eval(_dm_shape)
+
+    num_chunks      = int(filtered_headers.get("Num-Chunks",-1))
+    responseHeaders = {}
+    
+    if num_chunks == -1:
+        return Response("Num-Chunks header is required", status=503)
+
     logger.debug({
         "event":"NNC.STARTED",
         "algorithm":algorithm,
@@ -1511,54 +1543,89 @@ def nnc():
         response_headers["Start-Time"] = str(local_start_time)
         
         logger.debug({
-            "event":"GET.MATRIX.BEFORE",
-            "key":plaintext_matrix_id,
+            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "num_chunks":num_chunks,
+            "plaintext_matrix_shape":plaintext_matrix_shape,
+            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
             "bucket_id":BUCKET_ID,
         })
-        get_ptm_start_time = time.time()
-        plainTextMatrix_response = LocalUtils.get_matrix_or_error(
-            client    = STORAGE_CLIENT,
-            key       = plaintext_matrix_id,
-            bucket_id = BUCKET_ID
-        ) 
-        plaintext_matrix                           = plainTextMatrix_response.value
-        response_headers["Plaintext-Matrix-Dtype"] = plainTextMatrix_response.metadata.tags.get("dtype",plaintext_matrix.dtype) #["tags"]["dtype"] #Save the data type
-        response_headers["Plaintext-Matrix-Shape"] = plainTextMatrix_response.metadata.tags.get("shape",plaintext_matrix.shape) #Save the shape
-        
-        get_ptm_st = time.time() - get_ptm_start_time
-        logger.info({
-            "event":"GET.MATRIX",
-            "key":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "service_time":get_ptm_st
-        })
-        
-        logger.debug({
-            "event":"GET.MATRIX.BEFORE",
-            "key":dm_id,
-            "bucket_id":BUCKET_ID,
-        })
-        get_ptm_start_time = time.time()
-        dm_matrix_response = LocalUtils.get_matrix_or_error(
-            client    = STORAGE_CLIENT,
-            key       = dm_id,
-            bucket_id = BUCKET_ID
+        get_merge_plaintext_matrix_start_time = time.time()
+        # plainTextMatrix_response = LocalUtils.get_matrix_or_error(
+        #     client    = STORAGE_CLIENT,
+        #     key       = plaintext_matrix_id,
+        #     bucket_id = BUCKET_ID
+        # ) 
+        (plaintextMatrix, plaintext_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID, 
+            key            = plaintext_matrix_id,
+            num_chunks     = num_chunks, 
+            shape          = plaintext_matrix_shape,
+            dtype          = _plaintext_matrix_dtype
         )
 
-        distance_matrix                     = dm_matrix_response.value
-        response_headers["Dm-Matrix-Dtype"] = dm_matrix_response.metadata.tags.get("dtype",distance_matrix.dtype) # Extract the type
-        response_headers["Dm-Matrix-Shape"] = dm_matrix_response.metadata.tags.get("shape",distance_matrix.shape) # Extract the shape
-
-        get_dm_st = time.time() - get_ptm_start_time
+        # plaintext_matrix                           = plainTextMatrix_response.value
+        # response_headers["Plaintext-Matrix-Dtype"] = plainTextMatrix_response.metadata.tags.get("dtype",plaintext_matrix.dtype) #["tags"]["dtype"] #Save the data type
+        # response_headers["Plaintext-Matrix-Shape"] = plainTextMatrix_response.metadata.tags.get("shape",plaintext_matrix.shape) #Save the shape
+        
+        get_merge_plaintext_matrix_st = time.time() - get_merge_plaintext_matrix_start_time
+        
         logger.info({
-            "event":"GET.MATRIX",
-            "key":dm_id,
-            "bucket_id":BUCKET_ID,
-            "service_time":get_dm_st
+            "event":"GET.NDARRAY.MERGE",
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "num_chunks":num_chunks,
+            "plaintext_matrix_shape":plaintext_matrix_shape,
+            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
+            "service_time":get_merge_plaintext_matrix_st
         })
         
+        responseHeaders["Plaintext-Matrix-Dtype"] = plaintext_matrix_metadata.tags.get("dtype",plaintextMatrix.dtype) #["tags"]["dtype"] #Save the data type
+        responseHeaders["Plaintext-Matrix-Shape"] = plaintext_matrix_metadata.tags.get("shape",plaintextMatrix.shape) #Save the shape
+
         logger.debug({
-            "event":"RUN.1.BEFORE",
+            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "plaintext_matrix_id":dm_id,
+            "num_chunks":num_chunks,
+            "plaintext_matrix_shape":plaintext_matrix_shape,
+            "plaintext_matrix_dtype":_plaintext_matrix_dtype
+        })
+        get_merge_dm_start_time = time.time()
+        # dm_matrix_response = LocalUtils.get_matrix_or_error(
+        #     client    = STORAGE_CLIENT,
+        #     key       = dm_id,
+        #     bucket_id = BUCKET_ID
+        # )
+        (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = dm_id,
+            num_chunks     = num_chunks,
+            shape          = dm_shape,
+            dtype          = _dm_dtype,
+        )
+        # distance_matrix                     = dm_matrix_response.value
+        # response_headers["Dm-Matrix-Dtype"] = dm_matrix_response.metadata.tags.get("dtype",distance_matrix.dtype) # Extract the type
+        # response_headers["Dm-Matrix-Shape"] = dm_matrix_response.metadata.tags.get("shape",distance_matrix.shape) # Extract the shape
+
+        get_merge_dm_st = time.time() - get_merge_dm_start_time
+        logger.info({
+            "event":"GET.NDARRAY.MERGE",
+            "plaintext_matrix_id":dm_id,
+            "num_chunks":num_chunks,
+            "plaintext_matrix_shape":plaintext_matrix_shape,
+            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
+            "bucket_id":BUCKET_ID,
+            "service_time":get_merge_dm_st
+        })
+
+        responseHeaders["Dm-Dtype"] = str(dm_metadata.tags.get("dtype",distance_matrix.dtype)) # Extract the type
+        responseHeaders["Dm-Shape"] = str(dm_metadata.tags.get("shape",distance_matrix.shape)) # Extract the shape
+        
+        
+        nnc_run_start_time = time.time()
+        logger.debug({
+            "event":"NNC.RUN.BEFORE",
             "algorithm":algorithm,
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
@@ -1568,19 +1635,21 @@ def nnc():
             distance_matrix = distance_matrix,
             threshold       = threshold
         )
-
-        end_time     = time.time()
-        service_time = end_time - local_start_time
-        response_headers["Service-Time"] = str(service_time)
+        end_time         = time.time()
+        nnc_run_end_time = end_time - nnc_run_start_time
+        service_time     = end_time - local_start_time
+        #response_headers["Service-Time"] = str(service_time)
         
         logger.info({
             "event":"NNC.COMPLETED",
             "algorithm":algorithm,
             "worker_id":worker_id,
-            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "distance_matrix_id":dm_id,
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
             "threshold":threshold,
+            "nnc_run_service_time":nnc_run_end_time,
             "service_time":service_time
         })
 

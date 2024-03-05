@@ -1,11 +1,14 @@
 from mictlanx.v4.client import Client as V4Client
 from mictlanx.utils.index import Utils as MictlanXUtils
-from mictlanx.v4.interfaces.responses import GetNDArrayResponse
+from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata
 from option import Option, NONE,Result,Ok,Err,Some
+from functools import reduce
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import os
+import operator
+from typing import Tuple
 from retry import retry
 from mictlanx.utils.segmentation import Chunks,Chunk
 from rory.core.security.dataowner import DataOwner
@@ -89,7 +92,21 @@ class Utils:
             raise e
         return x.unwrap()
 
-
+    @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
+    def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str)->Tuple[npt.NDArray,Metadata]:
+        encryptedMatrix_result:Result[GetBytesResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks).result()
+        if encryptedMatrix_result.is_err:
+            raise Exception("{} not found".format(key))
+        
+        encryptedMatrix_response = encryptedMatrix_result.unwrap()
+        _encryptedMatrix         = np.frombuffer(encryptedMatrix_response.value,dtype=dtype)
+        expected_shape           = reduce(operator.mul,shape)
+        if not _encryptedMatrix.size == expected_shape:
+            raise Exception("Matrix sizes are not equal: calculated: {} != expected: {}".format(_encryptedMatrix.size, expected_shape ))
+        
+        encryptedMatrix = _encryptedMatrix.reshape(shape)
+        return (encryptedMatrix,encryptedMatrix_response.metadata)
+    
     @staticmethod
     def segment_and_encrypt_fdhope(algorithm:str, key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int ,num_chunks:int=2, threshold:float = 0.0, max_workers:int = int(os.cpu_count()/2) ):
         plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
@@ -130,7 +147,6 @@ class Utils:
             sens = sens
             )
         return Chunk.from_ndarray(group_id=key, index= chunk.index, ndarray= encyrpted_chunk.matrix, chunk_id=Some("{}_{}".format(key,chunk.index)))
-
 
 if __name__ =="__main__":
     MICTLANX_TIMEOUT      = 120

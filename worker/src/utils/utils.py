@@ -11,8 +11,8 @@ from retry import retry
 import os
 
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES","10"))
-MAX_DELAY   = int(os.environ.get("MAX_DELAY","2"))
-JITTER      = eval(os.environ.get("JITTER","(.1,.5)"))
+MAX_DELAY   = int(os.environ.get("MAX_DELAY","1"))
+JITTER      = eval(os.environ.get("JITTER","0"))
 
 class Utils:
     @staticmethod

@@ -27,6 +27,18 @@ services:
       - /rory/rory-dataowner-0/log:/rory/log
     networks:
       - mictlanx
+    deploy:
+      restart_policy:
+        condition: none
+      labels:
+        target: "rory"
+      resources:
+        limits:
+          cpus: '5'
+          memory: 10G
+      placement:
+        constraints:
+          - "node.labels.index==0"
       
 
 networks:

@@ -1,22 +1,19 @@
 import os
 import time, json
-import numpy as np
-import pandas as pd
+from option import Some
 from requests import Session
 from flask import Blueprint,current_app,request,Response
 from option import Result
 from rory.core.interfaces.rorymanager import RoryManager
 from rory.core.interfaces.roryworker import RoryWorker
-from rory.core.interfaces.metricsResult_internal import MetricsResultInternal
 from rory.core.security.dataowner import DataOwner
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.cryptosystem.FDHOpe import Fdhope
 from rory.core.utils.constants import Constants
-from rory.core.validation_index.metrics import internal_validation_indexes
 from rory.core.utils.utils import Utils as RoryUtils
-from mictlanx.v3.client import Client
 from mictlanx.v4.interfaces.responses import PutResponse
 from mictlanx.v4.client import Client  as V4Client
+from mictlanx.utils.segmentation import Chunks,Chunk
 from concurrent.futures import ProcessPoolExecutor
 from utils.utils import Utils
 
@@ -98,7 +95,7 @@ def kmeans():
         # DELETE FIRST
         _delete_result = STORAGE_CLIENT.delete(bucket_id=BUCKET_ID,key=plaintext_matrix_id)
 
-        put_pm_start_time                        = time.time()
+        put_pm_start_time = time.time()
 
         logger.debug({
             "event":"PUT.PLAINTEXT_MATRIX.BEFORE",
@@ -509,7 +506,7 @@ def skmeans():
             }
             
             logger.debug({
-                "event":"BEFORE.WORKER.RUN1",
+                "event":"WORKER.RUN1.BEFORE",
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "step_index":"1",
                 "clustering_status":str(status),
@@ -640,7 +637,7 @@ def skmeans():
                     "Step-Index"             : "2",
                     "Clustering-Status"      : str(status),
                     "Shift-Matrix-Id"        : shift_matrix_id,
-                    "Plaintext-Matrix-Id": plaintext_matrix_id,
+                    "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                     "Encrypted-Matrix-Id"    :encrypted_matrix_id,
                     "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
                     "Encrypted-Matrix-Dtype" : "float64",
@@ -1334,6 +1331,7 @@ def dbsnnc():
         extension                 = request_headers.get("Extension","csv")
         m                         = int(request_headers.get("M","3"))
         sens                      = float(request_headers.get("Sens","0.00000001"))
+        threshold                 = float(request_headers.get("Threshold",-1))
         request_id                = "request-{}".format(plaintext_matrix_id)
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
@@ -1480,11 +1478,7 @@ def dbsnnc():
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
         )
-
-        threshold = RoryUtils.get_threshold(
-            distance_matrix = dm
-        )
-
+        
         generate_dm_st = time.time() - dm_start_time
         logger.info({
             "event":"DM.GENERATION",
@@ -1495,6 +1489,18 @@ def dbsnnc():
             "service_time":generate_dm_st
         })
 
+        if threshold==-1:
+            threshold = RoryUtils.get_threshold(
+                distance_matrix = dm
+            )
+        
+        logger.debug({
+            "event":"THRESHOLD.GENERATE",
+            "key":dm_id,
+            "bucket_id":BUCKET_ID,
+            "threshold":threshold,
+        })
+        
         n = r*r
         logger.debug({
             "event":"SEGMENT.ENCRYPT.FDHOPE.BEFORE",
@@ -1654,7 +1660,7 @@ def dbsnnc():
         }
 
         logger.debug({
-            "event":"RUN.1.BEFORE",
+            "event":"DBSNNC.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
@@ -1679,7 +1685,7 @@ def dbsnnc():
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]
-        response_time        = endTime - local_start_time # Get the service time
+        client_service_time  = endTime - local_start_time # Get the service time
         logger.info({
             "event":"DBSNNC.COMPLETED",
             "plaintext_matrix_id":plaintext_matrix_id,
@@ -1690,14 +1696,16 @@ def dbsnnc():
             "threshold":threshold,
             "worker_id":_worker_id,
             "worker_service_time":worker_service_time,
-            "response_time":response_time,
+            "service_time":client_service_time,
         })
         return Response(
             response = json.dumps({
                 "label_vector" :label_vector,
-                "service_time" : worker_service_time,
-                "response_time": str(response_time),
+                "worker_id"    :_worker_id,
                 "algorithm"    : algorithm,
+                "worker_service_time" : worker_service_time,
+                "service_time": str(client_service_time),
+                
             }),
             status   = 200,
             headers  = {}
@@ -1719,18 +1727,20 @@ def nnc():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
-        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
+        # _num_chunks                  = current_app.config.get("NUM_CHUNKS",1)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.NNC
         s                         = Session()
         request_headers           = request.headers #Headers for the request
+        num_chunks                = int(request_headers.get("Num-Chunks",1))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
         dm_id                     = "{}-dm".format(plaintext_matrix_id)
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
         request_id                = "request-{}".format(plaintext_matrix_id)
+        threshold                 = float(request_headers.get("Threshold",-1))
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         
@@ -1743,6 +1753,14 @@ def nnc():
             "plaintext_matrix_path":plaintext_matrix_path,
             "extension":extension,
             "dm_id":dm_id
+        })
+
+        logger.debug({
+            "event":"LOCAL.READ.DATASET.BEFORE",
+            "path":plaintext_matrix_path,
+            "key":plaintext_matrix_id,
+            "filename":plaintext_matrix_filename,
+            "algorithm":algorithm
         })
 
         local_read_dataset_start_time = time.time()
@@ -1773,23 +1791,48 @@ def nnc():
         })
         
         logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
+            "event":"PUT.CHUNKS.BEFORE",
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "shape":str(plaintext_matrix.shape),
             "dtype":str(plaintext_matrix.dtype),
         })
         put_ptm_start_time = time.time()
-        _ = STORAGE_CLIENT.delete(key=plaintext_matrix_id, bucket_id=BUCKET_ID)
-        X = STORAGE_CLIENT.put_ndarray(
-            key       = plaintext_matrix_id,
+
+        plaintext_matrix_chunks = Chunks.from_ndarray(
             ndarray   = plaintext_matrix,
-            tags      = {},
+            group_id  = plaintext_matrix_id,
+            chunk_prefix = Some(plaintext_matrix_id),
+            num_chunks= num_chunks,
+        )
+
+        if plaintext_matrix_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+
+        # _ = STORAGE_CLIENT.delete(key=plaintext_matrix_id, bucket_id=BUCKET_ID)
+        _ = STORAGE_CLIENT.delete_by_ball_id(
+            ball_id   = plaintext_matrix_id, 
             bucket_id = BUCKET_ID
-        ).result()
+        )
+
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+            key       = plaintext_matrix_id, 
+            chunks    = plaintext_matrix_chunks.unwrap(), 
+            bucket_id = BUCKET_ID,
+            tags      = {}
+        )
+
+        for i,put_chunk_result in enumerate(put_chunks_generator_results):
+            if put_chunk_result.is_err:
+                logger.error("Something went wrong storage the chunk.")
+                return Response(
+                    status   = 500,
+                    response = "{}".format(str(put_chunk_result.unwrap_err()))
+                )
         put_ptm_st = time.time() - put_ptm_start_time
         logger.info({
-            "event":"PUT.NDARRAY",
+            "event":"PUT.CHUNKS",
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "shape":str(plaintext_matrix.shape),
@@ -1819,32 +1862,74 @@ def nnc():
             "service_time":generate_dm_st
         })
 
-        threshold = RoryUtils.get_threshold(
-            distance_matrix = dm
-        )
+        if threshold==-1:
+            threshold = RoryUtils.get_threshold(
+                distance_matrix = dm
+            )
 
         logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
+            "event":"THRESHOLD.GENERATE",
+            "key":dm_id,
+            "bucket_id":BUCKET_ID,
+            "threshold":threshold,
+        })
+
+        logger.debug({
+            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "shape":str(dm.shape),
             "dtype":str(dm.dtype),
         })
         put_ptm_start_time = time.time()
-        _ = STORAGE_CLIENT.delete(
-            key       = dm_id, 
+        dm_chunks = Chunks.from_ndarray(
+            ndarray   = dm,
+            group_id  = dm_id,
+            chunk_prefix = Some(dm_id),
+            num_chunks= num_chunks
+        )
+
+        if dm_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.debug({
+            "event":"CHUNKS.FROM.NDARRAY",
+            "key":dm_id,
+            "bucket_id":BUCKET_ID,
+            "shape":str(dm.shape),
+            "dtype":str(dm.dtype),
+        })
+
+        logger.debug({
+            "event":"PUT.CHUNKS.BEFORE",
+            "key":dm_id,
+            "bucket_id":BUCKET_ID,
+            "shape":str(dm.shape),
+            "dtype":str(dm.dtype),
+        })
+
+        STORAGE_CLIENT.delete_by_ball_id(
+            ball_id   = dm_id, 
             bucket_id = BUCKET_ID
         )
-        dm_put_result:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
             key       = dm_id, 
-            ndarray   = dm, 
-            tags      = {},
-            bucket_id = BUCKET_ID
-        ).result()
+            chunks    = dm_chunks.unwrap(), 
+            bucket_id = BUCKET_ID,
+            tags      = {}
+        )
 
+        for i,put_chunk_result in enumerate(put_chunks_generator_results):
+            if put_chunk_result.is_err:
+                logger.error("Something went wrong storage the chunk.")
+                return Response(
+                    status   = 500,
+                    response = "{}".format(str(put_chunk_result.unwrap_err()))
+                )
+            
         put_dm_st = time.time() - put_ptm_start_time
         logger.info({
-            "event":"PUT.NDARRAY",
+            "event":"PUT.CHUNKS",
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "shape":str(dm.shape),
@@ -1887,21 +1972,24 @@ def nnc():
             session    = s,
             algorithm  = algorithm
         )
-        dm_shape = (r,a)
+        pm_shape = (r,a)
+        dm_shape = (r,r)
         dm_type  = "float64"
         run_headers = {
-            "Plaintext-Matrix-Id" : plaintext_matrix_id,
-            "Request-Id"          : request_id,
-            "Num-Chunks"          : str(num_chunks),
-            "Threshold"           : str(threshold),
-            "Dm-Shape"            : str(dm_shape),
-            "Dm-Dtype"            : dm_type,
+            "Plaintext-Matrix-Id"    : plaintext_matrix_id,
+            "Request-Id"             : request_id,
+            "Num-Chunks"             : str(num_chunks),
+            "Threshold"              : str(threshold),
+            "Plaintext-Matrix-Shape" : str(pm_shape),
+            "Plaintext-Matrix-Dtype" : "float64",
+            "Dm-Shape"               : str(dm_shape),
+            "Dm-Dtype"               : dm_type,
         }
 
         logger.debug({
             "event":"NNC.BEFORE",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks,
             "threshold":threshold,
             "dm_shape":str(dm_shape),
             "dm_dtype":dm_type
@@ -1910,21 +1998,21 @@ def nnc():
             timeout = WORKER_TIMEOUT, 
             headers = run_headers
         )
-        worker_response.raise_for_status()
         
+        worker_response.raise_for_status()
         stringWorkerResponse = worker_response.content.decode("utf-8") #Response from worker
         jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
         end_time             = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]
-        response_time        = end_time - local_start_time # Get the service time
+        client_service_time  = end_time - local_start_time # Get the service time
         logger.info({
             "event":"NNC.COMPLETED",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "worker_id":_worker_id,
-            "service_time":worker_service_time,
-            "response_time":response_time
+            "worker_service_time":worker_service_time,
+            "service_time":client_service_time
         })
 
         return Response(
@@ -1932,8 +2020,8 @@ def nnc():
                 "label_vector" : label_vector,
                 "worker_id"    :_worker_id,
                 "algorithm"    : algorithm,
-                "service_time" : worker_service_time,
-                "response_time": str(response_time),
+                "worker_service_time" : worker_service_time,
+                "service_time": str(client_service_time),
             }),
             status   = 200,
             headers  = {}

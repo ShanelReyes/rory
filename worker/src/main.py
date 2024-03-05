@@ -50,18 +50,14 @@ MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
-MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",1)))
 
 STORAGE_CLIENT  = Client(
     client_id       = MICTLANX_CLIENT_ID,
-    peers           = list(Utils.peers_from_str(MICTLANX_PEERS)),
+    routers         = list(Utils.routers_from_str(MICTLANX_PEERS)),
     debug           = MICTLANX_DEBUG,
-    daemon          = MICTLANX_DAEMON,
-    show_metrics    = MICTLANX_SHOW_METRICS,
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
     bucket_id       = os.environ.get("MICTLANX_BUCKET_ID","rory"),
-    disable_log     = MICTLANX_DISABLED_LOG,
     log_output_path = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
 )
 

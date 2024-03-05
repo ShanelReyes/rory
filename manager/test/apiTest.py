@@ -66,10 +66,3 @@ def test_clustering_post(client):
         ) for datum in data
     ]
     print(statues(responses))
-    # _response   = response
-    # status      = response.status
-    # status_code = response.status_code
-    # print(status)
-    # assert status_code == 200
-
-    # return app.test_client()

@@ -27,7 +27,7 @@ services:
       - JITTER=(.1,.5)
       - MICTLANX_CLIENT_ID=rory-client-0
       - MICTLANX_TIMEOUT=120
-      - MICTLANX_PEERS=mictlanx-router-0:mictlanx-router-0:60666
+      - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
       - MICTLANX_DEBUG=0
       - MICTLANX_DAEMON=0
       - MICTLANX_SHOW_METRICS=0
@@ -46,6 +46,18 @@ services:
       - /rory/mictlanx:/rory/mictlanx
     networks:
       - mictlanx
+    deploy:
+      restart_policy:
+        condition: none
+      labels:
+        target: "rory"
+      resources:
+        limits:
+          cpus: '12'
+          memory: 32G
+      placement:
+        constraints:
+          - "node.labels.index==9"
 
   rory-manager-0:
     image: shanelreyes/rory:manager
@@ -72,16 +84,16 @@ services:
       - WORKER_MEMORY=1000000000
       - WORKER_CPU=2
       - WORKER_TIMEOUT=300
-      - SWARM_NODES=2,3,4,8
+      - SWARM_NODES=2,3,7,8
       - RORY_DEBUG=0
       - WORKER_MAX_RETRIES=10
       - WORKER_MAX_DELAY=3
       - WORKER_JITTER=(.1,.5)
       - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0
       - MICTLANX_SUMMONER_PORT=15000
-      - MICTLANX_SUMMONER_MODE=docker
+      - MICTLANX_SUMMONER_MODE=swarm
       - MICTLANX_API_VERSION=3
-      - MICTLANX_PEERS=mictlanx-router-0:mictlanx-router-0:60666
+      - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000
       - MICTLANX_TIMEOUT=120
       - MICTLANX_CLIENT_LB_ALGORITHM=2CHOICES_UF
       - MICTLANX_MAX_WORKERS=12
@@ -100,6 +112,19 @@ services:
       - /rory/mictlanx:/rory/mictlanx
     networks:
       - mictlanx
+    deploy:
+      restart_policy:
+        condition: none
+      labels:
+        target: "rory"
+      resources:
+        limits:
+          cpus: '2'
+          memory: 16G
+      placement:
+        constraints:
+          - "node.labels.index==6"
+    
 networks:
   mictlanx:
     external: true

@@ -55,7 +55,6 @@ def deploy_nodes(
                     HOST_SINK_PATH:CONTAINER_SINK_PATH,
                     HOST_LOG_PATH:CONTAINER_LOG_PATH,
                     HOST_MICTLANX_CLIENT_PATH:CONTAINER_MICTLANX_CLIENT_PATH
-
             }
             
             selected_node = swarm_nodes[i % N]
@@ -112,10 +111,7 @@ def deploy_nodes(
                 client_id=Some(MICTLANX_CLIENT_ID),
                 app_id=NONE,
                 authorization=NONE,
-                # Some(MICTLANX_APP_ID),
-                # authorization= authorization,
                 secret= NONE
-                # Some(MICTLANX_SECRET)
             )
             if response.is_err:
                 log.error({
@@ -125,13 +121,3 @@ def deploy_nodes(
 
     except Exception as e:
         return Err(e)
-        # print(e)
-    # finally:
-    #     if XOLO_ENABLE:
-    #         payload = LogoutPayload(
-    #             app_id    = "APP_ID", 
-    #             client_id = MICTLANX_CLIENT_ID,
-    #             secret    = "SECRET" ,
-    #             token     = auth_response.token
-    #         )
-    #         xolo.logout(payload=payload)

@@ -37,20 +37,20 @@ class Utils:
 
     )->Result[SummonContainerPayload,ApiError]:
         envs =     {
-                "NODE_INDEX"                      : str(node_index),
-                "NODE_IP_ADDR"                    : container_id,
-                "NODE_PORT"                       : container_port,
-                "RORY_MANAGER_IP_ADDR"            : manager_ip_addr,
-                "RORY_MANAGER_PORT"               : str(manager_port),
-                "DEBUG"                           : debug,
-                "RELOAD"                          : _reload,
-                "LIU_ROUND"                       :liu_round,
-                "SOURCE_PATH"                     : source_path,
-                "SINK_PATH"                       : sink_path, 
-                "LOG_PATH"                        : log_path,
-                "max_iterations"                  : max_iterations,
-                "TESTING"                         : testing,
-                "M"                               : m,
+                "NODE_INDEX"           : str(node_index),
+                "NODE_IP_ADDR"         : container_id,
+                "NODE_PORT"            : container_port,
+                "RORY_MANAGER_IP_ADDR" : manager_ip_addr,
+                "RORY_MANAGER_PORT"    : str(manager_port),
+                "DEBUG"                : debug,
+                "RELOAD"               : _reload,
+                "LIU_ROUND"            : liu_round,
+                "SOURCE_PATH"          : source_path,
+                "SINK_PATH"            : sink_path, 
+                "LOG_PATH"             : log_path,
+                "max_iterations"       : max_iterations,
+                "TESTING"              : testing,
+                "M"                    : m,
                 "MAX_THREADS":worker_max_threads,
                 "MICTLANX_PEERS":worker_mictlanx_peers,
                 "MICTLANX_CLIENT_LB_ALGORITHM":mictlanx_client_lb_algorithm,
@@ -61,7 +61,7 @@ class Utils:
                 "MICTLANX_DISABLED_LOG":mictlanx_disabled_log
         }
 
-        payload                          = SummonContainerPayload(
+        payload = SummonContainerPayload(
             image         = docker_image, 
             container_id  = container_id,
             hostname      = container_id,
@@ -85,7 +85,6 @@ class Utils:
             },
             network_id= docker_network_id,
             force=Some(True)
-            # ip_addr= Some(container_id)
         )
 
         response = replicator.summon(

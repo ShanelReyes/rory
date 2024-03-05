@@ -86,12 +86,13 @@ def client_request(row:pd.Series,url:str,headers:Dict[str,str], timeout:int = 30
 
 def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
     try:
-        arrivalTime       = time.time()
+        arrival_time       = time.time()
         plainTextMatrixId = str(row["DATASET_ID"])
         sens = row.get("SENS","0.00001")
         max_iterations = row.get("MAX_ITERATIONS","10")
         k = row.get("K","2")
         m = row.get("M","3")
+        threshold = row.get("THRESHOLD",-1)
         LOGGER.debug({
             "event":"CLUSTERING.STARTED",
             "algorithm":ALGORITHM,
@@ -113,7 +114,8 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             "Extension": DATASET_EXTENSION,
             "Client-Id": CLIENT_ID,
             "Max-Iterations": str(max_iterations),
-            "Experiment-Iteration": str(current_experiment_iteration)
+            "Experiment-Iteration": str(current_experiment_iteration),
+            "Threshold":str(threshold)
         }
 
         url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
@@ -126,18 +128,18 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
         )
         _response.raise_for_status()
         response      = ClientResponse.fromResponse(_response)
-        labelVectorId = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,current_experiment_iteration)
+        label_vector_id = "{}_{}_{}".format(plainTextMatrixId,ALGORITHM,current_experiment_iteration)
 
-        write_to_file(labelVectorId,response.labelVector)
-        endTime       = time.time() # Get the time when it ends
-        response_time = endTime - arrivalTime 
+        write_to_file(label_vector_id,response.label_vector)
+        end_time       = time.time() # Get the time when it ends
+        response_time = end_time - arrival_time 
 
         LOGGER.info({
             "event":"CLUSTERING.COMPLETED",
             "matrix_id":plainTextMatrixId,
             "algorithm":ALGORITHM,
-            "arrival_time":arrivalTime,
-            "end_time":endTime,
+            "arrival_time":arrival_time,
+            "end_time":end_time,
             "response_time":response_time,
             "current_iteration":current_experiment_iteration,
             "max_iterations":max_iterations
@@ -252,7 +254,7 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             "experiment_iteration": current_experiment_iteration
         })
 
-        write_to_file(labelVectorId,response.labelVector)
+        write_to_file(labelVectorId,response.label_vector)
         endTime       = time.time() # Get the time when it ends
         response_time = endTime - arrivalTime 
         

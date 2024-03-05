@@ -1,6 +1,44 @@
 version: "3.8"
 services:
 
+  mictlanx-router-0:
+
+      image: nachocode/mictlanx:router
+
+      container_name:  mictlanx-router-0
+
+      ports:
+        - 60666:60666
+
+      environment:
+        - LOGGER_NAME=mictlanx-router-0
+        - LOG_PATH=/log
+        - TEZCANALYTICX_FLUSH_TIMEOUT=10s
+        - TEZCANALYTICX_BUFFER_SIZE=100
+        - TEZCANALYTICX_PATH=/api/v4/events
+        - TEZCANALYTICX_PORT=45000
+        - TEZCANALYTICX_HOSTNAME=tezcanalyticx-0
+        - TEZCANALYTICX_LEVEL=0
+        - TEZCANALYTICX_PROTOCOL=http
+        - TEZCANALYTICX_ENABLE=0
+        - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-0:mictlanx-peer-1:7001
+        - MICTLANX_PROCOTOL=http
+        - MICTLANX_API_VERSION=4
+        - MICTLANX_PEER_HEALER_HEARTBEAT=30sec
+        - MICTLANX_GC_HEARTBEAT=60sec
+
+      volumes:
+        - /mictlanx/mictlanx-router-0/log:/log
+
+      networks:
+        - mictlanx
+
+      restart: unless-stopped
+
+      depends_on:
+        - mictlanx-peer-0
+        - mictlanx-peer-1
+
   mictlanx-peer-0:
     image: nachocode/mictlanx:peer
     container_name: mictlanx-peer-0

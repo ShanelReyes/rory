@@ -67,7 +67,7 @@ The following prerequisites must be met in order to use the software correctly.
     export MANAGER_PATH=$BASE_PATH/manager
     export CLIENT_PATH=$BASE_PATH/client
     export WORKER_PATH=$BASE_PATH/worker
-    export MICTLANX_PATH=$BASE_PATH/Mictlanx
+    export MICTLANX_PATH=$BASE_PATH/mictlanx
 
     export MANAGER_GUNICORN_CONFIG_FILE=$MANAGER_PATH/src/gunicorn_config.py
     export WORKER_GUNICORN_CONFIG_FILE=$WORKER_PATH/src/gunicorn_config.py
@@ -144,6 +144,41 @@ The following prerequisites must be met in order to use the software correctly.
   - **Worker** `curl -X GET http://localhost:9000/clustering/test`
   - **Client** `curl -X GET http://localhost:3000/clustering/test`
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+
+## Use of the system with docker
+
+## Use of the system in servers
+1. Hacer la construccion de la imagen de contenedor de los componentes del sistema con `build_all.sh`
+   
+2. Hacer push de las imagenes construidas con `push_all.sh`
+      
+3. Iniciar Sophos Conect para conectarse con los servidores del cinves
+
+4. Entrar a la carpeta bash scripts y usar `conectservers.sh`
+
+5. Configurar el server para el componente *dataowner*:
+   - Crear la carpeta ```/rory/sink```  
+   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-dataowner-0``` y ```rory-dataowner-0-error```
+   - Crear la carpeta ```/rory/source``` y colocar dentro las trazas necesarias para cada algoritmo.
+
+6. Configurar el server para el componente _client_:
+   - Crear la carpeta ```/rory/sink```  
+   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-client-0.csv``` y ```rory-client-0-error.log```
+   - Crear la carpeta ```/rory/source``` y colocar dentro los datasets a evaluar.
+
+7. Configurar el server para el componente _manager_:
+   - Crear la carpeta ```/rory/sink```  
+   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-manager-0.csv``` y ```rory-manager-0-error.log```
+   - Crear la carpeta ```/rory/source```
+   
+8. Configurar el server para el componente _worker_:
+   - Crear la carpeta ```/rory/sink```  
+   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-worker-0.csv``` y ```rory-worker-0-error.log```
+   - Crear la carpeta ```/rory/source```
+
+9. 
 
 <!-- 1. Clone the repo
    ```sh
