@@ -2,15 +2,13 @@ import os, sys
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
+from mictlanx.v4.summoner.summoner import Summoner
 from load_balancing.round_robin import RoundRobin
 from load_balancing.two_choices import TwoChoices
 from load_balancing.random import  Random
 from deployworkers import deploy_nodes
-from mictlanx.v3.services.summoner import Summoner
-from mictlanx.v3.services.xolo import Xolo 
 from mictlanx.logger.log import Log
 from option import Some
-from rory.core.logger.Logger import create_logger
 from dotenv import load_dotenv
 import logging
 import time
@@ -59,7 +57,7 @@ MICTLANX_SUMMONER_PORT       = int(os.environ.get("MICTLANX_SUMMONER_PORT",15000
 MICTLANX_SUMMONER_MODE       = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION",3))
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
-MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")
+MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS",12))
@@ -93,7 +91,7 @@ if init_workers > 0:
         "worker_cpu":WORKER_CPU,
         "init_port":init_port,
         "docker_image":DOCKER_IMAGE,
-        "peers":MICTLANX_PEERS,
+        "peers":MICTLANX_ROUTERS,
         "swarm_nodes":",".join(SWARM_NODES)
     })
     deploy_nodes_result = deploy_nodes(
@@ -111,7 +109,7 @@ if init_workers > 0:
         init_port                    = init_port,
         WORKER_MEMORY                = WORKER_MEMORY,
         WORKER_CPU                   = WORKER_CPU,
-        WORKER_MICTLANX_PEERS        = MICTLANX_PEERS,
+        WORKER_MICTLANX_ROUTERS        = MICTLANX_ROUTERS,
         MAX_RETRIES                  = WORKER_MAX_RETRIES,
         MAX_DELAY                    = WORKER_MAX_DELAY,
         JITTER                       = WORKER_JITTER,
@@ -141,7 +139,7 @@ if init_workers > 0:
             "worker_jitter":WORKER_JITTER,
             "init_port":init_port,
             "docker_image":DOCKER_IMAGE,
-            "peers":MICTLANX_PEERS,
+            "peers":MICTLANX_ROUTERS,
             "swarm_nodes":",".join(SWARM_NODES),
             "service_time":time.time() - deploy_workers_start_time
         })

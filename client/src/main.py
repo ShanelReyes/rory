@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
 from mictlanx.v4.client import Client
 from mictlanx.utils.index import Utils
-from mictlanx.v3.services.xolo import Xolo
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
 from rory.core.interfaces.rorymanager import RoryManager
@@ -14,7 +13,9 @@ from routes.classification import classification
 from mictlanx.logger.log import Log
 
 app = Flask(__name__)
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env")
+
+
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/rory/envs/.client.env")
 STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
 DEBUG         = bool(int(STR_DEBUG))
 
@@ -31,9 +32,12 @@ NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
 MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",4)) #Total of process for encryption
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
 MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
-M                    = int(os.environ.get("M","3"))
+# M                    = int(os.environ.get("M","3"))
+LIU_SECURITY_LEVEL   = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
-LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","1")))
+LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","0")))
+NP_RANDOM            = bool(int(os.environ.get("NP_RANDOM","1")))
+LIU_DECIMALS         = int(os.environ.get("LIU_DECIMALS",6))
 TESTING_ENV          = os.environ.get("TESTING","1")
 LOGGER_NAME          = os.environ.get("LOGGER_NAME","rory-client-0")
 SOURCE_PATH          = os.environ.get("SOURCE_PATH","/rory/source")
@@ -49,10 +53,10 @@ except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
 
-MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
+MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001") #mictlanx-peer-2:localhost:7002")
+MICTLANX_PEERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
@@ -65,10 +69,10 @@ MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mict
 STORAGE_CLIENT = Client(
     client_id       = MICTLANX_CLIENT_ID,
     bucket_id       = MICTLANX_BUCKET_ID,
-    routers           = list(Utils.routers_from_str(MICTLANX_PEERS)),
+    routers         = list(Utils.routers_from_str(MICTLANX_PEERS)),
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-    debug     = MICTLANX_DISABLED_LOG,
+    debug           = MICTLANX_DISABLED_LOG,
     log_output_path = MICTLANX_OUTPUT_PATH, 
  
 )
@@ -85,16 +89,19 @@ LOGGER = Log(
     when                   = "h"
 )
 LIU  = Liu(
-    round = LIU_ROUND
+    _round = LIU_ROUND,
+    decimals = LIU_DECIMALS
 )
 DATAOWNER = DataOwner(
-    m          = M,
-    liu_scheme = LIU,
+    # m             = M,
+    securitylevel = LIU_SECURITY_LEVEL,
+    liu_scheme    = LIU
 )
 
 cores       = os.cpu_count()
 max_workers = cores if MAX_WORKERS > cores else MAX_WORKERS
 executor    = ProcessPoolExecutor(max_workers=max_workers)
+
 """
 Description:
     Function that create a context using Flask. Establishes the connection between client, manager and worker. 
@@ -122,6 +129,8 @@ def create_app(*args):
         current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
         current_app.config["executor"]         = executor
         current_app.config["WORKER_TIMEOUT"]   = WORKER_TIMEOUT
+        current_app.config["np_random"]        = NP_RANDOM
+
     # return app
 
 

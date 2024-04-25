@@ -1,9 +1,9 @@
 import os, sys, time
 from option import NONE,Some,Result,Ok,Err
 from mictlanx.logger.log import Log
-from mictlanx.v3.interfaces.payloads import SummonContainerPayload,ExposedPort,AuthTokenPayload, LogoutPayload
-from mictlanx.v3.services.xolo import Xolo
-from mictlanx.v3.services.summoner import Summoner
+from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload,ExposedPort
+from mictlanx.interfaces.payloads import MountX
+
 from typing import List
 
 
@@ -29,7 +29,7 @@ def deploy_nodes(
         init_port:int                    = 3000,
         WORKER_MEMORY:str                = "1000000000",
         WORKER_CPU:int                   = 2,
-        WORKER_MICTLANX_PEERS:str        = "mictlanx-peer-0:localhost:7000",
+        WORKER_MICTLANX_ROUTERS:str        = "mictlanx-peer-0:localhost:7000",
         MICTLANX_CLIENT_LB_ALGORITHM:str = "ROUND_ROBIN",
         MICTLANX_MAX_WORKERS:int         = 12,
         swarm_nodes:List[str]            = ["2","3","4","8"]
@@ -40,23 +40,39 @@ def deploy_nodes(
         N = len(swarm_nodes)
         for i in range(init_workers): 
             container_id     = "{}{}".format(NODE_PREFIX,i)
-            HOST_BASE_PATH   = "{}/{}".format(WORKER_BASE_PATH, container_id)
-            HOST_SOURCE_PATH = "{}/source".format(HOST_BASE_PATH)
-            HOST_SINK_PATH   = "{}/sink".format(HOST_BASE_PATH)
-            HOST_LOG_PATH    = "{}/log".format(HOST_BASE_PATH)
-            HOST_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(HOST_BASE_PATH)
+            # HOST_BASE_PATH   = "{}/{}".format(WORKER_BASE_PATH, container_id)
+            # HOST_SOURCE_PATH = "{}/source".format(HOST_BASE_PATH)
+            # HOST_SINK_PATH   = "{}/sink".format(HOST_BASE_PATH)
+            # HOST_LOG_PATH    = "{}/log".format(HOST_BASE_PATH)
+            # HOST_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(HOST_BASE_PATH)
 
             CONTAINER_SOURCE_PATH = "{}/source".format(WORKER_BASE_PATH)
             CONTAINER_SINK_PATH   = "{}/sink".format(WORKER_BASE_PATH)
             CONTAINER_LOG_PATH    = "{}/log".format(WORKER_BASE_PATH)
             CONTAINER_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(WORKER_BASE_PATH)
-            mounts = {
-                    HOST_SOURCE_PATH:CONTAINER_SOURCE_PATH,
-                    HOST_SINK_PATH:CONTAINER_SINK_PATH,
-                    HOST_LOG_PATH:CONTAINER_LOG_PATH,
-                    HOST_MICTLANX_CLIENT_PATH:CONTAINER_MICTLANX_CLIENT_PATH
-            }
             
+            mounts = [
+                MountX(
+                    source="{}-source".format(container_id),
+                    target=CONTAINER_SOURCE_PATH,
+                    mount_type=1
+                ),
+                MountX(
+                    source="{}-sink".format(container_id),
+                    target=CONTAINER_SINK_PATH,
+                    mount_type=1
+                ),
+                MountX(
+                    source="{}-log".format(container_id),
+                    target=CONTAINER_LOG_PATH,
+                    mount_type=1
+                ),
+                MountX(
+                    source="{}-mictlanx".format(container_id),
+                    target=CONTAINER_MICTLANX_CLIENT_PATH,
+                    mount_type=1
+                )
+            ]
             selected_node = swarm_nodes[i % N]
             payload       = SummonContainerPayload(
                 image         = DOCKER_IMAGE, 
@@ -89,7 +105,7 @@ def deploy_nodes(
                     "MAX_DELAY":MAX_DELAY,
                     "JITTER":JITTER,
                     "MAX_THREADS":str(WORKER_MAX_THREADS),
-                    "MICTLANX_PEERS":WORKER_MICTLANX_PEERS,
+                    "MICTLANX_ROUTERS":WORKER_MICTLANX_ROUTERS,
                     "MICTLANX_CLIENT_LB_ALGORITHM":MICTLANX_CLIENT_LB_ALGORITHM,
                     "MICTLANX_DEBUG":str(int(MICTLANX_DEBUG)),
                     "MICTLANX_DAEMON":str(int(MICTLANX_DAEMON)),

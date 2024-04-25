@@ -11,7 +11,7 @@ from mictlanx.logger.log import Log
 app = Flask(__name__)
 DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
 if DEBUG:
-    load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
+    load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
 
 NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
 PORT                 = int(os.environ.get("NODE_PORT",9000))
@@ -38,13 +38,13 @@ except Exception as e:
 
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID" "APP_ID")
-MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID",NODE_ID)
+MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
 MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
 MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
 MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_PEERS               = os.environ.get("MICTLANX_PEERS", "mictlanx-peer-0:localhost:7000 mictlanx-peer-1:localhost:7001")#mictlanx-peer-2:localhost:7002")
+MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
@@ -53,7 +53,7 @@ MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2C
 
 STORAGE_CLIENT  = Client(
     client_id       = MICTLANX_CLIENT_ID,
-    routers         = list(Utils.routers_from_str(MICTLANX_PEERS)),
+    routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
     debug           = MICTLANX_DEBUG,
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,

@@ -1,8 +1,9 @@
 from mictlanx.v4.client import Client as V4Client
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata
+from mictlanx.utils.segmentation import Chunks,Chunk
 from option import Option,NONE,Result,Ok,Err
 from functools import reduce
-from typing import Tuple
+from typing import Tuple, Generator
 import operator
 import pandas as pd
 import numpy as np
@@ -71,3 +72,8 @@ class Utils:
                     return Err(Exception("Path, extension and plaintext_matrix_id was not provided"))
         except Exception as e:
             return Err(e)
+        
+    @staticmethod
+    def chunks_to_bytes_gen(chs:Chunks) -> Generator[bytes,None,None]:
+        for chunk in chs.iter():
+            yield chunk.data

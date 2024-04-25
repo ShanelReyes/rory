@@ -3,9 +3,7 @@ import json
 from option import Result
 from threading import Semaphore
 from flask import Blueprint,current_app,request,Response
-from mictlanx.v3.services.summoner import Summoner
-from mictlanx.v3.interfaces.payloads import SummonContainerPayload
-from mictlanx.v3.interfaces.errors import ApiError
+from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload
 from utils.utils import Utils
 from rory.core.interfaces.worker import Worker
 
@@ -106,7 +104,7 @@ def test_secure():
                     "mictlanx_disabled_log":MICTLANX_DISABLED_LOG
 
                 })
-                result:Result[SummonContainerPayload,ApiError] = Utils.deploy_worker(
+                result:Result[SummonContainerPayload,Exception] = Utils.deploy_worker(
                     replicator=replicator,
                     node_index=n_workers,
                     container_id=container_id,

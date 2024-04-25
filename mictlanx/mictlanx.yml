@@ -21,7 +21,7 @@ services:
         - TEZCANALYTICX_LEVEL=0
         - TEZCANALYTICX_PROTOCOL=http
         - TEZCANALYTICX_ENABLE=0
-        - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-0:mictlanx-peer-1:7001
+        - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
         - MICTLANX_PROCOTOL=http
         - MICTLANX_API_VERSION=4
         - MICTLANX_PEER_HEALER_HEARTBEAT=30sec

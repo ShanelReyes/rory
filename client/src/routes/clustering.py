@@ -8,7 +8,7 @@ from rory.core.interfaces.rorymanager import RoryManager
 from rory.core.interfaces.roryworker import RoryWorker
 from rory.core.security.dataowner import DataOwner
 from rory.core.security.cryptosystem.liu import Liu
-from rory.core.security.cryptosystem.FDHOpe import Fdhope
+from rory.core.security.cryptosystem.fdhope import Fdhope
 from rory.core.utils.constants import Constants
 from rory.core.utils.utils import Utils as RoryUtils
 from mictlanx.v4.interfaces.responses import PutResponse
@@ -111,6 +111,7 @@ def kmeans():
             bucket_id = BUCKET_ID
         ).result()
 
+        print("PTM",ptm_result)
         if ptm_result.is_err:
             error = ptm_result.unwrap_err()
             logger.error({
@@ -239,6 +240,7 @@ def skmeans():
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         
         if executor == None:
@@ -248,17 +250,17 @@ def skmeans():
         # Headers
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
-        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
-        encrypted_matrix_id       = "encrypted-{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
-        udm_id                    = "{}-udm".format(plaintext_matrix_id) # The iudm id is built
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
+        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
+        udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
-        m                         = int(request_headers.get("M","3"))
         k                         = int(request_headers.get("K"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         requestId                 = "request-{}".format(plaintext_matrix_id)
+        m                         = dataowner.m
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         
         logger.debug({
@@ -331,7 +333,8 @@ def skmeans():
             plaintext_matrix = plaintext_matrix,
             dataowner        = dataowner,
             n                = n,
-            num_chunks       = num_chunks
+            num_chunks       = num_chunks,
+            np_random        = np_random
         )
         segment_encrypt_service_time = time.time() - encryption_start_time
         logger.info({
@@ -357,12 +360,29 @@ def skmeans():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            key       = encrypted_matrix_id, 
-            chunks    = encrypted_matrix_chunks, 
-            bucket_id = BUCKET_ID,
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     key       = encrypted_matrix_id, 
+        #     chunks    = encrypted_matrix_chunks, 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {}
+        # )
+        
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_chunks
         )
+
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = encrypted_matrix_id, 
+            chunks    = chunks_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str((r,a,m)),
+                "dtype":"float64"
+            }
+        )
+        print("PUT RESPONSE",put_chunks_generator_results)
+        # time.sleep(100)
+
 
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
@@ -373,15 +393,16 @@ def skmeans():
             "service_time":put_chunks_st
         })
         
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage and encrypt the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
-        encryption_end_time = time.time()
-        segment_encrypt_put_time     = encryption_end_time - encryption_start_time
+        # for i,put_chunk_result in enumerate(
+        # ):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage and encrypt the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
+        encryption_end_time      = time.time()
+        segment_encrypt_put_time = encryption_end_time - encryption_start_time
 
         logger.info({
             "event":"PUT.SEGMENT.ENCRYPT", 
@@ -422,6 +443,7 @@ def skmeans():
             ball_id   = udm_id,
             bucket_id = BUCKET_ID
         )
+
         udm_put_result:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
             key       = udm_id, 
             ndarray   = udm, 
@@ -456,9 +478,9 @@ def skmeans():
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
 
-        get_worker_end_time         = time.time() 
-        get_worker_service_time     = get_worker_end_time - get_worker_start_time
-        worker_id                    =  "localhost" if TESTING else worker_id
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else worker_id
 
         logger.info({
             "event":"MANAGER.GET.WORKER",
@@ -579,7 +601,7 @@ def skmeans():
             })
             
             encrypted_shift_matrix = encryptedShiftMatrix_get_response.value
-
+            # time.sleep(50)
             logger.debug({
                 "event":"DECRYPT.BEFORE",
                 "m":m,
@@ -598,11 +620,11 @@ def skmeans():
                 "m":m,
                 "shape":str(encrypted_shift_matrix.shape),
                 "dtype":str(encrypted_shift_matrix.dtype),
-                "service_time":time.time() -  decrypt_start_time
+                "service_time":time.time() - decrypt_start_time
             })
 
             shift_matrix    = shiftMatrix_chipher_schema_res.matrix
-            shift_matrix_id = "{}-shift-matrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
+            shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
 
             
             logger.debug({
@@ -612,10 +634,11 @@ def skmeans():
                 "dtype":str(shift_matrix.dtype)
             })
             put_shift_matrix_start_time     = time.time()
-            del_resul = STORAGE_CLIENT.delete_by_ball_id(ball_id=shift_matrix_id, bucket_id=BUCKET_ID)
-            if del_resul.is_err:
-                return Response(response="Error deleting {}".format(shift_matrix_id))
-            print("DEL_RESULT",del_resul)
+            _ = STORAGE_CLIENT.delete_by_ball_id(ball_id=shift_matrix_id, bucket_id=BUCKET_ID)
+            # print("DEL_RESULT",del_resul)
+            # if del_resul.is_err:
+            #     return Response(response="Error deleting {}".format(shift_matrix_id))
+            # print("DEL_RESULT",del_resul)
             _:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
                 key       = shift_matrix_id,
                 ndarray   = shift_matrix,
@@ -725,6 +748,7 @@ def dbskmeans():
         max_workers                  = int(current_app.config.get("MAX_WORKERS",2))
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        np_random                    = current_app.config.get("np_random")
         # 
         if executor               == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
@@ -733,12 +757,13 @@ def dbskmeans():
         # HEADERS
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
-        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
-        encrypted_matrix_id       = "encrypted-{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
-        encrypted_udm_id          = "{}-encrypted-udm".format(plaintext_matrix_id) # The iudm id is built
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
+        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
+        encrypted_udm_id          = "{}encryptedudm".format(plaintext_matrix_id) # The iudm id is built
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
-        m                         = request_headers.get("M","3")
+        # m                         = request_headers.get("M","3")
+        m                         = dataowner.m
         k                         = request_headers.get("K","3")
         sens                      = float(request_headers.get("Sens","0.00000001"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
@@ -824,7 +849,8 @@ def dbskmeans():
             n                = n,
             num_chunks       = num_chunks,
             max_workers      = max_workers,
-            executor         = executor
+            executor         = executor,
+            np_random        = np_random
         )
         encrypt_segment_service_time = time.time() - encrypt_segment_start_time
         logger.info({
@@ -850,12 +876,26 @@ def dbskmeans():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            bucket_id = BUCKET_ID,
-            key       = encrypted_matrix_id, 
-            chunks    = encrypted_matrix_chunks, 
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     bucket_id = BUCKET_ID,
+        #     key       = encrypted_matrix_id, 
+        #     chunks    = encrypted_matrix_chunks, 
+        #     tags      = {}
+        # )
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_chunks
         )
+
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = encrypted_matrix_id, 
+            chunks    = chunks_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str((r,a,m)),
+                "dtype":"float64"
+            }
+        )
+        
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"PUT.CHUNKS",
@@ -865,19 +905,19 @@ def dbskmeans():
             "service_time":put_chunks_st
         })
         
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            encryption_end_time = time.time()
-            encryption_time     = encryption_end_time - encryption_start_time
-            if put_chunk_result.is_err:
-                error = put_chunk_result.unwrap_err()
-                logger.error({
-                    "msg":"Something went wrong storage and encrypt the chunk. {}".format(error)
-                })
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(error))
-                )
-        encryption_time = encryption_end_time - encryption_start_time
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+            
+        #     if put_chunk_result.is_err:
+        #         error = put_chunk_result.unwrap_err()
+        #         logger.error({
+        #             "msg":"Something went wrong storage and encrypt the chunk. {}".format(error)
+        #         })
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(error))
+        #         )
+        encryption_end_time = time.time()
+        encryption_time     = encryption_end_time - encryption_start_time
      
         logger.info({
             "event":"PUT.SEGMENT.ENCRYPT", 
@@ -892,6 +932,7 @@ def dbskmeans():
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
         })
         udm_start_time = time.time()
+        print("BEFORE GET_U")
         udm            = dataowner.get_U(
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
@@ -954,20 +995,35 @@ def dbskmeans():
             bucket_id = BUCKET_ID
         )
 
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            bucket_id = BUCKET_ID,
-            key       = encrypted_udm_id, 
-            chunks    = encrypted_matrix_UDM_chunks, 
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     bucket_id = BUCKET_ID,
+        #     key       = encrypted_udm_id, 
+        #     chunks    = encrypted_matrix_UDM_chunks, 
+        #     tags      = {}
+        # )
+
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage and encrypt the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
+        chunks_udm_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_UDM_chunks
         )
 
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage and encrypt the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
+        # print("shape", str((r,r,a)))
+        print("udm_shape",str(udm.shape))
+        put_chunks_udm_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = encrypted_udm_id, 
+            chunks    = chunks_udm_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str(udm.shape),
+                "dtype":"float64"
+            }
+        )
         logger.info({
             "event":"PUT.CHUNKS",
             "key":encrypted_udm_id,
@@ -1146,8 +1202,8 @@ def dbskmeans():
                 "shift_matrix_dtype":str(shift_matrix_ope.dtype),
                 "service_time":time.time() - encrypted_start_time
             })
-            shift_matrix_id     = "{}-shift-matrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
-            shift_matrix_ope_id = "{}-shift-matrix-ope".format(plaintext_matrix_id) # The id of the Shift matrix is formed
+            shift_matrix_id     = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
+            shift_matrix_ope_id = "{}shiftmatrixope".format(plaintext_matrix_id) # The id of the Shift matrix is formed
             
             put_matrix_start_time = time.time()
             logger.debug({
@@ -1317,22 +1373,24 @@ def dbsnnc():
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
+        np_random                    = current_app.config.get("np_random")
         if executor                  == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.DBSNNC
         s                         = Session()
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
-        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted-{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
-        dm_id                     = "{}-dm".format(plaintext_matrix_id)
-        encrypted_dm_id           = "{}-encrypted-dm".format(plaintext_matrix_id) # The iudm id is built
+        dm_id                     = "{}dm".format(plaintext_matrix_id)
+        encrypted_dm_id           = "{}encrypteddm".format(plaintext_matrix_id) # The iudm id is built
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
-        m                         = int(request_headers.get("M","3"))
+        # m                         = int(request_headers.get("M","3"))
+        m                         = dataowner.m
         sens                      = float(request_headers.get("Sens","0.00000001"))
         threshold                 = float(request_headers.get("Threshold",-1))
-        request_id                = "request-{}".format(plaintext_matrix_id)
+        request_id                = "request{}".format(plaintext_matrix_id)
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -1412,6 +1470,7 @@ def dbsnnc():
             n                = n,
             num_chunks       = num_chunks,
             max_workers      = max_workers,
+            np_random        = np_random
         )
         segment_encrypt_st = time.time() - segment_encrypt_start_time
         logger.info({
@@ -1435,12 +1494,26 @@ def dbsnnc():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            key       = encrypted_matrix_id, 
-            chunks    = encrypted_matrix_chunks, 
-            bucket_id = BUCKET_ID,
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     key       = encrypted_matrix_id, 
+        #     chunks    = encrypted_matrix_chunks, 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {}
+        # )
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_chunks
         )
+
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = encrypted_matrix_id, 
+            chunks    = chunks_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str((r,a,m)),
+                "dtype":"float64"
+            }
+        )
+
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"PUT.CHUNKS",
@@ -1450,13 +1523,13 @@ def dbsnnc():
             "service_time":put_chunks_st
         })
         
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage and encrypt the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage and encrypt the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
         encryption_time = time.time() - encryption_start_time
         logger.info({
             "event":"PUT.SEGMENT.ENCRYPT", 
@@ -1549,11 +1622,24 @@ def dbsnnc():
             ball_id=encrypted_dm_id, 
             bucket_id=BUCKET_ID
         )
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            bucket_id = BUCKET_ID,
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     bucket_id = BUCKET_ID,
+        #     key       = encrypted_dm_id, 
+        #     chunks    = encrypted_matrix_DM_chunks, 
+        #     tags      = {}
+        # )
+        chunks_dm_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_DM_chunks
+        )
+
+        put_chunks_dm_generator_results = STORAGE_CLIENT.put_chunked(
             key       = encrypted_dm_id, 
-            chunks    = encrypted_matrix_DM_chunks, 
-            tags      = {}
+            chunks    = chunks_dm_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str((r,r)), ##r,r
+                "dtype":"float64"
+            }
         )
 
         put_chunks_st = time.time() - put_chunks_start_time
@@ -1565,15 +1651,15 @@ def dbsnnc():
             "service_time":put_chunks_st
         })
 
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error({
-                    "msg":str(put_chunk_result.unwrap_err())
-                })
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error({
+        #             "msg":str(put_chunk_result.unwrap_err())
+        #         })
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
 
 
         segment_encrypt_fdhope_st = time.time() - segment_encrypt_start_time
@@ -1594,7 +1680,8 @@ def dbsnnc():
         encrypted_threshold = Fdhope.encrypt( #Threshold is encrypted
 				plaintext    = threshold,
 				messagespace = dataowner.messageIntervals, 
-				cipherspace  = dataowner.cypherIntervals
+				cipherspace  = dataowner.cypherIntervals,
+                sens = sens,
 			)
         logger.debug({
             "event":"ENCRYPTED.THRESHOLD", 
@@ -1735,8 +1822,8 @@ def nnc():
         s                         = Session()
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",1))
-        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
-        dm_id                     = "{}-dm".format(plaintext_matrix_id)
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
+        dm_id                     = "{}dm".format(plaintext_matrix_id)
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
         request_id                = "request-{}".format(plaintext_matrix_id)
@@ -1794,8 +1881,8 @@ def nnc():
             "event":"PUT.CHUNKS.BEFORE",
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
-            "shape":str(plaintext_matrix.shape),
-            "dtype":str(plaintext_matrix.dtype),
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
         })
         put_ptm_start_time = time.time()
 
@@ -1815,28 +1902,44 @@ def nnc():
             ball_id   = plaintext_matrix_id, 
             bucket_id = BUCKET_ID
         )
+        
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     key       = plaintext_matrix_id, 
+        #     chunks    = plaintext_matrix_chunks.unwrap(), 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {}
+        # )
 
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            key       = plaintext_matrix_id, 
-            chunks    = plaintext_matrix_chunks.unwrap(), 
-            bucket_id = BUCKET_ID,
-            tags      = {}
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = plaintext_matrix_chunks.unwrap()
         )
 
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = plaintext_matrix_id, 
+            chunks    = chunks_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str(plaintext_matrix.shape),
+                "dtype":"float64"
+            }
+        )
+        # time.sleep(100)
+
+
         put_ptm_st = time.time() - put_ptm_start_time
         logger.info({
             "event":"PUT.CHUNKS",
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
-            "shape":str(plaintext_matrix.shape),
-            "dtype":str(plaintext_matrix.dtype),
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "service_time":put_ptm_st
         })
 
@@ -1878,8 +1981,8 @@ def nnc():
             "event":"CHUNKS.FROM.NDARRAY.BEFORE",
             "key":dm_id,
             "bucket_id":BUCKET_ID,
-            "shape":str(dm.shape),
-            "dtype":str(dm.dtype),
+            "dm_shape":str(dm.shape),
+            "dm_dtype":str(dm.dtype),
         })
         put_ptm_start_time = time.time()
         dm_chunks = Chunks.from_ndarray(
@@ -1894,39 +1997,53 @@ def nnc():
         
         logger.debug({
             "event":"CHUNKS.FROM.NDARRAY",
-            "key":dm_id,
+            "dm_id":dm_id,
             "bucket_id":BUCKET_ID,
-            "shape":str(dm.shape),
-            "dtype":str(dm.dtype),
+            "dm_shape":str(dm.shape),
+            "dm_dtype":str(dm.dtype),
         })
 
         logger.debug({
             "event":"PUT.CHUNKS.BEFORE",
-            "key":dm_id,
+            "dm_id":dm_id,
             "bucket_id":BUCKET_ID,
-            "shape":str(dm.shape),
-            "dtype":str(dm.dtype),
+            "dm_shape":str(dm.shape),
+            "dm_dtype":str(dm.dtype),
         })
 
         STORAGE_CLIENT.delete_by_ball_id(
             ball_id   = dm_id, 
             bucket_id = BUCKET_ID
         )
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            key       = dm_id, 
-            chunks    = dm_chunks.unwrap(), 
-            bucket_id = BUCKET_ID,
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     key       = dm_id, 
+        #     chunks    = dm_chunks.unwrap(), 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {}
+        # )
+
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
+        
+        chunks_dm_bytes = Utils.chunks_to_bytes_gen(
+            chs = dm_chunks.unwrap()
         )
 
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
-            
+        put_chunks_dm_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = dm_id, 
+            chunks    = chunks_dm_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str(dm.shape),
+                "dtype":"float64"
+            }
+        )
+
         put_dm_st = time.time() - put_ptm_start_time
         logger.info({
             "event":"PUT.CHUNKS",

@@ -16,9 +16,11 @@ services:
       - MAX_WORKERS=1
       - WORKER_TIMEOUT=300
       - MAX_ITERATIONS=10
-      - M=3
+      - LIU_SECURITY_LEVEL=128
       - RELOAD=0
       - LIU_ROUND=0
+      - LIU_DECIMALS=5
+      - NP_RANDOM=1
       - TESTING=0
       - RORY_DEBUG=0
       - LOGGER_NAME=rory-client-0
@@ -27,7 +29,7 @@ services:
       - JITTER=(.1,.5)
       - MICTLANX_CLIENT_ID=rory-client-0
       - MICTLANX_TIMEOUT=120
-      - MICTLANX_PEERS=mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001
+      - MICTLANX_ROUTERS=mictlanx-router-0:mictlanx-router-0:60666
       - MICTLANX_DEBUG=0
       - MICTLANX_DAEMON=0
       - MICTLANX_SHOW_METRICS=0

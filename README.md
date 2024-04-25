@@ -180,6 +180,8 @@ The following prerequisites must be met in order to use the software correctly.
 
 9. 
 
+
+$
 <!-- 1. Clone the repo
    ```sh
    git clone https://github.com/ShanelReyes/rory.git

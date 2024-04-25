@@ -4,10 +4,10 @@ from flask import Blueprint,current_app,request,abort,Response
 from threading import Lock
 from rory.core.interfaces.worker import Worker
 from rory.core.interfaces.logger_metrics import LoggerMetrics
-from mictlanx.v3.services.summoner import Summoner
+from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload
 from utils.utils import Utils
-from mictlanx.v3.interfaces.payloads import SummonContainerPayload
-from mictlanx.v3.interfaces.errors import ApiError
+# from mictlanx.v3.interfaces.payloads import SummonContainerPayload
+# from mictlanx.v3.interfaces.errors import ApiError
 from option import Result
 
 lock = Lock()
@@ -127,7 +127,7 @@ def deploy_worker():
         **envs
     })
 
-    result:Result[SummonContainerPayload,ApiError] = Utils.deploy_worker(
+    result:Result[SummonContainerPayload,Exception] = Utils.deploy_worker(
         replicator=replicator,
         node_index=n_workers,
         container_id=container_id,

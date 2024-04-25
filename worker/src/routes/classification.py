@@ -33,12 +33,12 @@ def sknn_pedict_1(requestHeaders):
     worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
-    m                        = int(requestHeaders.get("M",3))
-    model_id                 = requestHeaders.get("Model-Id","model-0") #iris
-    encrypted_model_id       = "encrypted-{}".format(model_id) #encrypted-iris_model
-    model_labels_id          = "{}_labels".format(model_id) #iris_model_labels
-    records_test_id          = requestHeaders.get("Records-Test-Id","matrix-0")
-    encrypted_records_id     = "encrypted-{}".format(records_test_id) # The id of the encrypted matrix is built
+    # m                        = int(requestHeaders.get("M",3))
+    model_id                 = requestHeaders.get("Model-Id","model0") #iris
+    encrypted_model_id       = "encrypted{}".format(model_id) #encrypted-iris_model
+    model_labels_id          = "{}labels".format(model_id) #iris_model_labels
+    records_test_id          = requestHeaders.get("Records-Test-Id","matrix0")
+    encrypted_records_id     = "encrypted{}".format(records_test_id) # The id of the encrypted matrix is built
     algorithm                = Constants.ClassificationAlgorithms.SKNN_PREDICT
     _encrypted_model_shape   = requestHeaders.get("Encrypted-Model-Shape",-1)
     _encrypted_model_dtype   = requestHeaders.get("Encrypted-Model-Dtype",-1)
@@ -88,14 +88,26 @@ def sknn_pedict_1(requestHeaders):
             "num_chunks":num_chunks
         })
         get_merge_encrypted_model_start_time = time.time()
-        (encrypted_model, encrypted_model_metadata) = Utils.get_and_merge_ndarray(
-            STORAGE_CLIENT     = STORAGE_CLIENT,
-            bucket_id          = BUCKET_ID, 
-            key = encrypted_model_id,
-            num_chunks         = num_chunks, 
-            shape              = encrypted_model_shape,
-            dtype              = _encrypted_model_dtype
-        )
+        # (encrypted_model, encrypted_model_metadata) = Utils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT     = STORAGE_CLIENT,
+        #     bucket_id          = BUCKET_ID, 
+        #     key = encrypted_model_id,
+        #     num_chunks         = num_chunks, 
+        #     shape              = encrypted_model_shape,
+        #     dtype              = _encrypted_model_dtype
+        # )
+
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_model_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_model_id))
+        response = x.unwrap()
+        encrypted_model = response.value
+        encrypted_model_metadata = response.metadata 
 
         get_merge_encrypted_model_st = time.time()- get_merge_encrypted_model_start_time
         logger.info({
@@ -120,14 +132,27 @@ def sknn_pedict_1(requestHeaders):
             "num_chunks":num_chunks
         })
         get_merge_encrypted_records_start_time = time.time()
-        (encrypted_records, encrypted_records_metadata) = Utils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = encrypted_records_id,
-            num_chunks     = num_chunks,
-            shape          = encrypted_records_shape,
-            dtype          = _encrypted_records_dtype
-        )
+        # (encrypted_records, encrypted_records_metadata) = Utils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = encrypted_records_id,
+        #     num_chunks     = num_chunks,
+        #     shape          = encrypted_records_shape,
+        #     dtype          = _encrypted_records_dtype
+        # )
+        
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_records_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_records_id))
+        response = x.unwrap()
+        encrypted_records = response.value
+        encrypted_records_metadata = response.metadata 
+
         response_headers["Encrypted-Records-Test-Dtype"] = encrypted_records_metadata.tags.get("dtype",encrypted_records.dtype) #["tags"]["dtype"] #Save the data type
         response_headers["Encrypted-Records-Test-Shape"] = encrypted_records_metadata.tags.get("shape",encrypted_records.shape) #Save the shape
         get_merge_encrypted_records_st = time.time()- get_merge_encrypted_records_start_time
@@ -167,7 +192,7 @@ def sknn_pedict_1(requestHeaders):
             "encrypted_model_dtype":str(encrypted_model.dtype)
         })
 
-        distances_id = "distances-{}".format(records_test_id) 
+        distances_id = "distances{}".format(records_test_id) 
         distances_shape = all_distances.shape
         distances_dtype = all_distances.dtype
 
@@ -194,21 +219,34 @@ def sknn_pedict_1(requestHeaders):
             bucket_id = BUCKET_ID
         )
 
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            key       = distances_id, 
-            chunks    = maybe_chunks.unwrap(), 
-            bucket_id = BUCKET_ID,
-            tags      = {}
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+        #     key       = distances_id, 
+        #     chunks    = maybe_chunks.unwrap(), 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {}
+        # )
+
+        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+        #     if put_chunk_result.is_err:
+        #         logger.error("Something went wrong storage the chunk.")
+        #         return Response(
+        #             status   = 500,
+        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
+        #         )
+        chunks_distances_bytes = Utils.chunks_to_bytes_gen(
+            chs = maybe_chunks.unwrap()
         )
 
-        for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            if put_chunk_result.is_err:
-                logger.error("Something went wrong storage the chunk.")
-                return Response(
-                    status   = 500,
-                    response = "{}".format(str(put_chunk_result.unwrap_err()))
-                )
-
+        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+            key       = distances_id, 
+            chunks    = chunks_distances_bytes, 
+            bucket_id = BUCKET_ID,
+            tags      = {
+                "shape": str(distances_shape),
+                "dtype":"float64"
+            }
+        )
+        
         logger.debug({
             "event":"PUT.CHUNKS",
             "encrypted_records_id":encrypted_records_id,
@@ -255,10 +293,10 @@ def sknn_predict_2(requestHeaders):
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    model_id                = requestHeaders.get("Model-Id","model-0") #iris
-    model_labels_id         = "{}_labels".format(model_id) #iris_model_labels
-    records_test_id         = requestHeaders.get("Records-Test-Id","matrix-0")
-    min_distances_index_id  = "distances-index-{}".format(records_test_id)
+    model_id                = requestHeaders.get("Model-Id","model0") #iris
+    model_labels_id         = "{}labels".format(model_id) #iris_model_labels
+    records_test_id         = requestHeaders.get("Records-Test-Id","matrix0")
+    min_distances_index_id  = "distancesindex{}".format(records_test_id)
     algorithm               = Constants.ClassificationAlgorithms.SKNN_PREDICT
 
     try:
@@ -314,18 +352,12 @@ def sknn_predict_2(requestHeaders):
             "min_distances_index_id":min_distances_index_id
         })
 
-        logger.debug({
-            "event":"GET.LABEL.VECTOR.BEFORE",
-            "models_labels_id":model_labels_id,
-            "min_distances_index_id":min_distances_index_id
-        })
-
         label_vector = SKNN.get_label_vector(
             model_labels = model_labels,
             min_indexes = min_distances_index
         )
-        end_time                         = time.time()
-        service_time                     = end_time - local_start_time
+        end_time                       = time.time()
+        service_time                   = end_time - local_start_time
         requestHeaders["Service-Time"] = str(service_time)
 
         logger.info({
@@ -379,9 +411,9 @@ def knn_predict():
     worker_id                    = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
     STORAGE_CLIENT:V4Client      = current_app.config["STORAGE_CLIENT"]
-    model_id                     = filtered_headers.get("Model-Id","model-0") #iris
-    model_labels_id              = "{}_labels".format(model_id) #iris_model_labels
-    records_test_id              = filtered_headers.get("Records-Test-Id","matrix-0")
+    model_id                     = filtered_headers.get("Model-Id","model0") #iris
+    model_labels_id              = "{}labels".format(model_id) #iris_model_labels
+    records_test_id              = filtered_headers.get("Records-Test-Id","matrix0")
     algorithm                    = Constants.ClassificationAlgorithms.KNN_PREDICT
     response_headers             = {}
     
@@ -400,7 +432,12 @@ def knn_predict():
             "key":model_id,
         })
         get_model_start_time = time.time()
-        model_result = STORAGE_CLIENT.get_ndarray(key = model_id,bucket_id=BUCKET_ID).result()
+        model_result = STORAGE_CLIENT.get_ndarray_with_retry(
+            key = model_id,
+            bucket_id=BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
         model        = model_result.unwrap().value
         get_model_st = time.time() - get_model_start_time
         logger.info({
@@ -408,14 +445,18 @@ def knn_predict():
             "key":model_id,
             "service_time":get_model_st
         })
-        # __________________________________________
         
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
             "key":model_labels_id,
         })
         get_model_labels_start_time = time.time()
-        model_labels_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray(key = model_labels_id,bucket_id=BUCKET_ID).result()
+        model_labels_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key = model_labels_id,
+            bucket_id=BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
         model_labels:npt.NDArray  = model_labels_result.unwrap().value
         get_model_labels_st = time.time() - get_model_labels_start_time
         logger.info({
@@ -423,14 +464,18 @@ def knn_predict():
             "key":model_labels_id,
             "service_time":get_model_labels_st
         })
-        # __________________________________________
 
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
             "key":records_test_id,
         })
         get_records_start_time = time.time()
-        record_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray(key = records_test_id,bucket_id=BUCKET_ID).result()
+        record_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key = records_test_id,
+            bucket_id=BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
         records:npt.NDArray  = record_result.unwrap().value
         get_records_st = time.time() - get_records_start_time
         logger.info({
@@ -461,7 +506,7 @@ def knn_predict():
             "models_labels_shape":str(model_labels.dtype),
             "service_time":knn_predict_st
         })
-        # __________________________________________
+        
         end_time                         = time.time()
         service_time                     = end_time - local_start_time
         response_headers["Service-Time"] = str(service_time)

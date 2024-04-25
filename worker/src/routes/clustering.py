@@ -10,7 +10,7 @@ from rory.core.utils.utils import Utils
 from rory.core.utils.constants import Constants
 from rory.core.clustering.secure.distributed.skmeans import SKMeans
 from rory.core.clustering.secure.distributed.dbskmeans import DBSKMeans
-from mictlanx.v3.client import Client 
+# from mictlanx.v3.client import Client 
 from mictlanx.v4.client import Client as V4Client
 from option import Result
 from mictlanx.utils.segmentation import Chunks
@@ -18,10 +18,7 @@ from mictlanx.v4.interfaces.responses import GetNDArrayResponse,PutResponse
 from option import Option,Some,NONE
 from utils.utils import Utils as LocalUtils
 
-# 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
-
-
 
 def delete_and_put(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,ndarray:npt.NDArray):
     _x = STORAGE_CLIENT.delete_by_ball_id(ball_id=key, bucket_id=bucket_id)
@@ -65,7 +62,7 @@ def skmeans_1(requestHeaders) -> Response:
     algorithm               = Constants.ClusteringAlgorithms.SKMEANS
     plaintext_matrix_id     = requestHeaders.get("Plaintext-Matrix-Id")
     encrypted_matrix_id     = requestHeaders.get("Encrypted-Matrix-Id",-1)
-    udm_id                  = "{}-udm".format(plaintext_matrix_id) 
+    udm_id                  = "{}udm".format(plaintext_matrix_id) 
     _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
     _encrypted_matrix_dtype = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
 
@@ -76,9 +73,9 @@ def skmeans_1(requestHeaders) -> Response:
     
     encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
 
-    encrypted_shift_matrix_id = "{}-encrypted-shift-matrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
-    cent_i_id                 = "{}-cent_i".format(plaintext_matrix_id) #Build the id of Cent_i
-    cent_j_id                 = "{}-cent_j".format(plaintext_matrix_id) #Build the id of Cent_j
+    encrypted_shift_matrix_id = "{}encryptedshiftmatrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
+    cent_i_id                 = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
+    cent_j_id                 = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     num_chunks                = int(requestHeaders.get("Num-Chunks",-1))
     skmeans                   = SKMeans()
     responseHeaders           = {}
@@ -108,25 +105,30 @@ def skmeans_1(requestHeaders) -> Response:
     try:
         responseHeaders["Start-Time"] = str(arrival_time)
         logger.debug({
-            "event":"BEFORE.GET.MERGE.NDARRAY",
+            "event":"GET.MERGE.NDARRAY.BEFORE",
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
             "shape":encrypted_matrix_shape,
             "dtype":_encrypted_matrix_dtype
         })
-        get_merge_encrypted_matrix_start_time = time.time()
-        (encryptedMatrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID, 
-            key            = encrypted_matrix_id,
-            num_chunks     = num_chunks, 
-            shape          = encrypted_matrix_shape,
-            dtype          = _encrypted_matrix_dtype,
-        )
+        get_merge_encrypted_matrix_start_time  = time.time()
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_matrix_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_matrix_id))
+        response                  = x.unwrap()
+        encryptedMatrix           = response.value
+        encrypted_matrix_metadata = response.metadata 
 
         responseHeaders["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
         responseHeaders["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
-        get_merge_encrypted_matrix_st = time.time()- get_merge_encrypted_matrix_start_time
+        get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
+
         logger.info({
             "event":"GET.MERGE.NDARRAY",
             "bucket_id":BUCKET_ID,
@@ -142,7 +144,7 @@ def skmeans_1(requestHeaders) -> Response:
             "bucket_id":BUCKET_ID,
             "key":udm_id,
         })
-        udm_get_start_time = time.time()
+        udm_get_start_time  = time.time()
         udm_matrix_response = LocalUtils.get_matrix_or_error(
             client    = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
@@ -253,17 +255,14 @@ def skmeans_1(requestHeaders) -> Response:
         
         _x:Result[PutResponse,Exception] = x.result()
         if _x.is_err:
-            print("X")
             raise _x.unwrap_err()
 
         _y:Result[PutResponse,Exception] = y.result()
         if _y.is_err :
-            print("Y")
             raise _y.unwrap_err()
         
         _z:Result[PutResponse,Exception] = z.result() 
         if _z.is_err:
-            print("Z")
             raise _z.unwrap_err()
 
         end_time     = time.time()
@@ -317,7 +316,7 @@ def skmeans_2(requestHeaders):
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
     encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
-    shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}-shift-matrix".format(plaintext_matrix_id))
+    shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
 
     k                       = int(requestHeaders.get("K",3))
     m                       = int(requestHeaders.get("M",3))
@@ -326,9 +325,9 @@ def skmeans_2(requestHeaders):
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
     
-    udm_id           = "{}-udm".format(plaintext_matrix_id)
-    cent_i_id        = "{}-cent_i".format(plaintext_matrix_id) #Build the id of Cent_i
-    cent_j_id        = "{}-cent_j".format(plaintext_matrix_id) #Build the id of Cent_j
+    udm_id           = "{}udm".format(plaintext_matrix_id)
+    cent_i_id        = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
+    cent_j_id        = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     response_headers = {}
 
     logger.debug({
@@ -348,9 +347,11 @@ def skmeans_2(requestHeaders):
             "key":udm_id, 
             "bucket_id":BUCKET_ID,
         })
-        UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray(
+        UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray_with_retry(
             key       = udm_id,
-            bucket_id = BUCKET_ID
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
         )
         UDM_result:Result[GetNDArrayResponse,Exception] = UDM_put_future.result()
         if UDM_result.is_err:
@@ -576,7 +577,6 @@ def kmeans():
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-
     plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
     k                       = int(filtered_headers.get("K",3))
     response_headers        = {}
@@ -640,24 +640,24 @@ Description:
     It stops where client interaction is required and writes the centroids and matrix S to disk.
 """
 def dbskmeans_1(requestHeaders) -> Response:
-    arrival_time             = time.time() #System startup time
-    logger                   = current_app.config["logger"]
-    worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
-    BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
+    arrival_time            = time.time() #System startup time
+    logger                  = current_app.config["logger"]
+    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     # HEADERS
-    status                   = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
-    is_start_status          = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
-    k                        = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
-    m                        = int(requestHeaders.get("M",3))
-    algorithm                = Constants.ClusteringAlgorithms.DBSKMEANS
-    plaintext_matrix_id      = requestHeaders.get("Plaintext-Matrix-Id")
-    encrypted_matrix_id      = requestHeaders.get("Encrypted-Matrix-Id","")
-    _encrypted_matrix_shape  = requestHeaders.get("Encrypted-Matrix-Shape",-1)
-    _encrypted_matrix_dtype  = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
-    _encrypted_udm_shape     = requestHeaders.get("Encrypted-Udm-Shape",-1)
-    _encrypted_udm_dtype     = requestHeaders.get("Encrypted-Udm-Dtype",-1)
-    iterations               = int(requestHeaders.get("Iterations",0))
+    status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
+    is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
+    k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
+    m                       = int(requestHeaders.get("M",3))
+    algorithm               = Constants.ClusteringAlgorithms.DBSKMEANS
+    plaintext_matrix_id     = requestHeaders.get("Plaintext-Matrix-Id")
+    encrypted_matrix_id     = requestHeaders.get("Encrypted-Matrix-Id","")
+    _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
+    _encrypted_udm_shape    = requestHeaders.get("Encrypted-Udm-Shape",-1)
+    _encrypted_udm_dtype    = requestHeaders.get("Encrypted-Udm-Dtype",-1)
+    iterations              = int(requestHeaders.get("Iterations",0))
 
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=400)
@@ -675,10 +675,10 @@ def dbskmeans_1(requestHeaders) -> Response:
     encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
     encrypted_udm_shape:tuple    = eval(_encrypted_udm_shape)
     
-    encrypted_udm_id           = "{}-encrypted-udm".format(plaintext_matrix_id) 
-    cent_i_id                  = "{}-cent_i".format(plaintext_matrix_id) #Build the id of Cent_i
-    cent_j_id                  = "{}-cent_j".format(plaintext_matrix_id) #Build the id of Cent_j
-    encrypted_shift_matrix_id  = "{}-encrypted-shift-matrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
+    encrypted_udm_id           = "{}encryptedudm".format(plaintext_matrix_id) 
+    cent_i_id                  = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
+    cent_j_id                  = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
+    encrypted_shift_matrix_id  = "{}encryptedshiftmatrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
     dbskmeans                  = DBSKMeans()
     response_headers           = {}
 
@@ -708,41 +708,71 @@ def dbskmeans_1(requestHeaders) -> Response:
             "num_chunks":num_chunks,
         })
         get_merge_start_time = time.time()
-        (encrypted_matrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = encrypted_matrix_id,
-            num_chunks     = num_chunks, 
-            shape          = encrypted_matrix_shape,
-            dtype          = _encrypted_matrix_dtype,
-        )
+
+        # (encrypted_matrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = encrypted_matrix_id,
+        #     num_chunks     = num_chunks, 
+        #     shape          = encrypted_matrix_shape,
+        #     dtype          = _encrypted_matrix_dtype,
+        # )
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_matrix_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_matrix_id))
+        response = x.unwrap()
+        encryptedMatrix = response.value
+        encrypted_matrix_metadata = response.metadata 
+        
         get_merge_st = time.time() - get_merge_start_time
+        
+        response_headers["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
+        response_headers["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        
         logger.info({
             "event":"GET.NDARRAY.MERGE",
             "bucket_id":BUCKET_ID ,
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
-            "shape":str(encrypted_matrix.shape),
-            "dtype":str(encrypted_matrix.dtype),
+            "shape":str(encryptedMatrix.shape),
+            "dtype":str(encryptedMatrix.dtype),
             "service_time":get_merge_st
         })
-        response_headers["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encrypted_matrix.dtype) #Save the data type
-        response_headers["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encrypted_matrix.shape) #Save the shape
+
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
             "bucket_id":BUCKET_ID ,
             "key":encrypted_udm_id,
             "num_chunks":num_chunks,
+            "encrypted_udm_shape":str(encrypted_udm_shape),
         })
         get_merge_start_time = time.time()
-        (encrypted_udm, udm_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = encrypted_udm_id,
-            num_chunks     = num_chunks,
-            shape          = encrypted_udm_shape,
-            dtype          = _encrypted_udm_dtype
-        )
+        # (encrypted_udm, udm_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = encrypted_udm_id,
+        #     num_chunks     = num_chunks,
+        #     shape          = encrypted_udm_shape,
+        #     dtype          = _encrypted_udm_dtype
+        # )
+        
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_udm_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_udm_id))
+        response = x.unwrap()
+        encrypted_udm = response.value
+        udm_metadata = response.metadata 
+
         get_merge_st = time.time() - get_merge_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
@@ -764,8 +794,8 @@ def dbskmeans_1(requestHeaders) -> Response:
                 "status":status,
                 "k":k,
                 "m":m,
-                "enctypted_matrix_shape":str(encrypted_matrix.shape),
-                "enctypted_matrix_dtype":str(encrypted_matrix.dtype),
+                "enctypted_matrix_shape":str(encryptedMatrix.shape),
+                "enctypted_matrix_dtype":str(encryptedMatrix.dtype),
                 "encrypted_udm_shape":str(encrypted_udm.shape),
                 "encrypted_udm_dtype":str(encrypted_udm.dtype),
             })
@@ -794,8 +824,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         
             logger.debug({
                 "event":"DBSKMEANS.RUN.1.BEFORE",
-                "encrypted_matrix_shape":str(encrypted_matrix.shape),
-                "encrypted_matrix_dtype":str(encrypted_matrix.dtype),
+                "encrypted_matrix_shape":str(encryptedMatrix.shape),
+                "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
                 "encrypted_udm_shape":str(encrypted_udm.shape),
                 "encrypted_udm_dtype":str(encrypted_udm.dtype),
                 "cent_j_shape":str(cent_j_value.shape),
@@ -805,7 +835,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             })
         run1_start_time = time.time()
         run1_result = dbskmeans.run1(
-            encrypted_matrix = encrypted_matrix,
+            encrypted_matrix = encryptedMatrix,
             UDM              = encrypted_udm,
             status           = status,
             k                = k,
@@ -823,8 +853,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         run1_st = time.time()- run1_start_time
         logger.info({
             "event":"DBSKMEANS.RUN.1",
-            "encrypted_matrix_shape":str(encrypted_matrix.shape),
-            "encrypted_matrix_dtype":str(encrypted_matrix.dtype),
+            "encrypted_matrix_shape":str(encryptedMatrix.shape),
+            "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
             "encrypted_udm_shape":str(encrypted_udm.shape),
             "encrypted_udm_dtype":str(encrypted_udm.dtype),
             "k":k,
@@ -1005,9 +1035,9 @@ def dbskmeans_2(requestHeaders):
 
     encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
     encrypted_udm_shape:tuple    = eval(_encrypted_udm_shape)
-    encrypted_udm_id             = "{}-encrypted-udm".format(plaintext_matrix_id)
-    cent_i_id                    = "{}-cent_i".format(plaintext_matrix_id) #Build the id of Cent_i
-    cent_j_id                    = "{}-cent_j".format(plaintext_matrix_id) #Build the id of Cent_j
+    encrypted_udm_id             = "{}encryptedudm".format(plaintext_matrix_id)
+    cent_i_id                    = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
+    cent_j_id                    = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     response_headers             = {}
     
     logger.debug({
@@ -1042,14 +1072,31 @@ def dbskmeans_2(requestHeaders):
             "dtype":_encrypted_udm_dtype
         })
         get_merge_start_time = time.time()
-        (prev_encrypted_udm, encrypted_udm_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = encrypted_udm_id,
-            num_chunks     = num_chunks, 
-            shape          = encrypted_udm_shape,
-            dtype          = _encrypted_udm_dtype 
-        )
+
+        # (prev_encrypted_udm, encrypted_udm_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = encrypted_udm_id,
+        #     num_chunks     = num_chunks, 
+        #     shape          = encrypted_udm_shape,
+        #     dtype          = _encrypted_udm_dtype 
+        # )
+
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_udm_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_udm_id))
+        udm_ = x.unwrap()
+        prev_encrypted_udm = udm_.value
+        encrypted_udm_metadata = udm_.metadata 
+
+        # response_headers["Encrypted-Udm-Dtype"] = encrypted_udm_metadata.tags.get("dtype",prev_encrypted_udm.dtype) #["tags"]["dtype"] #Save the data type
+        # response_headers["Encrypted-Udm-Shape"] = encrypted_udm_metadata.tags.get("shape",prev_encrypted_udm.shape) #Save the shape
+
         logger.info({
             "event":"GET.NDARRAY.MERGE",
             "key":encrypted_udm_id,
@@ -1130,12 +1177,12 @@ def dbskmeans_2(requestHeaders):
                 "worker_id":worker_id,
                 "m":m,
                 "k":k,
-                "shift_matrix_op_shape":str(shift_matrix_ope.shape),
-                "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
+                # "shift_matrix_op_shape":str(shift_matrix_ope.shape),
+                # "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
                 "prev_udm_shape":str(prev_encrypted_udm.shape),
                 "prev_udm_dtype":str(prev_encrypted_udm.dtype),
-                "current_udm_shape":str(current_udm.shape),
-                "current_udm_dtype":str(current_udm.dtype),
+                # "current_udm_shape":str(prev_encrypted_udm.shape), #Save the shape
+                # "current_udm_dtype":str(prev_encrypted_udm.dtype),
                 "num_chunks":num_chunks,
                 "service_time":service_time,
                 "response_time":response_time
@@ -1145,8 +1192,8 @@ def dbskmeans_2(requestHeaders):
                     "response_time":str(response_time),
                     "end_time":end_time,
                     "service_time":service_time,
-                    "encrypted_udm_shape":str(current_udm.shape),
-                    "encrypted_udm_dtype":str(current_udm.dtype),
+                    "encrypted_udm_shape":str(prev_encrypted_udm.shape),
+                    "encrypted_udm_dtype":str(prev_encrypted_udm.dtype),
                 }), 
                 status   = 200, 
                 headers  = {**requestHeaders, **response_headers}
@@ -1230,27 +1277,40 @@ def dbskmeans_2(requestHeaders):
                 "num_chunks":num_chunks
             })
             put_chunks_start_time = time.time()
-            put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-                bucket_id= BUCKET_ID,
-                key       = encrypted_udm_id, 
-                chunks    = udm_chunks, 
-                tags      = {},
-                update=True
+            # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
+            #     bucket_id= BUCKET_ID,
+            #     key       = encrypted_udm_id, 
+            #     chunks    = udm_chunks, 
+            #     tags      = {},
+            #     update=True
 
+            # )
+            chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
+                chs = encrypted_udm_id
             )
             
-            for i,put_chunk_result in enumerate(put_chunks_generator_results):
-                udm_end_time = time.time()
-                udm_time     = udm_end_time - udm_start_time
-                if put_chunk_result.is_err:
-                    error = put_chunk_result.unwrap_err()
-                    logger.error({
-                        "msg":str(error)
-                    })
-                    return Response(
-                        status   = 500,
-                        response = "{}".format(str(error))
-                    )
+            put_chunks_udm_generator_results = STORAGE_CLIENT.put_chunked(
+                key       = encrypted_udm_id, 
+                chunks    = chunks_udm_bytes, 
+                bucket_id = BUCKET_ID,
+                tags      = {
+                    "shape": str(encrypted_udm_shape),
+                    "dtype":"float64"
+                }
+            )
+            
+            # for i,put_chunk_result in enumerate(put_chunks_generator_results):
+            #     udm_end_time = time.time()
+            #     udm_time     = udm_end_time - udm_start_time
+            #     if put_chunk_result.is_err:
+            #         error = put_chunk_result.unwrap_err()
+            #         logger.error({
+            #             "msg":str(error)
+            #         })
+            #         return Response(
+            #             status   = 500,
+            #             response = "{}".format(str(error))
+            #         )
 
             logger.info({
                 "event":"PUT.CHUNKS",
@@ -1333,7 +1393,7 @@ def dbsnnc():
     filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     algorithm               = Constants.ClusteringAlgorithms.DBSNNC
     logger                  = current_app.config["logger"]
-    STORAGE_CLIENT:Client   = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
@@ -1393,14 +1453,26 @@ def dbsnnc():
             
         })
         get_merge_encrypted_matrix_start_time = time.time()
-        (encryptedMatrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID, 
-            key            = encrypted_matrix_id,
-            num_chunks     = num_chunks, 
-            shape          = encrypted_matrix_shape,
-            dtype          = _encrypted_matrix_dtype
-        )
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_matrix_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_matrix_id))
+        response = x.unwrap()
+        encryptedMatrix = response.value
+        encrypted_matrix_metadata = response.metadata 
+
+        # (encryptedMatrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID, 
+        #     key            = encrypted_matrix_id,
+        #     num_chunks     = num_chunks, 
+        #     shape          = encrypted_matrix_shape,
+        #     dtype          = _encrypted_matrix_dtype
+        # )
         get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
@@ -1422,14 +1494,26 @@ def dbsnnc():
             "encrypted_matrix_dtype":_encrypted_dm_dtype,
         })
         get_merge_encrypted_dm_start_time = time.time()
-        (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = encrypted_dm_id,
-            num_chunks     = num_chunks,
-            shape          = encrypted_dm_shape,
-            dtype          = _encrypted_dm_dtype,
-        )
+        # (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = encrypted_dm_id,
+        #     num_chunks     = num_chunks,
+        #     shape          = encrypted_dm_shape,
+        #     dtype          = _encrypted_dm_dtype,
+        # )
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = encrypted_dm_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(encrypted_dm_id))
+        response = x.unwrap()
+        distance_matrix = response.value
+        dm_metadata = response.metadata 
+
         get_merge_encrypted_dm_st = time.time() - get_merge_encrypted_dm_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
@@ -1497,7 +1581,7 @@ def nnc():
     filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     algorithm               = Constants.ClusteringAlgorithms.NNC
     logger                  = current_app.config["logger"]
-    STORAGE_CLIENT:Client   = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
@@ -1506,7 +1590,7 @@ def nnc():
     _plaintext_matrix_dtype = filtered_headers.get("Plaintext-Matrix-Dtype",-1)
     _dm_shape               = filtered_headers.get("Dm-Shape",-1)
     _dm_dtype               = filtered_headers.get("Dm-Dtype",-1)
-    dm_id                   = "{}-dm".format(plaintext_matrix_id) 
+    dm_id                   = "{}dm".format(plaintext_matrix_id) 
     response_headers        = {}
     response_headers        = {}
     
@@ -1546,7 +1630,7 @@ def nnc():
             "event":"GET.NDARRAY.MERGE.BEFORE",
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
-            "plaintext_matrix_shape":plaintext_matrix_shape,
+            "plaintext_matrix_shape":str(plaintext_matrix_shape),
             "plaintext_matrix_dtype":_plaintext_matrix_dtype,
             "bucket_id":BUCKET_ID,
         })
@@ -1556,14 +1640,26 @@ def nnc():
         #     key       = plaintext_matrix_id,
         #     bucket_id = BUCKET_ID
         # ) 
-        (plaintextMatrix, plaintext_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID, 
-            key            = plaintext_matrix_id,
-            num_chunks     = num_chunks, 
-            shape          = plaintext_matrix_shape,
-            dtype          = _plaintext_matrix_dtype
-        )
+        # (plaintextMatrix, plaintext_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID, 
+        #     key            = plaintext_matrix_id,
+        #     num_chunks     = num_chunks, 
+        #     shape          = plaintext_matrix_shape,
+        #     dtype          = _plaintext_matrix_dtype
+        # )
+
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = plaintext_matrix_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(plaintext_matrix_id))
+        response = x.unwrap()
+        plaintextMatrix = response.value
+        plaintext_matrix_metadata = response.metadata 
 
         # plaintext_matrix                           = plainTextMatrix_response.value
         # response_headers["Plaintext-Matrix-Dtype"] = plainTextMatrix_response.metadata.tags.get("dtype",plaintext_matrix.dtype) #["tags"]["dtype"] #Save the data type
@@ -1585,10 +1681,12 @@ def nnc():
 
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
-            "plaintext_matrix_id":dm_id,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
-            "plaintext_matrix_shape":plaintext_matrix_shape,
-            "plaintext_matrix_dtype":_plaintext_matrix_dtype
+            "plaintext_matrix_shape":str(plaintext_matrix_shape),
+            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
+            "dm_id":dm_id,
+            "dm_shape":str(dm_shape)
         })
         get_merge_dm_start_time = time.time()
         # dm_matrix_response = LocalUtils.get_matrix_or_error(
@@ -1596,14 +1694,25 @@ def nnc():
         #     key       = dm_id,
         #     bucket_id = BUCKET_ID
         # )
-        (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT,
-            bucket_id      = BUCKET_ID,
-            key            = dm_id,
-            num_chunks     = num_chunks,
-            shape          = dm_shape,
-            dtype          = _dm_dtype,
-        )
+        # (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
+        #     STORAGE_CLIENT = STORAGE_CLIENT,
+        #     bucket_id      = BUCKET_ID,
+        #     key            = dm_id,
+        #     num_chunks     = num_chunks,
+        #     shape          = dm_shape,
+        #     dtype          = _dm_dtype,
+        # )
+        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+            key       = dm_id,
+            bucket_id = BUCKET_ID,
+            max_retries = 20,
+            delay = 2
+            ).result()
+        if x.is_err:
+            raise Exception("{} not found".format(dm_id))
+        response = x.unwrap()
+        distance_matrix = response.value
+        dm_metadata = response.metadata 
         # distance_matrix                     = dm_matrix_response.value
         # response_headers["Dm-Matrix-Dtype"] = dm_matrix_response.metadata.tags.get("dtype",distance_matrix.dtype) # Extract the type
         # response_headers["Dm-Matrix-Shape"] = dm_matrix_response.metadata.tags.get("shape",distance_matrix.shape) # Extract the shape

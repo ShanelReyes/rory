@@ -8,7 +8,7 @@ import numpy.typing as npt
 import pandas as pd
 import os
 import operator
-from typing import Tuple
+from typing import Tuple, Generator
 from retry import retry
 from mictlanx.utils.segmentation import Chunks,Chunk
 from rory.core.security.dataowner import DataOwner
@@ -53,8 +53,8 @@ class Utils:
 
 
     @staticmethod
-    def encrypt_chunk_liu(key:str,dataowner:DataOwner,chunk:Chunk)-> Chunk:
-        encyrpted_chunk:npt.NDArray = dataowner.liu_encrypt_matrix_chunk(plaintext_matrix = chunk.to_ndarray().unwrap())
+    def encrypt_chunk_liu(key:str,dataowner:DataOwner,chunk:Chunk, np_random:bool)-> Chunk:
+        encyrpted_chunk:npt.NDArray = dataowner.liu_encrypt_matrix_chunk(plaintext_matrix = chunk.to_ndarray().unwrap(), np_random=np_random)
         return Chunk.from_ndarray(group_id=key, index= chunk.index, ndarray= encyrpted_chunk, chunk_id=Some("{}_{}".format(key,chunk.index)))
 
     @staticmethod
@@ -64,21 +64,21 @@ class Utils:
 
     #  Segmentation
     @staticmethod
-    def segment_and_encrypt_liu(key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int ,num_chunks:int=2,max_workers:int = int(os.cpu_count()/2) ):
+    def segment_and_encrypt_liu(key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int, np_random:bool, num_chunks:int=2,max_workers:int = int(os.cpu_count()/2)):
         plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             awaitable_chunks:List[Awaitable[Chunk]] = []
             for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
-                future = executor.submit(Utils.encrypt_chunk_liu,key = key, dataowner = dataowner,chunk = plaintext_matrix_chunk)
+                future = executor.submit(Utils.encrypt_chunk_liu,key = key, dataowner = dataowner,chunk = plaintext_matrix_chunk, np_random = np_random)
                 awaitable_chunks.append(future)
             return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n  )
 
     @staticmethod
-    def segment_and_encrypt_liu_with_executor(executor:ProcessPoolExecutor,key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int ,num_chunks:int=2,max_workers:int = int(os.cpu_count()/2) ):
+    def segment_and_encrypt_liu_with_executor(executor:ProcessPoolExecutor,key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int, np_random:bool, num_chunks:int=2, max_workers:int = int(os.cpu_count()/2) ):
         plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
         awaitable_chunks:List[Awaitable[Chunk]] = []
         for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
-            future = executor.submit(Utils.encrypt_chunk_liu,key = key, dataowner = dataowner,chunk = plaintext_matrix_chunk)
+            future = executor.submit(Utils.encrypt_chunk_liu,key = key, dataowner = dataowner,chunk = plaintext_matrix_chunk, np_random = np_random)
             awaitable_chunks.append(future)
         return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n  )
 
@@ -147,6 +147,11 @@ class Utils:
             sens = sens
             )
         return Chunk.from_ndarray(group_id=key, index= chunk.index, ndarray= encyrpted_chunk.matrix, chunk_id=Some("{}_{}".format(key,chunk.index)))
+    
+    @staticmethod
+    def chunks_to_bytes_gen(chs:Chunks) -> Generator[bytes,None,None]:
+        for chunk in chs.iter():
+            yield chunk.data
 
 if __name__ =="__main__":
     MICTLANX_TIMEOUT      = 120
