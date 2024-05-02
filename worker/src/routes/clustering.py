@@ -49,12 +49,10 @@ Description:
 """
 def skmeans_1(requestHeaders) -> Response:
     arrival_time            = time.time() #Worker start time
-    # Config
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    # Headers
     status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
     is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
     k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
@@ -106,6 +104,8 @@ def skmeans_1(requestHeaders) -> Response:
         responseHeaders["Start-Time"] = str(arrival_time)
         logger.debug({
             "event":"GET.MERGE.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
             "shape":encrypted_matrix_shape,
@@ -131,6 +131,8 @@ def skmeans_1(requestHeaders) -> Response:
 
         logger.info({
             "event":"GET.MERGE.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
@@ -141,6 +143,8 @@ def skmeans_1(requestHeaders) -> Response:
         
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":udm_id,
         })
@@ -152,8 +156,10 @@ def skmeans_1(requestHeaders) -> Response:
         )
         udm_get_st = time.time() - udm_get_start_time
         udm        = udm_matrix_response.value
-        logger.debug({
+        logger.info({
             "event":"GET.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":udm_id,
             "shape":str(udm.shape), 
@@ -166,6 +172,8 @@ def skmeans_1(requestHeaders) -> Response:
         if is_start_status: #if the status is start
             logger.debug({
                 "event":"NO.CentJ.WORKER.RUN1.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
                 "k":k,
                 "m":m,
@@ -175,9 +183,12 @@ def skmeans_1(requestHeaders) -> Response:
                 "UDM_dtype":str(udm.dtype),
             })
             __Cent_j = NONE #There is no Cent_j
+
         else: 
             logger.debug({
                 "event":"BEFORE.GET.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "bucket_id":BUCKET_ID,
                 "key":cent_i_id,
             })
@@ -191,21 +202,27 @@ def skmeans_1(requestHeaders) -> Response:
             __Cent_j  = Some(cent_j)
             status    = Constants.ClusteringStatus.WORK_IN_PROGRESS
             cent_j_st = time.time() - cent_j_start_time
-            logger.debug({
+
+            logger.info({
                 "event":"GET.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "bucket_id":BUCKET_ID,
                 "key":cent_i_id,
                 "shape":str(cent_j.shape), 
                 "dtype":str(cent_j.dtype),
                 "service_time":cent_j_st
             })
+
             logger.debug({
                 "event":"WORKER.RUN1.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
                 "k":k,
                 "m":m,
-                "enctypted_matrix_shape":str(encryptedMatrix.shape),
-                "enctypted_matrix_dtype":str(encryptedMatrix.dtype),
+                "encrypted_matrix_shape":str(encryptedMatrix.shape),
+                "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
                 "UDM_shape":str(udm.shape),
                 "UDM_dtype":str(udm.dtype),
                 "cent_j_shape":str(cent_j.shape),
@@ -222,7 +239,7 @@ def skmeans_1(requestHeaders) -> Response:
             encryptedMatrix = encryptedMatrix, 
             UDM             = udm,
             Cent_j          = __Cent_j,
-            num_attributes= encryptedMatrix.shape[1]
+            num_attributes  = encryptedMatrix.shape[1]
         )
         
         if run1_result.is_err:
@@ -312,12 +329,10 @@ def skmeans_2(requestHeaders):
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.SKMEANS
-    # HEADERS
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
     encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
     shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
-
     k                       = int(requestHeaders.get("K",3))
     m                       = int(requestHeaders.get("M",3))
     iterations              = int(requestHeaders.get("Iterations",0))
@@ -334,16 +349,20 @@ def skmeans_2(requestHeaders):
         "event":"SKMEANS.2.STARTED",
         "status":status,
         "shift_matrix_id":shift_matrix_id,
+        "algorithm":algorithm,
         "plaintext_matrix_id":plaintext_matrix_id,
         "encrypted_matrix_id":encrypted_matrix_id,
         "k":k,
         "m":m,
         "iterations":iterations
     })
+
     try:
         get_UDM_start_time = time.time()
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id, 
             "bucket_id":BUCKET_ID,
         })
@@ -360,8 +379,11 @@ def skmeans_2(requestHeaders):
         
         UDM_response:GetNDArrayResponse = UDM_result.unwrap()
         UDM = UDM_response.value
+
         logger.info({
             "event":"GET.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id, 
             "bucket_id":BUCKET_ID,
             "shape":str(UDM.shape),
@@ -371,6 +393,8 @@ def skmeans_2(requestHeaders):
         
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id, 
             "bucket_id":BUCKET_ID,
         })
@@ -384,6 +408,8 @@ def skmeans_2(requestHeaders):
         get_cent_i_st = time.time() - get_cent_i_start_time
         logger.info({
             "event":"GET.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id, 
             "bucket_id":BUCKET_ID,
             "shape":str(Cent_i.shape),
@@ -393,6 +419,8 @@ def skmeans_2(requestHeaders):
 
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id, 
             "bucket_id":BUCKET_ID,
         })
@@ -408,6 +436,8 @@ def skmeans_2(requestHeaders):
         get_cent_j_st = time.time() - get_cent_j_start_time
         logger.info({
             "event":"GET.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id, 
             "bucket_id":BUCKET_ID,
             "shape":str(Cent_j.shape),
@@ -417,6 +447,8 @@ def skmeans_2(requestHeaders):
         
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":shift_matrix_id, 
             "bucket_id":BUCKET_ID,
         })
@@ -429,8 +461,11 @@ def skmeans_2(requestHeaders):
         )
         shiftMatrix = shiftMatrix_get_response.value
         get_shift_matrix_st = time.time() - get_cent_j_start_time
+
         logger.info({
             "event":"GET.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":shift_matrix_id, 
             "bucket_id":BUCKET_ID,
             "shape":str(shiftMatrix.shape),
@@ -445,6 +480,8 @@ def skmeans_2(requestHeaders):
         )
         logger.debug({
             "event":"VERIFY.MEAN.ERROR",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "min_error":min_error,
             "is_zero":int(isZero)
         })
@@ -475,6 +512,8 @@ def skmeans_2(requestHeaders):
             encrypted_matrix_shape = eval(requestHeaders["Encrypted-Matrix-Shape"]) # extract the attributes of shape
             logger.debug({
                 "event":"NO.ZERO.RUN2",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
                 "encrypted_matrix_shape":str(encrypted_matrix_shape),
                 "shift_matrix_shape":str(shiftMatrix.shape),
@@ -489,6 +528,8 @@ def skmeans_2(requestHeaders):
             UDM_array = np.array(_UDM)
             logger.debug({
                 "event":"SKMEANS.RUN2",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "k":k,
                 "udm_shape": str(UDM_array.shape),
                 "udm_dtype":str(UDM_array.dtype),
@@ -501,11 +542,15 @@ def skmeans_2(requestHeaders):
                 return Response(str(error), status=500)
             logger.debug({
                 "event":"UDM.DELETED",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":udm_id,
                 "bucket_id":BUCKET_ID
             })
             logger.debug({
                 "event":"PUT.NDARRAY.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":udm_id,
                 "bucket_id":BUCKET_ID,
                 "udm_shape": str(UDM_array.shape),
@@ -518,11 +563,13 @@ def skmeans_2(requestHeaders):
                 tags      = {},
                 bucket_id = BUCKET_ID
             ).result() # UDM is extracted from the storage system
-            endTime2                        = time.time()
-            put_udm_st= endTime2 - put_udm_start_time
+            endTime2   = time.time()
+            put_udm_st = endTime2 - put_udm_start_time
 
             logger.info({
                 "event":"PUT.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":udm_id,
                 "bucket_id":BUCKET_ID,
                 "udm_shape": str(UDM_array.shape),
@@ -530,7 +577,7 @@ def skmeans_2(requestHeaders):
                 "service_time": put_udm_st
             })
 
-            serviceTime2                    = endTime2 - local_start_time  #Service time is calculated
+            serviceTime2                     = endTime2 - local_start_time  #Service time is calculated
             response_headers["End-Time"]     = str(endTime2)
             response_headers["Service-Time"] = str(serviceTime2)
             
@@ -572,7 +619,6 @@ def kmeans():
     to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
     filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     algorithm               = Constants.ClusteringAlgorithms.KMEANS
-    # Config
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
@@ -580,6 +626,7 @@ def kmeans():
     plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
     k                       = int(filtered_headers.get("K",3))
     response_headers        = {}
+
     logger.debug({
         "event":"KMEANS.STARTED",
         "algorithm":algorithm,
@@ -588,6 +635,7 @@ def kmeans():
         "plaintext_matrix_id":plaintext_matrix_id,
         "k":k
     })
+
     try:
         plaintext_matrix_response = LocalUtils.get_matrix_or_error(
             client    = STORAGE_CLIENT,
@@ -595,7 +643,7 @@ def kmeans():
             bucket_id = BUCKET_ID
         ) 
         plaintext_matrix = plaintext_matrix_response.value
-        result           = kMeans(
+        result = kMeans(
             k                = k, 
             plaintext_matrix = plaintext_matrix
         )
@@ -645,7 +693,6 @@ def dbskmeans_1(requestHeaders) -> Response:
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    # HEADERS
     status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
     is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
     k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
@@ -703,20 +750,14 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
         })
         get_merge_start_time = time.time()
-
-        # (encrypted_matrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID,
-        #     key            = encrypted_matrix_id,
-        #     num_chunks     = num_chunks, 
-        #     shape          = encrypted_matrix_shape,
-        #     dtype          = _encrypted_matrix_dtype,
-        # )
+        
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_matrix_id,
             bucket_id = BUCKET_ID,
@@ -736,6 +777,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
@@ -746,20 +789,14 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
             "key":encrypted_udm_id,
             "num_chunks":num_chunks,
             "encrypted_udm_shape":str(encrypted_udm_shape),
         })
         get_merge_start_time = time.time()
-        # (encrypted_udm, udm_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID,
-        #     key            = encrypted_udm_id,
-        #     num_chunks     = num_chunks,
-        #     shape          = encrypted_udm_shape,
-        #     dtype          = _encrypted_udm_dtype
-        # )
         
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_udm_id,
@@ -776,6 +813,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         get_merge_st = time.time() - get_merge_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
             "key":encrypted_udm_id,
             "num_chunks":num_chunks,
@@ -784,13 +823,15 @@ def dbskmeans_1(requestHeaders) -> Response:
             "service_time":get_merge_st
         })
         
-        response_headers["Encrypted-Udm-Dtype"]    = str(udm_metadata.tags.get("dtype",encrypted_udm.dtype)) # Extract the type
-        response_headers["Encrypted-Udm-Shape"]    = str(udm_metadata.tags.get("shape",encrypted_udm.shape)) # Extract the shape
+        response_headers["Encrypted-Udm-Dtype"] = str(udm_metadata.tags.get("dtype",encrypted_udm.dtype)) # Extract the type
+        response_headers["Encrypted-Udm-Shape"] = str(udm_metadata.tags.get("shape",encrypted_udm.shape)) # Extract the shape
         
         if is_start_status: #if the status is start
             __Cent_j = NONE #There is no Cent_j
             logger.debug({
                 "event":"NO.CentJ.WORKER.RUN1.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
                 "k":k,
                 "m":m,
@@ -802,11 +843,12 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         else: 
             logger.debug({
-                "event":"GET.MATRIX",
+                "event":"GET.MATRIX.BEFORE",
                 "key":cent_i_id,
                 "bucket_id":BUCKET_ID
             })
             get_matrix_cent_i_start_time = time.time()
+
             Cent_j_response = LocalUtils.get_matrix_or_error(
                 bucket_id = BUCKET_ID,
                 client    = STORAGE_CLIENT,
@@ -815,6 +857,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             cent_j_value = Cent_j_response.value
             __Cent_j     = Some(cent_j_value)
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS
+
             logger.info({
                 "event":"GET.MATRIX",
                 "key":cent_i_id,
@@ -824,6 +867,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         
             logger.debug({
                 "event":"DBSKMEANS.RUN.1.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "encrypted_matrix_shape":str(encryptedMatrix.shape),
                 "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
                 "encrypted_udm_shape":str(encrypted_udm.shape),
@@ -833,6 +878,7 @@ def dbskmeans_1(requestHeaders) -> Response:
                 "k":k,
                 "m":m
             })
+
         run1_start_time = time.time()
         run1_result = dbskmeans.run1(
             encrypted_matrix = encryptedMatrix,
@@ -853,6 +899,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         run1_st = time.time()- run1_start_time
         logger.info({
             "event":"DBSKMEANS.RUN.1",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_shape":str(encryptedMatrix.shape),
             "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
             "encrypted_udm_shape":str(encrypted_udm.shape),
@@ -870,6 +918,8 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         logger.debug({
             "event":"PUT.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
             "bucket_id":BUCKET_ID
         })
@@ -893,6 +943,8 @@ def dbskmeans_1(requestHeaders) -> Response:
             return Response(error,status=500)
         logger.info({
             "event":"PUT.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
             "bucket_id":BUCKET_ID,
             "service_time":put_ndarray_st
@@ -900,6 +952,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         
         logger.debug({
             "event":"PUT.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID
         })
@@ -924,6 +978,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         put_ndarray_st = time.time() - put_ndarray_start_time
         logger.info({
             "event":"PUT.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID,
             "service_time":put_ndarray_st
@@ -931,6 +987,8 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         logger.debug({
             "event":"PUT.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID
         })
@@ -956,6 +1014,8 @@ def dbskmeans_1(requestHeaders) -> Response:
         put_ndarray_st = time.time() - put_ndarray_start_time
         logger.info({
             "event":"PUT.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_shift_matrix_id,
             "bucket_id":BUCKET_ID,
             "service_time":put_ndarray_st
@@ -1065,6 +1125,8 @@ def dbskmeans_2(requestHeaders):
     try:
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
             "bucket_id":BUCKET_ID,
             "num_chunks":num_chunks,
@@ -1072,15 +1134,6 @@ def dbskmeans_2(requestHeaders):
             "dtype":_encrypted_udm_dtype
         })
         get_merge_start_time = time.time()
-
-        # (prev_encrypted_udm, encrypted_udm_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID,
-        #     key            = encrypted_udm_id,
-        #     num_chunks     = num_chunks, 
-        #     shape          = encrypted_udm_shape,
-        #     dtype          = _encrypted_udm_dtype 
-        # )
 
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_udm_id,
@@ -1094,11 +1147,10 @@ def dbskmeans_2(requestHeaders):
         prev_encrypted_udm = udm_.value
         encrypted_udm_metadata = udm_.metadata 
 
-        # response_headers["Encrypted-Udm-Dtype"] = encrypted_udm_metadata.tags.get("dtype",prev_encrypted_udm.dtype) #["tags"]["dtype"] #Save the data type
-        # response_headers["Encrypted-Udm-Shape"] = encrypted_udm_metadata.tags.get("shape",prev_encrypted_udm.shape) #Save the shape
-
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
             "bucket_id":BUCKET_ID,
             "num_chunks":num_chunks,
@@ -1109,6 +1161,8 @@ def dbskmeans_2(requestHeaders):
         
         logger.debug({
             "event":"GET.MATRIX.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
             "bucket_id":BUCKET_ID,
         })
@@ -1121,12 +1175,17 @@ def dbskmeans_2(requestHeaders):
         cent_i = Cent_i_response.value
         logger.info({
             "event":"GET.MATRIX",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
             "bucket_id":BUCKET_ID,
             "service_time":time.time() - get_matrix_start_time
         })
+
         logger.debug({
             "event":"GET.MATRIX.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID,
         })
@@ -1139,6 +1198,8 @@ def dbskmeans_2(requestHeaders):
         cent_j = Cent_j_response.value
         logger.info({
             "event":"GET.MATRIX",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID,
             "service_time":time.time() - get_matrix_start_time
@@ -1152,6 +1213,8 @@ def dbskmeans_2(requestHeaders):
         )
         logger.debug({
             "event":"VERIFY.MEAN.ERROR",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "min_error":min_error,
             "is_zero":int(isZero)
         })
@@ -1177,12 +1240,8 @@ def dbskmeans_2(requestHeaders):
                 "worker_id":worker_id,
                 "m":m,
                 "k":k,
-                # "shift_matrix_op_shape":str(shift_matrix_ope.shape),
-                # "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
                 "prev_udm_shape":str(prev_encrypted_udm.shape),
                 "prev_udm_dtype":str(prev_encrypted_udm.dtype),
-                # "current_udm_shape":str(prev_encrypted_udm.shape), #Save the shape
-                # "current_udm_dtype":str(prev_encrypted_udm.dtype),
                 "num_chunks":num_chunks,
                 "service_time":service_time,
                 "response_time":response_time
@@ -1204,6 +1263,8 @@ def dbskmeans_2(requestHeaders):
             response_headers["Clustering-Status"] = status
             logger.debug({
                 "event":"GET.MATRIX.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
                 "bucket_id":BUCKET_ID
             })
@@ -1217,6 +1278,8 @@ def dbskmeans_2(requestHeaders):
 
             logger.info({
                 "event":"GET.MATRIX",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
                 "bucket_id":BUCKET_ID,
                 "service_time":time.time() -get_matrix_start_time
@@ -1225,6 +1288,8 @@ def dbskmeans_2(requestHeaders):
             udm_start_time = time.time()
             logger.debug({
                 "event":"DBSKMEANS.RUN.2.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "k":k,
                 "shift_matrix_op_shape":str(shift_matrix_ope.shape),
                 "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
@@ -1242,6 +1307,8 @@ def dbskmeans_2(requestHeaders):
             response_headers["Encrypted-Udm-Shape"] = str(current_udm.shape) # Extract the shape
             logger.info({
                 "event":"DBSKMEANS.RUN.2",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "k":k,
                 "shift_matrix_op_shape":str(shift_matrix_ope.shape),
                 "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
@@ -1271,20 +1338,15 @@ def dbskmeans_2(requestHeaders):
             udm_chunks = maybe_udm_chunks.unwrap()
             
             logger.debug({
-                "event":"PUT.CHUNKS.BEFORE",
+                "event":"PUT.CHUNKED.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_udm_id,
                 "bucket_id":BUCKET_ID,
                 "num_chunks":num_chunks
             })
             put_chunks_start_time = time.time()
-            # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-            #     bucket_id= BUCKET_ID,
-            #     key       = encrypted_udm_id, 
-            #     chunks    = udm_chunks, 
-            #     tags      = {},
-            #     update=True
-
-            # )
+            
             chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
                 chs = encrypted_udm_id
             )
@@ -1299,21 +1361,10 @@ def dbskmeans_2(requestHeaders):
                 }
             )
             
-            # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            #     udm_end_time = time.time()
-            #     udm_time     = udm_end_time - udm_start_time
-            #     if put_chunk_result.is_err:
-            #         error = put_chunk_result.unwrap_err()
-            #         logger.error({
-            #             "msg":str(error)
-            #         })
-            #         return Response(
-            #             status   = 500,
-            #             response = "{}".format(str(error))
-            #         )
-
             logger.info({
-                "event":"PUT.CHUNKS",
+                "event":"PUT.CHUNKED",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_udm_id,
                 "bucket_id":BUCKET_ID,
                 "num_chunks":num_chunks,
@@ -1445,6 +1496,8 @@ def dbsnnc():
         
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "encrypted_matrix_shape":_encrypted_matrix_shape,
@@ -1465,17 +1518,12 @@ def dbsnnc():
         encryptedMatrix = response.value
         encrypted_matrix_metadata = response.metadata 
 
-        # (encryptedMatrix, encrypted_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID, 
-        #     key            = encrypted_matrix_id,
-        #     num_chunks     = num_chunks, 
-        #     shape          = encrypted_matrix_shape,
-        #     dtype          = _encrypted_matrix_dtype
-        # )
+
         get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "encrypted_matrix_shape":_encrypted_matrix_shape,
@@ -1488,20 +1536,15 @@ def dbsnnc():
 
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_dm_id,
             "num_chunks":num_chunks,
             "encrypted_matrix_shape":_encrypted_dm_shape,
             "encrypted_matrix_dtype":_encrypted_dm_dtype,
         })
         get_merge_encrypted_dm_start_time = time.time()
-        # (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID,
-        #     key            = encrypted_dm_id,
-        #     num_chunks     = num_chunks,
-        #     shape          = encrypted_dm_shape,
-        #     dtype          = _encrypted_dm_dtype,
-        # )
+        
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_dm_id,
             bucket_id = BUCKET_ID,
@@ -1517,6 +1560,8 @@ def dbsnnc():
         get_merge_encrypted_dm_st = time.time() - get_merge_encrypted_dm_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_dm_id,
             "num_chunks":num_chunks,
             "encrypted_matrix_shape":_encrypted_dm_shape,
@@ -1531,6 +1576,7 @@ def dbsnnc():
         logger.debug({
             "event":"DBSNNC.RUN.BEFORE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
             "encrypted_threshold":encrypted_threshold
@@ -1542,7 +1588,6 @@ def dbsnnc():
         end_time     = time.time()
         dbsnnc_service_time = end_time - dbsnnc_run_start_time
         service_time = end_time - local_start_time
-        # responseHeaders["Service-Time"] = str(service_time)
 
         logger.info({
             "event":"DBSNNC.COMPLETED",
@@ -1628,6 +1673,7 @@ def nnc():
         
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
             "plaintext_matrix_shape":str(plaintext_matrix_shape),
@@ -1635,19 +1681,6 @@ def nnc():
             "bucket_id":BUCKET_ID,
         })
         get_merge_plaintext_matrix_start_time = time.time()
-        # plainTextMatrix_response = LocalUtils.get_matrix_or_error(
-        #     client    = STORAGE_CLIENT,
-        #     key       = plaintext_matrix_id,
-        #     bucket_id = BUCKET_ID
-        # ) 
-        # (plaintextMatrix, plaintext_matrix_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID, 
-        #     key            = plaintext_matrix_id,
-        #     num_chunks     = num_chunks, 
-        #     shape          = plaintext_matrix_shape,
-        #     dtype          = _plaintext_matrix_dtype
-        # )
 
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = plaintext_matrix_id,
@@ -1661,14 +1694,11 @@ def nnc():
         plaintextMatrix = response.value
         plaintext_matrix_metadata = response.metadata 
 
-        # plaintext_matrix                           = plainTextMatrix_response.value
-        # response_headers["Plaintext-Matrix-Dtype"] = plainTextMatrix_response.metadata.tags.get("dtype",plaintext_matrix.dtype) #["tags"]["dtype"] #Save the data type
-        # response_headers["Plaintext-Matrix-Shape"] = plainTextMatrix_response.metadata.tags.get("shape",plaintext_matrix.shape) #Save the shape
-        
         get_merge_plaintext_matrix_st = time.time() - get_merge_plaintext_matrix_start_time
         
         logger.info({
             "event":"GET.NDARRAY.MERGE",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
             "plaintext_matrix_shape":plaintext_matrix_shape,
@@ -1681,6 +1711,7 @@ def nnc():
 
         logger.debug({
             "event":"GET.NDARRAY.MERGE.BEFORE",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
             "plaintext_matrix_shape":str(plaintext_matrix_shape),
@@ -1689,19 +1720,7 @@ def nnc():
             "dm_shape":str(dm_shape)
         })
         get_merge_dm_start_time = time.time()
-        # dm_matrix_response = LocalUtils.get_matrix_or_error(
-        #     client    = STORAGE_CLIENT,
-        #     key       = dm_id,
-        #     bucket_id = BUCKET_ID
-        # )
-        # (distance_matrix, dm_metadata) = LocalUtils.get_and_merge_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT,
-        #     bucket_id      = BUCKET_ID,
-        #     key            = dm_id,
-        #     num_chunks     = num_chunks,
-        #     shape          = dm_shape,
-        #     dtype          = _dm_dtype,
-        # )
+        
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = dm_id,
             bucket_id = BUCKET_ID,
@@ -1712,15 +1731,14 @@ def nnc():
             raise Exception("{} not found".format(dm_id))
         response = x.unwrap()
         distance_matrix = response.value
-        dm_metadata = response.metadata 
-        # distance_matrix                     = dm_matrix_response.value
-        # response_headers["Dm-Matrix-Dtype"] = dm_matrix_response.metadata.tags.get("dtype",distance_matrix.dtype) # Extract the type
-        # response_headers["Dm-Matrix-Shape"] = dm_matrix_response.metadata.tags.get("shape",distance_matrix.shape) # Extract the shape
+        dm_metadata = response.metadata
 
         get_merge_dm_st = time.time() - get_merge_dm_start_time
         logger.info({
             "event":"GET.NDARRAY.MERGE",
-            "plaintext_matrix_id":dm_id,
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "dm_id":dm_id,
             "num_chunks":num_chunks,
             "plaintext_matrix_shape":plaintext_matrix_shape,
             "plaintext_matrix_dtype":_plaintext_matrix_dtype,
@@ -1731,11 +1749,11 @@ def nnc():
         responseHeaders["Dm-Dtype"] = str(dm_metadata.tags.get("dtype",distance_matrix.dtype)) # Extract the type
         responseHeaders["Dm-Shape"] = str(dm_metadata.tags.get("shape",distance_matrix.shape)) # Extract the shape
         
-        
         nnc_run_start_time = time.time()
         logger.debug({
             "event":"NNC.RUN.BEFORE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "distance_matrix_shape":str(distance_matrix.shape),
             "distance_matrix_dtype":str(distance_matrix.dtype),
             "threshold":threshold
@@ -1747,7 +1765,6 @@ def nnc():
         end_time         = time.time()
         nnc_run_end_time = end_time - nnc_run_start_time
         service_time     = end_time - local_start_time
-        #response_headers["Service-Time"] = str(service_time)
         
         logger.info({
             "event":"NNC.COMPLETED",

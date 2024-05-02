@@ -34,7 +34,7 @@ class Utils:
             elif extension == "npy":
                 with open(path, "rb") as f:
                     plaintextMatrix = np.load(f)
-                    return Ok(plaintextMatrix)
+                    return Ok(plaintextMatrix.astype(np.float32))
             else:
                 if plaintext_matrix_id.is_some and bucket_id.is_some:
                     key = plaintext_matrix_id.unwrap()
@@ -42,7 +42,7 @@ class Utils:
                     result:Result[GetNDArrayResponse,Exception]   = fut.result()
                     if result.is_ok:
                         response = result.unwrap()
-                        return Ok(response.value )
+                        return Ok(response.value.astype(np.float32))
                     else:
                         return result
                 else:

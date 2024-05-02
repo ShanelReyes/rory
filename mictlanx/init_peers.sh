@@ -5,7 +5,7 @@ readonly URL=${1:-http://148.247.201.141:60667}
 
 peersprotocol=("http" "http")
 peershostname=("mictlanx-peer-0" "mictlanx-peer-1")
-peersport=("7000" "7001")
+peersport=("25000" "25001")
 #peersport=("7001" "10000")
 for ((i=0; i<${#peersprotocol[@]}; i++ )); do
         protocol="${peersprotocol[i]}"

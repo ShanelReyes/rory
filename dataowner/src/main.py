@@ -93,7 +93,6 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
         sens              = row.get("SENS","0.00001")
         max_iterations    = row.get("MAX_ITERATIONS","10")
         k                 = row.get("K","2")
-        # m                 = row.get("M","3")
         threshold         = row.get("THRESHOLD",-1)
 
         LOGGER.debug({
@@ -102,8 +101,7 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             "matrix_id":plainTextMatrixId,
             "clustering_max_iterations": max_iterations,
             "k": k,
-            # "m": m
-            "sens":sens ,
+            "sens":sens,
             "current_iterations":current_experiment_iteration,
             "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
         })
@@ -112,7 +110,6 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             "Plaintext-Matrix-Id": "{}{}".format(plainTextMatrixId,current_experiment_iteration),
             "Plaintext-Matrix-Filename":plainTextMatrixId,
             "K": str(k),
-            # "M":str(m),
             "Sens": str(sens),
             "Extension": DATASET_EXTENSION,
             "Client-Id": CLIENT_ID,
@@ -130,10 +127,18 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             timeout = CLIENT_TIMEOUT
         )
         _response.raise_for_status()
-        response      = ClientResponse.fromResponse(_response)
         label_vector_id = "{}{}{}".format(plainTextMatrixId,ALGORITHM,current_experiment_iteration)
 
-        write_to_file(label_vector_id,response.label_vector)
+        stringClientResponse  = _response.content.decode("utf-8") #Response from worker
+        jsonClientResponse    = json.loads(stringClientResponse) #pass to json
+        labelVector             = jsonClientResponse["label_vector"]
+        service_time_manager    = jsonClientResponse["service_time_manager"]
+        service_time_worker     = jsonClientResponse["service_time_worker"]
+        service_time_client     = jsonClientResponse["service_time_client"]
+        service_time_clustering = jsonClientResponse["response_time_clustering"]
+
+
+        write_to_file(label_vector_id,labelVector)
         end_time       = time.time() # Get the time when it ends
         response_time = end_time - arrival_time 
 
@@ -145,7 +150,11 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             "end_time":end_time,
             "response_time":response_time,
             "current_iteration":current_experiment_iteration,
-            "max_iterations":max_iterations
+            "max_iterations":max_iterations,
+            "service_time_manager":service_time_manager,
+            "service_time_worker":service_time_worker,
+            "service_time_client":service_time_client,
+            "response_time_client":service_time_clustering
         })
         
         print("_"*40)
@@ -164,8 +173,6 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
         modelLabelsFilename = "{}labels".format(modelFilename) #fertility_model_labels
         recordsTestId       = "{}{}data{}".format(matrixId,current_experiment_iteration,id_nanoid) #fertility-0_data
         recordsTestFilename = "{}data".format(matrixId) #fertility_data
-
-        # m                   = str(row["M"])
         
         LOGGER.debug({
             "event":"CLASSIFICATION.TRAIN.STARTED",
@@ -176,18 +183,14 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             "model-labels_filename":modelLabelsFilename,
             "records_test_id":recordsTestId,
             "records_test_filename":recordsTestFilename,
-            # "m":m,
             "current_experiment_iteration":current_experiment_iteration,
             "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
         })
-    # "Plaintext-Matrix-Id": "{}-{}".format(plainTextMatrixId,current_experiment_iteration),
-            # "Plaintext-Matrix-Filename":plainTextMatrixId,
             
         headers = {
             "Model-Id": modelId,
             "Model-Filename":modelFilename, #fertility_model
             "Model-Labels-Filename":modelLabelsFilename,
-            # "M": m,
             "Extension": DATASET_EXTENSION,
             "Client-Id": CLIENT_ID,
             "Experiment-Iteration": str(current_experiment_iteration)
@@ -202,12 +205,11 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             timeout = CLIENT_TIMEOUT
         )
         _response.raise_for_status()
-        # response:ClientResponse   = ClientResponse.fromResponse(_response)
         stringClientResponse  = _response.content.decode("utf-8") #Response from worker
         jsonClientResponse    = json.loads(stringClientResponse) #pass to json
         encrypted_model_shape = jsonClientResponse.get("encrypted_model_shape",0)
         encrypted_model_Dtype = jsonClientResponse.get("encrypted_model_dtype",0)
-        service_time          = jsonClientResponse.get("service_time",0)
+        service_time_train    = jsonClientResponse.get("response_time",0)
 
         LOGGER.debug({
             "event":"CLASSIFICATION.PREDICT.STARTED",
@@ -218,21 +220,18 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             "model-labels_filename":modelLabelsFilename,
             "records_test_id":recordsTestId,
             "records_test_filename":recordsTestFilename,
-            # "m":m,
             "encrypted_model_shape":str(encrypted_model_shape),
             "encrypted_model_dtype":str(encrypted_model_Dtype),
             "current_experiment_iteration":current_experiment_iteration,
             "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
-            "train_service_time":service_time
+            "train_service_time":service_time_train
         })
-
         headers_pred = {
             "Model-Id": modelId,
             "Model-Filename":modelFilename,
             "Model-Labels-Filename":modelLabelsFilename,
             "Records-Test-Id": recordsTestId,
             "Records-Test-Filename":recordsTestFilename,
-            # "M":m,
             "Extension": DATASET_EXTENSION,
             "Client-Id": CLIENT_ID,
             "Experiment-Iteration": str(current_experiment_iteration),
@@ -248,12 +247,14 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             timeout = CLIENT_TIMEOUT
         )
 
-        # response   = ClientResponse.fromResponse(_response)
-        stringClient2Response  = _response.content.decode("utf-8") #Response from worker
-        jsonClient2Response    = json.loads(stringClient2Response) #pass to json
-        labelVectorId = "{}{}{}".format(matrixId,ALGORITHM,current_experiment_iteration)
-        labelVector   = jsonClient2Response["label_vector"]
-        service_time_2 = jsonClient2Response["service_time"]
+        stringClient2Response = _response.content.decode("utf-8") #Response from worker
+        jsonClient2Response   = json.loads(stringClient2Response) #pass to json
+        labelVectorId         = "{}{}{}".format(matrixId,ALGORITHM,current_experiment_iteration)
+        labelVector           = jsonClient2Response["label_vector"]
+        service_time_manager  = jsonClient2Response["service_time_manager"]
+        service_time_worker   = jsonClient2Response["service_time_worker"]
+        service_time_client   = jsonClientResponse["service_time_client"]
+        service_time_predict  = jsonClient2Response["service_time_predict"]
         
         write_to_file(labelVectorId,labelVector)
         endTime       = time.time() # Get the time when it ends
@@ -268,7 +269,11 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             "experiment_iteration": current_experiment_iteration,
             "arrival_time":arrivalTime,
             "end_time":endTime,
-            "service_time":service_time_2,
+            "service_time_manager":service_time_manager,
+            "service_time_worker":service_time_worker,
+            "service_time_train":service_time_train,
+            "service_time_client_predict":service_time_client,
+            "service_time_predict":service_time_predict,
             "response_time":response_time
         })
         print("_"*40)
@@ -287,26 +292,21 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
 
 def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, pd.DataFrame]:
     failed_operations:List[pd.Series]  = [] # Lista de operaciones fallidas
-
-
     try:
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor: # Configuracion de la THREADPOOL. 
             start_time = time.time() # Tiempo de inicio de la experimentacion.
             for index,row in trace_df.iterrows(): # Iteracion de los registros de la traza.
                 futures    = [] # Lista de futuros (operaciones asincronas/no bloqueantes)
                 for experiment_iteration in range(max_experiment_iterations): # Cada registro se repetira EXPERIMENT_ITERATION veces
-                    
                     fut = executor.submit(run_experiment,row,experiment_iteration) # Lanzar la operacion a un thread utilizando la Thread Pool. 
                     futures.append(fut) # Añadir a la lista de futuros el nuevo futuro.
                     time.sleep(row["INTERARRIVAL_TIME"]) # Duerme el thread para esperar INTERARRIVAL_TIME
-                # 
+                
                 for fut in as_completed(futures): # Espera para completar todos los EXPERIMENT_ITERATIONS 
                     result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
                     if result.is_err: # Si falla                         
                         (failed_row, error_response, experiment_iteration) = result.unwrap_err() # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
                         datasetId = failed_row["DATASET_ID"] # Sacamos el DatasetID
-                        # LOGGER.error(str(error_response)) # Mostramos informacion del error
-                        # LOGGER.error("dataset_id={} iteration={} failed".format(datasetId,experiment_iteration))
                         LOGGER.error({
                             "dataset_id":datasetId,
                             "msg":str(error_response),
@@ -322,10 +322,8 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                             "event":"DATASET.COMPLETED",
                             "dataset_id": datasetId,
                             "current_iteration":experiment_iteration,
-
                         })    
                         print("_"*40)
-                
             end_time = time.time()
             total_time = end_time - start_time
             failed_operations_len = len(failed_operations)
@@ -334,7 +332,6 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                 "failed_operations":failed_operations_len,
                 "total_time":total_time 
             })
-            # LOGGER.debug("Total time {}".format(total_time))
             if failed_operations_len == 0:
                 return Ok(0)
             else:
@@ -371,11 +368,9 @@ if __name__ =="__main__":
     start_time = time.time()
     while result.is_err and current_tries < MAX_RETRIES:
         failed_rows       = result.unwrap_err()
-        # print(trace_df.shape[0])
         sucess_percentage = ((trace_df.shape[0] - failed_rows.shape[0]) / trace_df.shape[0])*100
         error_percentage  = 100 - sucess_percentage
         LOGGER.error("{} completed with {} failed operations".format(EXPERIMENT_ID, failed_rows.shape[0]))
-        # LOGGER.debug("SUCESS_PERCENTAGE={} ERROR_PERCENTAGE={}".format(sucess_percentage,error_percentage))
         LOGGER.debug({
             "event":"COMPLETED.WITH.ERRORS",
             "completed": EXPERIMENT_ID,
@@ -389,7 +384,6 @@ if __name__ =="__main__":
             max_experiment_iterations = 1
         )
     if result.is_ok:
-        # LOGGER.debug("{} completed successfully".format(EXPERIMENT_ID))
         end_time = time.time()
         total_time = end_time - start_time
         LOGGER.debug({

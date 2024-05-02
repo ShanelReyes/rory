@@ -18,4 +18,4 @@ gunicorn==21.2.0
 --extra-index-url https://test.pypi.org/simple/ 
 xolo==0.0.7
 mictlanx==0.0.133
-rory==0.0.142
+rory==0.0.143

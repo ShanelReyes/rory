@@ -57,7 +57,7 @@ MICTLANX_SUMMONER_PORT       = int(os.environ.get("MICTLANX_SUMMONER_PORT",15000
 MICTLANX_SUMMONER_MODE       = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION",3))
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
-MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
+MICTLANX_ROUTERS             = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS",12))
@@ -73,10 +73,18 @@ REPLICATOR = Summoner(
     api_version = Some(MICTLANX_API_VERSION)
 )
 
+def console_handler_filter(record:logging.LogRecord):
+    if DEBUG:
+        return True
+    elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
+        return True
+    else:
+        return False
+
 LOGGER = Log(
     name                   = NODE_ID,
     path                   = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    console_handler_filter = console_handler_filter,
     interval               = 24,
     when                   = "h"
 )
@@ -91,7 +99,7 @@ if init_workers > 0:
         "worker_cpu":WORKER_CPU,
         "init_port":init_port,
         "docker_image":DOCKER_IMAGE,
-        "peers":MICTLANX_ROUTERS,
+        "routers":MICTLANX_ROUTERS,
         "swarm_nodes":",".join(SWARM_NODES)
     })
     deploy_nodes_result = deploy_nodes(
@@ -109,7 +117,7 @@ if init_workers > 0:
         init_port                    = init_port,
         WORKER_MEMORY                = WORKER_MEMORY,
         WORKER_CPU                   = WORKER_CPU,
-        WORKER_MICTLANX_ROUTERS        = MICTLANX_ROUTERS,
+        WORKER_MICTLANX_ROUTERS      = MICTLANX_ROUTERS,
         MAX_RETRIES                  = WORKER_MAX_RETRIES,
         MAX_DELAY                    = WORKER_MAX_DELAY,
         JITTER                       = WORKER_JITTER,

@@ -11,7 +11,7 @@ RUN python -m pip install --upgrade pip
 ENV FLASK_APP="main"
 ENV FLASK_ENV="production"
 COPY ./requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --default-timeout=1800 -r requirements.txt
 COPY ./src .
 # CMD [ "gunicorn","python","-u","/app/main.py"]
 # RUN ls -la

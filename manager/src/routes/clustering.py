@@ -64,13 +64,14 @@ def test_secure():
         MAX_ITERATIONS               = headers.get("Max-Iterations","10")
         M                            = headers.get("M","3")
         WORKER_MAX_THREADS           = headers.get("Max-Threads","4")
-        WORKER_MICTLANX_PEERS        = headers.get("Mictlanx-Peers","mictlanx-peer-0:mictlanx-peer-0:7000 mictlanx-peer-1:mictlanx-peer-1:7001")
+        WORKER_MICTLANX_PEERS        = headers.get("Mictlanx-Peers","mictlanx-router-0:localhost:60666")
         MICTLANX_CLIENT_LB_ALGORITHM = headers.get("Mictlanx-Lb-Algorithm","2CHOICES_UF")
         MICTLANX_DEBUG               = headers.get("Mictlanx-Debug","0")
         MICTLANX_DAEMON              = headers.get("Mictlanx-Daemon","0")
         MICTLANX_SHOW_METRICS        = headers.get("Mictlanx-Show-Metrics","0")
         MICTLANX_MAX_WORKERS         = headers.get("Mictlanx-Max-Workers","4")
         MICTLANX_DISABLED_LOG        = headers.get("Mictlanx-Disabled-Log","1")
+        matrix_id                    = headers.get("Matrix-id","matrix0")
 
         OPERATION_NAME = "BALANCING"
         if(request.method == "GET"):
@@ -178,6 +179,7 @@ def test_secure():
                 logger.info({
                     "event":OPERATION_NAME,
                     "service_time":service_time,
+                    "matrix_id":matrix_id,
                     "algorithm":algorithm,
                     "worker_id":worker_id
                 })

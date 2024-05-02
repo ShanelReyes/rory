@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
 app = Flask(__name__)
-DEBUG                 = bool(int(os.environ.get("DEBUG",0)))
+DEBUG                 = bool(int(os.environ.get("RORY_DEBUG",0)))
 if DEBUG:
     load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
 
@@ -19,7 +19,6 @@ NODE_INDEX           = int(os.environ.get("NODE_INDEX",0))
 HOST_PORT            = os.environ.get("HOST_PORT",PORT + NODE_INDEX)
 MAX_RETRIES          = int(os.environ.get("MAX_RETRIES",100))
 RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
-DEBUG                = bool(int(os.environ.get("DEBUG",0)))
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
@@ -61,10 +60,18 @@ STORAGE_CLIENT  = Client(
     log_output_path = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
 )
 
+def console_handler_filter(record:logging.LogRecord):
+    if DEBUG:
+        return True
+    elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
+        return True
+    else:
+        return False
+    
 LOGGER = Log(
     name                   = NODE_ID,
     path                   = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    console_handler_filter = console_handler_filter,
     interval               = 24,
     when                   = "h"
 )

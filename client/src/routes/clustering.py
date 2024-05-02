@@ -1,5 +1,6 @@
 import os
 import time, json
+import numpy as np
 from option import Some
 from requests import Session
 from flask import Blueprint,current_app,request,Response
@@ -31,29 +32,25 @@ def test():
         }
     )
 
-
 # KMEANS
-@clustering.route("/kmeans",methods   = ["POST"])
+@clustering.route("/kmeans",methods = ["POST"])
 def kmeans():
     try:
-        arrivalTime                   = time.time()
-        logger                        = current_app.config["logger"]
-        TESTING                       = current_app.config.get("TESTING",True)
-        SOURCE_PATH                   = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client       = current_app.config.get("STORAGE_CLIENT")
-        BUCKET_ID:str                 = current_app.config.get("BUCKET_ID","rory")
-        WORKER_TIMEOUT                = int(current_app.config.get("WORKER_TIMEOUT",300))
-        algorithm                     = Constants.ClusteringAlgorithms.KMEANS
-        s                             = Session()
-        # Headers
-        request_headers               = request.headers #Headers for the request
-        plaintext_matrix_id           = request_headers.get("Plaintext-Matrix-Id","matrix-0")
-        plaintext_matrix_filename     = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
-        extension                     = request_headers.get("Extension","csv")
-        k                             = request_headers.get("K","3")
-        # 
-        plaintext_matrix_path         = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
-        local_read_dataset_start_time = time.time()
+        arrivalTime               = time.time()
+        logger                    = current_app.config["logger"]
+        TESTING                   = current_app.config.get("TESTING",True)
+        SOURCE_PATH               = current_app.config["SOURCE_PATH"]
+        STORAGE_CLIENT:V4Client   = current_app.config.get("STORAGE_CLIENT")
+        BUCKET_ID:str             = current_app.config.get("BUCKET_ID","rory")
+        WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
+        algorithm                 = Constants.ClusteringAlgorithms.KMEANS
+        s                         = Session()
+        request_headers           = request.headers #Headers for the request
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix-0")
+        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
+        extension                 = request_headers.get("Extension","csv")
+        k                         = request_headers.get("K","3")
+        plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
 
         logger.debug({
             "event":"KMEANS.STARTED",
@@ -67,10 +64,13 @@ def kmeans():
 
         logger.debug({
             "event":"LOCAL.READ.DATASET.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "filename":plaintext_matrix_filename,
         })
 
+        read_dataset_start_time = time.time()
         plaintext_matrix_result = Utils.read_numpy_from(
             client    = STORAGE_CLIENT,
             path      = plaintext_matrix_path,
@@ -82,28 +82,29 @@ def kmeans():
         else:
             raise plaintext_matrix_result.unwrap_err()
   
-        local_read_dataset_st = time.time() - local_read_dataset_start_time
+        read_dataset_st = time.time() - read_dataset_start_time
         
         logger.debug({
             "event":"LOCAL.READ.DATASET",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
-            "service_time":local_read_dataset_st
+            "service_time":read_dataset_st
         })
 
-        # DELETE FIRST
         _delete_result = STORAGE_CLIENT.delete(bucket_id=BUCKET_ID,key=plaintext_matrix_id)
 
-        put_pm_start_time = time.time()
-
         logger.debug({
-            "event":"PUT.PLAINTEXT_MATRIX.BEFORE",
+            "event":"PUT.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":plaintext_matrix_id,
             "shape":str(plaintextMatrix.shape),
             "dtype":str(plaintextMatrix.dtype)
         })
-
+        put_pm_start_time = time.time()
         ptm_result:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
             key       = plaintext_matrix_id,
             ndarray   = plaintextMatrix,
@@ -111,7 +112,6 @@ def kmeans():
             bucket_id = BUCKET_ID
         ).result()
 
-        print("PTM",ptm_result)
         if ptm_result.is_err:
             error = ptm_result.unwrap_err()
             logger.error({
@@ -121,16 +121,20 @@ def kmeans():
 
         put_pm_service_time = time.time()- put_pm_start_time
         logger.info({
-            "event":"PUT.PLAINTEXT_MATRIX",
+            "event":"PUT.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":plaintext_matrix_id,
             "shape":str(plaintextMatrix.shape),
             "dtype":str(plaintextMatrix.dtype),
             "service_time":put_pm_service_time
         })
         
+        service_time_client = time.time() - arrivalTime
         logger.debug({
             "event":"MANAGER.GET.WORKER.BEFORE",
-            "algorithm":algorithm
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
         })
 
         get_worker_arrival_time = time.time()
@@ -153,11 +157,13 @@ def kmeans():
 
         logger.info({
             "event":"GET.WORKER",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":get_worker_service_time,
             "worker_id":worker_id,
             "worker_port":worker_port
         })
-
+        worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = worker_port,
@@ -196,25 +202,30 @@ def kmeans():
         worker_service_time  =  jsonWorkerResponse["service_time"]
         iterations           = int(jsonWorkerResponse["iterations"]) # Extract the current number of iterations
         endTime              = time.time() # Get the time when it ends
+        worker_response_time = endTime - worker_start_time
         response_time        = endTime - arrivalTime # Get the service time
 
         logger.info({
-            "event":"CLUSTERING",
+            "event":"KMEANS.COMPLETED",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "worker_service_time": worker_service_time,
+            "worker_response_time":worker_response_time,
             "response_time":response_time,
             "iterations":iterations,
-            "k":k
+            "k":k,
+            "service_time_manager":get_worker_service_time,
         })
 
         return Response(
             response = json.dumps({
                 "label_vector" : jsonWorkerResponse.get("label_vector",[]),
                 "iterations":iterations,
-                "worker_service_time" : worker_service_time,
-                "response_time": response_time,
-                "algorithm"   : algorithm,
+                "algorithm":algorithm,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
             }),
             status   = 200,
             headers  = {}
@@ -230,7 +241,6 @@ def kmeans():
 def skmeans():
     try:
         arrivalTime                  = time.time()
-        # Config
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
@@ -247,13 +257,12 @@ def skmeans():
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm               = Constants.ClusteringAlgorithms.SKMEANS
         s                       = Session()
-        # Headers
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
-        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
+        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix0")
         extension                 = request_headers.get("Extension","csv")
         k                         = int(request_headers.get("K"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
@@ -265,6 +274,7 @@ def skmeans():
         
         logger.debug({
             "event":"SKMEANS.STARTED",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "udm_id":udm_id,
@@ -285,6 +295,8 @@ def skmeans():
         
         logger.debug({
             "event":"LOCAL.READ.DATASET.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "filename":plaintext_matrix_filename,
         })
@@ -305,12 +317,15 @@ def skmeans():
         a = plaintext_matrix.shape[1]
         logger.debug({
             "event":"LOCAL.READ.DATASET",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "filename":plaintext_matrix_filename,
             "records":r,
             "attributes":a,
             "service_time":local_read_dataset_st
         })
+
         cores       = os.cpu_count()
         max_workers = num_chunks if max_workers > num_chunks else max_workers
         max_workers = cores if max_workers > cores else max_workers
@@ -323,6 +338,7 @@ def skmeans():
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "n":n,
             "num_chunks":num_chunks,
             "max_workers":max_workers,
@@ -343,6 +359,7 @@ def skmeans():
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "n":n,
             "num_chunks":num_chunks,
             "max_workers":max_workers,
@@ -350,9 +367,10 @@ def skmeans():
         })
         
         logger.debug({
-            "event":"PUT.CHUNKS.BEFORE",
+            "event":"PUT.CHUNKED.BEFORE",
             "key":encrypted_matrix_id,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks
         })
         put_chunks_start_time = time.time()
@@ -360,17 +378,9 @@ def skmeans():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     key       = encrypted_matrix_id, 
-        #     chunks    = encrypted_matrix_chunks, 
-        #     bucket_id = BUCKET_ID,
-        #     tags      = {}
-        # )
-        
         chunks_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_matrix_chunks
         )
-
         put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
             key       = encrypted_matrix_id, 
             chunks    = chunks_bytes, 
@@ -380,41 +390,20 @@ def skmeans():
                 "dtype":"float64"
             }
         )
-        print("PUT RESPONSE",put_chunks_generator_results)
-        # time.sleep(100)
-
-
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
-            "event":"PUT.CHUNKS",
+            "event":"PUT.CHUNKED",
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":put_chunks_st
         })
         
-        # for i,put_chunk_result in enumerate(
-        # ):
-        #     if put_chunk_result.is_err:
-        #         logger.error("Something went wrong storage and encrypt the chunk.")
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
-        encryption_end_time      = time.time()
-        segment_encrypt_put_time = encryption_end_time - encryption_start_time
-
-        logger.info({
-            "event":"PUT.SEGMENT.ENCRYPT", 
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrid_id":encrypted_matrix_id,
-            "service_time":segment_encrypt_put_time
-        })
-
         logger.debug({
             "event":"UDM.GENERATION.BEFORE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
         })
@@ -423,9 +412,12 @@ def skmeans():
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
         )
+        
         udm_gen_st = time.time()- udm_start_time
         logger.info({
             "event":"UDM.GENERATION",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "shape":str(udm.shape),
             "udm_id":udm_id,
             "service_time":udm_gen_st,
@@ -433,6 +425,8 @@ def skmeans():
 
         logger.debug({
             "event":"PUT.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id,
             "bucket_id":BUCKET_ID,
             "udm_shape":str(udm.shape),
@@ -454,8 +448,12 @@ def skmeans():
         if udm_put_result.is_err:
             raise udm_put_result.unwrap_err()
         udm_put_st = time.time() - udm_put_start_time
+
+        service_time_client = time.time() - arrivalTime
         logger.info({            
             "event":"PUT.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id,
             "bucket_id":BUCKET_ID,
             "udm_shape":str(udm.shape),
@@ -463,8 +461,8 @@ def skmeans():
             "service_time":udm_put_st
         })
 
-        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_start_time       = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
@@ -487,26 +485,25 @@ def skmeans():
             "worker_id":worker_id,
             "port":port,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":get_worker_service_time,
             "k":k,
             "m":m
         })
         
+        worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = port,
             session   = s,
             algorithm = algorithm,
         )
+        status               = Constants.ClusteringStatus.START #Set the status to start
+        worker_run1_response = None
 
-        status                   = Constants.ClusteringStatus.START #Set the status to start
-        worker_run1_response     = None 
         interaction_arrival_time = time.time()
         iterations               = 0
-        
-
-
-        label_vector = None
+        label_vector             = None
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             
             inner_interaction_arrival_time = time.time()
@@ -529,6 +526,7 @@ def skmeans():
             
             logger.debug({
                 "event":"WORKER.RUN1.BEFORE",
+                "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "step_index":"1",
                 "clustering_status":str(status),
@@ -563,6 +561,7 @@ def skmeans():
 
             logger.info({
                 "event":"SKMEANS.RUN1",
+                "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "step_index":"1",
                 "clustering_status":str(status),
@@ -584,6 +583,8 @@ def skmeans():
             
             logger.debug({
                 "event":"GET.MATRIX.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_shift_matrix_id,
                 "bucket_id":BUCKET_ID
             })
@@ -595,15 +596,19 @@ def skmeans():
             )
             logger.info({
                 "event":"GET.MATRIX",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_shift_matrix_id,
                 "bucket_id":BUCKET_ID,
                 "service_time": time.time() - encrypted_shift_matrix_start_time
             })
             
             encrypted_shift_matrix = encryptedShiftMatrix_get_response.value
-            # time.sleep(50)
+            
             logger.debug({
                 "event":"DECRYPT.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":m,
                 "shape":str(encrypted_shift_matrix.shape),
                 "dtype":str(encrypted_shift_matrix.dtype)
@@ -617,6 +622,8 @@ def skmeans():
             )
             logger.info({
                 "event":"DECRYPT",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":m,
                 "shape":str(encrypted_shift_matrix.shape),
                 "dtype":str(encrypted_shift_matrix.dtype),
@@ -626,19 +633,17 @@ def skmeans():
             shift_matrix    = shiftMatrix_chipher_schema_res.matrix
             shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
 
-            
             logger.debug({
                 "event":"PUT.NDARRAY.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_id,
                 "shape":str(shift_matrix.shape),
                 "dtype":str(shift_matrix.dtype)
             })
             put_shift_matrix_start_time     = time.time()
             _ = STORAGE_CLIENT.delete_by_ball_id(ball_id=shift_matrix_id, bucket_id=BUCKET_ID)
-            # print("DEL_RESULT",del_resul)
-            # if del_resul.is_err:
-            #     return Response(response="Error deleting {}".format(shift_matrix_id))
-            # print("DEL_RESULT",del_resul)
+            
             _:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray(
                 key       = shift_matrix_id,
                 ndarray   = shift_matrix,
@@ -648,6 +653,8 @@ def skmeans():
             
             logger.info({
                 "event":"PUT.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_id,
                 "shape":str(shift_matrix.shape),
                 "dtype":str(shift_matrix.dtype),
@@ -661,7 +668,7 @@ def skmeans():
                     "Clustering-Status"      : str(status),
                     "Shift-Matrix-Id"        : shift_matrix_id,
                     "Plaintext-Matrix-Id"    : plaintext_matrix_id,
-                    "Encrypted-Matrix-Id"    :encrypted_matrix_id,
+                    "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                     "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
                     "Encrypted-Matrix-Dtype" : "float64",
                     "Num-Chunks"             : str(num_chunks),
@@ -690,7 +697,8 @@ def skmeans():
             
             logger.info({
                 "event":"SKMEANS.ITERATION.COMPLETED",
-                "plaintext_matrix_id"   :plaintext_matrix_id,
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "worker_id":worker_id,
                 "k":k,
                 "m":m,
@@ -700,28 +708,38 @@ def skmeans():
 
         interaction_end_time     = time.time()
         interaction_service_time = interaction_end_time - interaction_arrival_time 
-        response_time  = endTime - arrivalTime 
+        worker_response_time     = endTime - worker_start_time
+        response_time            = endTime - arrivalTime 
+
         logger.info({
             "event":"SKMEANS.COMPLETED",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "num_chunks":num_chunks,
-            "algorithm":algorithm,
             "worker_id":worker_id,
             "k":k,
             "m":m,
             "n_iterations":iterations, 
             "max_iterations":MAX_ITERATIONS,
-            "iterations_service_time":interaction_service_time,
-            "response_time":response_time,
+            "service_time_encrypted_matrix":segment_encrypt_service_time,
+            "service_time_dm_generation":udm_gen_st,
+            "service_time_manager":get_worker_service_time,
+            "service_time_worker":worker_response_time,
+            "service_time_client":service_time_client,
+            "response_time_clustering":response_time,
+            "iterations_service_time":interaction_service_time
         })
 
         return Response(
             response = json.dumps({
                 "label_vector" : label_vector,
-                # "service_time" : service_time_worker,
-                "response_time": response_time,
-                "algorithm"   : algorithm
+                "iterations":iterations,
+                "algorithm":algorithm,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
             }),
             status   = 200,
             headers  = {}
@@ -736,7 +754,6 @@ def skmeans():
 @clustering.route("/dbskmeans", methods = ["POST"])
 def dbskmeans():
     try:
-        # CONFIG
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
@@ -749,29 +766,27 @@ def dbskmeans():
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
-        # 
         if executor               == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.DBSKMEANS
         s                         = Session()
-        # HEADERS
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         encrypted_udm_id          = "{}encryptedudm".format(plaintext_matrix_id) # The iudm id is built
-        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
+        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix0")
         extension                 = request_headers.get("Extension","csv")
-        # m                         = request_headers.get("M","3")
         m                         = dataowner.m
         k                         = request_headers.get("K","3")
         sens                      = float(request_headers.get("Sens","0.00000001"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
-        request_id                = "request-{}".format(plaintext_matrix_id)
+        request_id                = "request{}".format(plaintext_matrix_id)
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         iterations                = 0
+
         logger.debug({
             "event":"DBSKMEANS.STARTED",
             "algorithm":algorithm,
@@ -794,10 +809,11 @@ def dbskmeans():
 
         logger.debug({
             "event":"LOCAL.READ.DATASET.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
-            "algorithm":algorithm,
         })
 
         local_read_dataset_start_time = time.time()
@@ -821,6 +837,7 @@ def dbskmeans():
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "records":r,
             "attributes":a,
             "service_time":local_read_dataset_st
@@ -828,7 +845,7 @@ def dbskmeans():
         cores       = os.cpu_count()
         max_workers = num_chunks if max_workers > num_chunks else max_workers
         max_workers = cores if max_workers > cores else max_workers
-        encryption_start_time = time.time()
+        # encryption_start_time = time.time()
         
         encrypt_segment_start_time = time.time()
         n = a*r*int(m)
@@ -838,6 +855,7 @@ def dbskmeans():
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "n":n,
             "num_chunks":num_chunks,
             "max_workers":max_workers
@@ -859,6 +877,7 @@ def dbskmeans():
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "n":n,
             "num_chunks":num_chunks,
             "max_workers":max_workers,
@@ -866,9 +885,10 @@ def dbskmeans():
         })
         
         logger.debug({
-            "event":"PUT.CHUNKS.BEFORE",
+            "event":"PUT.CHUNKED.BEFORE",
             "key":encrypted_matrix_id,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks
         })
         put_chunks_start_time = time.time()
@@ -876,16 +896,9 @@ def dbskmeans():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     bucket_id = BUCKET_ID,
-        #     key       = encrypted_matrix_id, 
-        #     chunks    = encrypted_matrix_chunks, 
-        #     tags      = {}
-        # )
         chunks_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_matrix_chunks
         )
-
         put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
             key       = encrypted_matrix_id, 
             chunks    = chunks_bytes, 
@@ -895,54 +908,37 @@ def dbskmeans():
                 "dtype":"float64"
             }
         )
-        
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
-            "event":"PUT.CHUNKS",
+            "event":"PUT.CHUNKED",
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":put_chunks_st
         })
         
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-            
-        #     if put_chunk_result.is_err:
-        #         error = put_chunk_result.unwrap_err()
-        #         logger.error({
-        #             "msg":"Something went wrong storage and encrypt the chunk. {}".format(error)
-        #         })
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(error))
-        #         )
-        encryption_end_time = time.time()
-        encryption_time     = encryption_end_time - encryption_start_time
-     
-        logger.info({
-            "event":"PUT.SEGMENT.ENCRYPT", 
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "algorithm":algorithm,
-            "service_time":encryption_time
-        })
         logger.debug({
             "event":"UDM.GENERATION.BEFORE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
         })
         udm_start_time = time.time()
-        print("BEFORE GET_U")
         udm            = dataowner.get_U(
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
         )
+
+        udm_st = time.time() - udm_start_time
         logger.info({
             "event":"UDM.GENERATION",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
             "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
-            "service_time":time.time() - udm_start_time
+            "service_time":udm_st
         })
 
         n         = r*r*a*int(m)
@@ -957,6 +953,7 @@ def dbskmeans():
             "num_chunks":num_chunks,
             "max_workers":max_workers,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "threshold":threshold
         })
 
@@ -970,6 +967,7 @@ def dbskmeans():
             sens             = sens,
             executor         = executor
         )
+        
         segment_encrypt_fdhope_st = time.time() - segment_encrypt_fdhope_start_time
         logger.debug({
             "event":"SEGMENT.ENCRYPT.FDHOPE.BEFORE",
@@ -980,12 +978,15 @@ def dbskmeans():
             "num_chunks":num_chunks,
             "max_workers":max_workers,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "threshold":threshold,
             "service_time":segment_encrypt_fdhope_st
         })
         
         logger.debug({
-            "event":"PUT.CHUNKS.BEFORE",
+            "event":"PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
             "num_chunks":num_chunks,
         })
@@ -994,27 +995,11 @@ def dbskmeans():
             ball_id   = encrypted_udm_id,
             bucket_id = BUCKET_ID
         )
-
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     bucket_id = BUCKET_ID,
-        #     key       = encrypted_udm_id, 
-        #     chunks    = encrypted_matrix_UDM_chunks, 
-        #     tags      = {}
-        # )
-
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-        #     if put_chunk_result.is_err:
-        #         logger.error("Something went wrong storage and encrypt the chunk.")
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
+        
         chunks_udm_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_matrix_UDM_chunks
         )
 
-        # print("shape", str((r,r,a)))
-        print("udm_shape",str(udm.shape))
         put_chunks_udm_generator_results = STORAGE_CLIENT.put_chunked(
             key       = encrypted_udm_id, 
             chunks    = chunks_udm_bytes, 
@@ -1025,15 +1010,18 @@ def dbskmeans():
             }
         )
         logger.info({
-            "event":"PUT.CHUNKS",
+            "event":"PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
             "num_chunks":num_chunks,
             "service_time":time.time() - put_chunks_start_time
         })
+        service_time_client = time.time() - local_start_time
 
+        get_worker_start_time = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
-        get_worker_start_time = time.time()
         get_worker_result     = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
@@ -1057,11 +1045,13 @@ def dbskmeans():
             "worker_id":_worker_id,
             "port":port,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":get_worker_service_time,
             "k":k,
             "m":m
         })
 
+        worker_start_time = time.time()
         worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = worker_id,
             port       = port,
@@ -1099,6 +1089,7 @@ def dbskmeans():
                 "event":"WORKER.RUN.1.BEFORE",
                 "step_index":"1",
                 "clustering_status":str(status),
+                "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "encrypted_matrix_id":encrypted_matrix_id,
                 "encrypted_matrix_shape":"({},{},{})".format(r,a,m),
@@ -1126,6 +1117,7 @@ def dbskmeans():
                 "event":"WORKER.RUN.1",
                 "step_index":"1",
                 "clustering_status":str(status),
+                "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "encrypted_matrix_id":encrypted_matrix_id,
                 "encrypted_matrix_shape":"({},{},{})".format(r,a,m),
@@ -1143,6 +1135,8 @@ def dbskmeans():
             })
             logger.debug({
                 "event":"GET.MATRIX.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_shift_matrix_id,
                 "bucket_id":BUCKET_ID
             })
@@ -1154,14 +1148,20 @@ def dbskmeans():
             )
             get_matrix_st = time.time() - get_matrix_start_time
             encryptedShiftMatrix = encryptedShiftMatrix_get_response.value
+
             logger.info({
                 "event":"GET.MATRIX",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_shift_matrix_id,
                 "bucket_id":BUCKET_ID,
                 "service_time":get_matrix_st
             })
+
             logger.debug({
                 "event":"DECRYPT.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":int(m),
                 "encrypted_shift_matrix_shape":str(encryptedShiftMatrix.shape),
                 "encrypted_shift_matrix_dtype":str(encryptedShiftMatrix.dtype),
@@ -1175,6 +1175,8 @@ def dbskmeans():
             descrypy_st = time.time() - decrypt_start_time
             logger.info({
                 "event":"DECRYPT",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":int(m),
                 "encrypted_shift_matrix_shape":str(encryptedShiftMatrix.shape),
                 "encrypted_shift_matrix_dtype":str(encryptedShiftMatrix.dtype),
@@ -1183,6 +1185,8 @@ def dbskmeans():
             
             logger.debug({
                 "event":"ENCRYPT.FDHOPE.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":int(m),
                 "shift_matrix_shape":str(cipher_schema_res.matrix.shape),
                 "shift_matrix_dtype":str(cipher_schema_res.matrix.dtype),
@@ -1197,6 +1201,8 @@ def dbskmeans():
             shift_matrix_ope = shift_matrix_ope_res.matrix
             logger.info({
                 "event":"ENCRYPT.FDHOPE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "m":int(m),
                 "shift_matrix_shape":str(shift_matrix_ope.shape),
                 "shift_matrix_dtype":str(shift_matrix_ope.dtype),
@@ -1208,6 +1214,8 @@ def dbskmeans():
             put_matrix_start_time = time.time()
             logger.debug({
                 "event":"PUT.NDARRAY.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
                 "bucket_id":BUCKET_ID,
                 "shift_matrix_shape":str(shift_matrix_ope.shape),
@@ -1227,6 +1235,8 @@ def dbskmeans():
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             logger.info({
                 "event":"PUT.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
                 "bucket_id":BUCKET_ID,
                 "shift_matrix_shape":str(shift_matrix_ope.shape),
@@ -1277,6 +1287,7 @@ def dbskmeans():
                 timeout = WORKER_TIMEOUT,
                 headers = run2_headers
             ) #Start run 2
+
             worker_run2_response.raise_for_status()
             str_run2_response  = worker_run2_response.content.decode("utf-8") #Response from worker
             run2_json          = json.loads(str_run2_response) #pass to json
@@ -1288,6 +1299,7 @@ def dbskmeans():
                 "event":"WORKER.RUN.2",
                 "step_index":"2",
                 "clustering_status":str(status),
+                "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "encrypted_matrix_id":encrypted_matrix_id,
                 "shift_matrix_id":shift_matrix_id,
@@ -1314,6 +1326,7 @@ def dbskmeans():
             inner_interaction_service_time = end_time-inner_interaction_start_time
             logger.info({
                 "event":"DBSKMEANS.ITERATION.COMPLETED",
+                "algorithm":algorithm,
                 "plaintext_matrix_id" :plaintext_matrix_id,
                 "worker_id":worker_id,
                 "k":k,
@@ -1328,6 +1341,10 @@ def dbskmeans():
 
         interaction_end_time = time.time()
         service_time         = interaction_end_time - global_start_time
+
+        worker_end_time       = time.time()
+        worker_response_time  = worker_end_time - worker_start_time
+
         response_time        = end_time - local_start_time 
         logger.info({
             "event":"DBSKMEANS.COMPLETED",
@@ -1338,17 +1355,23 @@ def dbskmeans():
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "service_time":service_time,
-            "response_time":response_time
+            "service_time_encrypted_matrix":encrypt_segment_service_time,
+            "service_time_dm_generation":udm_st,
+            "service_time_dm_encrypted":segment_encrypt_fdhope_st,
+            "service_time_manager":get_worker_service_time,
+            "service_time_worker":worker_response_time,
+            "service_time_clustering":response_time
         })
 
         return Response(
             response = json.dumps({
                 "label_vector" : label_vector,
-                "service_time" : service_time,
-                "response_time": response_time,
-                "algorithm"    : algorithm,
-                "worker_id"    : _worker_id,
-                "n_iterations" : iterations
+                "iterations":iterations,
+                "algorithm":algorithm,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
             }),
             status   = 200,
             headers  = {}
@@ -1381,12 +1404,11 @@ def dbsnnc():
         request_headers           = request.headers #Headers for the request
         num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
-        encrypted_matrix_id       = "encrypted-{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
+        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         dm_id                     = "{}dm".format(plaintext_matrix_id)
         encrypted_dm_id           = "{}encrypteddm".format(plaintext_matrix_id) # The iudm id is built
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
-        # m                         = int(request_headers.get("M","3"))
         m                         = dataowner.m
         sens                      = float(request_headers.get("Sens","0.00000001"))
         threshold                 = float(request_headers.get("Threshold",-1))
@@ -1394,6 +1416,7 @@ def dbsnnc():
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
+
         logger.debug({
             "event":"DBSNNC.STARTED",
             "algorithm":algorithm,
@@ -1415,6 +1438,8 @@ def dbsnnc():
 
         logger.debug({
             "event":"LOCAL.READ.DATASET.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "path":plaintext_matrix_path,
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
@@ -1442,6 +1467,7 @@ def dbsnnc():
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "records":r,
             "attributes":a,
             "service_time":local_read_dataset_st
@@ -1455,6 +1481,7 @@ def dbsnnc():
         n = r*a*m
         logger.debug({
             "event":"SEGMENT.ENCRYPT.LIU.BEFORE",
+            "algorithm":algorithm,
             "max_workers": max_workers,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
@@ -1476,6 +1503,7 @@ def dbsnnc():
         logger.info({
             "event":"SEGMENT.ENCRYPT.LIU",
             "max_workers": max_workers,
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "num_chunks":num_chunks,
@@ -1484,9 +1512,10 @@ def dbsnnc():
         })
         
         logger.debug({
-            "event":"PUT.CHUNKS.BEFORE",
+            "event":"PUT.CHUNKED.BEFORE",
             "key":encrypted_matrix_id,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks
         })
         put_chunks_start_time = time.time()
@@ -1494,12 +1523,7 @@ def dbsnnc():
             ball_id   = encrypted_matrix_id, 
             bucket_id = BUCKET_ID
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     key       = encrypted_matrix_id, 
-        #     chunks    = encrypted_matrix_chunks, 
-        #     bucket_id = BUCKET_ID,
-        #     tags      = {}
-        # )
+        
         chunks_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_matrix_chunks
         )
@@ -1516,20 +1540,14 @@ def dbsnnc():
 
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
-            "event":"PUT.CHUNKS",
+            "event":"PUT.CHUNKED",
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":put_chunks_st
         })
         
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-        #     if put_chunk_result.is_err:
-        #         logger.error("Something went wrong storage and encrypt the chunk.")
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
         encryption_time = time.time() - encryption_start_time
         logger.info({
             "event":"PUT.SEGMENT.ENCRYPT", 
@@ -1569,6 +1587,8 @@ def dbsnnc():
         
         logger.debug({
             "event":"THRESHOLD.GENERATE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "threshold":threshold,
@@ -1578,6 +1598,7 @@ def dbsnnc():
         logger.debug({
             "event":"SEGMENT.ENCRYPT.FDHOPE.BEFORE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_dm_id":encrypted_dm_id,
             "n":n,
             "num_chunks":num_chunks,
@@ -1601,6 +1622,7 @@ def dbsnnc():
         logger.info({
             "event":"SEGMENT.ENCRYPT.FDHOPE",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_dm_id":encrypted_dm_id,
             "n":n,
             "num_chunks":num_chunks,
@@ -1612,9 +1634,10 @@ def dbsnnc():
         })
         
         logger.debug({
-            "event":"PUT.CHUNKS.BEFORE",
+            "event":"PUT.CHUNKED.BEFORE",
             "key":encrypted_dm_id,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks
         })
         put_chunks_start_time = time.time()
@@ -1622,12 +1645,7 @@ def dbsnnc():
             ball_id=encrypted_dm_id, 
             bucket_id=BUCKET_ID
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     bucket_id = BUCKET_ID,
-        #     key       = encrypted_dm_id, 
-        #     chunks    = encrypted_matrix_DM_chunks, 
-        #     tags      = {}
-        # )
+        
         chunks_dm_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_matrix_DM_chunks
         )
@@ -1644,23 +1662,13 @@ def dbsnnc():
 
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
-            "event":"PUT.CHUNKS",
+            "event":"PUT.CHUNKED",
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":put_chunks_st
         })
-
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-        #     if put_chunk_result.is_err:
-        #         logger.error({
-        #             "msg":str(put_chunk_result.unwrap_err())
-        #         })
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
-
 
         segment_encrypt_fdhope_st = time.time() - segment_encrypt_start_time
         logger.info({
@@ -1670,7 +1678,7 @@ def dbsnnc():
             "algorithm":algorithm,
             "service_time":segment_encrypt_fdhope_st
         })
-        # encrypted_threshold = dataowner.encrypted_threshold
+        
         logger.debug({
             "event":"ENCRYPTED.THRESHOLD.BEFORE", 
             "plaintext_matrix_id":plaintext_matrix_id,
@@ -1690,9 +1698,11 @@ def dbsnnc():
             "encrypted_threshold":encrypted_threshold,
             "algorithm":algorithm,
         })
+        service_time_client = time.time() - local_start_time
+
+        get_worker_start_time = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         
-        get_worker_start_time = time.time()
         get_worker_result     = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
@@ -1714,12 +1724,14 @@ def dbsnnc():
         logger.info({
             "event":"MANAGER.GET.WORKER",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "worker_id":_worker_id,
             "port":port,
             "m":m,
             "service_time":get_worker_service_time
         })
 
+        worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = port,
@@ -1772,9 +1784,12 @@ def dbsnnc():
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]
-        client_service_time  = endTime - local_start_time # Get the service time
+        response_time        = endTime - local_start_time # Get the service time
+        worker_end_time       = time.time()
+        worker_response_time  = worker_end_time - worker_start_time
         logger.info({
             "event":"DBSNNC.COMPLETED",
+            "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
             "encrypted_distance_matrix_id":encrypted_dm_id,
@@ -1782,16 +1797,20 @@ def dbsnnc():
             "m":m,
             "threshold":threshold,
             "worker_id":_worker_id,
-            "worker_service_time":worker_service_time,
-            "service_time":client_service_time,
+            "service_time_encrypted_matrix":segment_encrypt_st,
+            "service_time_dm_generation":generate_dm_st,
+            "service_time_manager":get_worker_service_time,
+            "service_time_worker":worker_response_time,
+            "service_time_clustering":response_time
         })
         return Response(
             response = json.dumps({
                 "label_vector" :label_vector,
-                "worker_id"    :_worker_id,
-                "algorithm"    : algorithm,
-                "worker_service_time" : worker_service_time,
-                "service_time": str(client_service_time),
+                "algorithm":algorithm,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
                 
             }),
             status   = 200,
@@ -1814,7 +1833,6 @@ def nnc():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
-        # _num_chunks                  = current_app.config.get("NUM_CHUNKS",1)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
@@ -1826,7 +1844,7 @@ def nnc():
         dm_id                     = "{}dm".format(plaintext_matrix_id)
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                 = request_headers.get("Extension","csv")
-        request_id                = "request-{}".format(plaintext_matrix_id)
+        request_id                = "request{}".format(plaintext_matrix_id)
         threshold                 = float(request_headers.get("Threshold",-1))
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -1847,7 +1865,8 @@ def nnc():
             "path":plaintext_matrix_path,
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
-            "algorithm":algorithm
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
         })
 
         local_read_dataset_start_time = time.time()
@@ -1872,6 +1891,7 @@ def nnc():
             "key":plaintext_matrix_id,
             "filename":plaintext_matrix_filename,
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "records":r,
             "attributes":a,
             "service_time":local_read_dataset_st
@@ -1879,6 +1899,8 @@ def nnc():
         
         logger.debug({
             "event":"PUT.CHUNKS.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
@@ -1896,27 +1918,11 @@ def nnc():
         if plaintext_matrix_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-
-        # _ = STORAGE_CLIENT.delete(key=plaintext_matrix_id, bucket_id=BUCKET_ID)
         _ = STORAGE_CLIENT.delete_by_ball_id(
             ball_id   = plaintext_matrix_id, 
             bucket_id = BUCKET_ID
         )
         
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     key       = plaintext_matrix_id, 
-        #     chunks    = plaintext_matrix_chunks.unwrap(), 
-        #     bucket_id = BUCKET_ID,
-        #     tags      = {}
-        # )
-
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-        #     if put_chunk_result.is_err:
-        #         logger.error("Something went wrong storage the chunk.")
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
         chunks_bytes = Utils.chunks_to_bytes_gen(
             chs = plaintext_matrix_chunks.unwrap()
         )
@@ -1930,12 +1936,12 @@ def nnc():
                 "dtype":"float64"
             }
         )
-        # time.sleep(100)
-
 
         put_ptm_st = time.time() - put_ptm_start_time
         logger.info({
             "event":"PUT.CHUNKS",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "plaintext_matrix_shape":str(plaintext_matrix.shape),
@@ -1972,6 +1978,8 @@ def nnc():
 
         logger.debug({
             "event":"THRESHOLD.GENERATE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "threshold":threshold,
@@ -1979,6 +1987,8 @@ def nnc():
 
         logger.debug({
             "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "dm_shape":str(dm.shape),
@@ -1995,45 +2005,36 @@ def nnc():
         if dm_chunks.is_none:
             raise "something went wrong creating the chunks"
         
+        put_ptm_st = time.time() - put_ptm_start_time
         logger.debug({
             "event":"CHUNKS.FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "dm_id":dm_id,
             "bucket_id":BUCKET_ID,
             "dm_shape":str(dm.shape),
             "dm_dtype":str(dm.dtype),
+            "service_time":put_ptm_st
         })
 
         logger.debug({
             "event":"PUT.CHUNKS.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "dm_id":dm_id,
             "bucket_id":BUCKET_ID,
             "dm_shape":str(dm.shape),
             "dm_dtype":str(dm.dtype),
         })
+        put_dm_start_time = time.time()
 
         STORAGE_CLIENT.delete_by_ball_id(
             ball_id   = dm_id, 
             bucket_id = BUCKET_ID
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunks(
-        #     key       = dm_id, 
-        #     chunks    = dm_chunks.unwrap(), 
-        #     bucket_id = BUCKET_ID,
-        #     tags      = {}
-        # )
-
-        # for i,put_chunk_result in enumerate(put_chunks_generator_results):
-        #     if put_chunk_result.is_err:
-        #         logger.error("Something went wrong storage the chunk.")
-        #         return Response(
-        #             status   = 500,
-        #             response = "{}".format(str(put_chunk_result.unwrap_err()))
-        #         )
-        
         chunks_dm_bytes = Utils.chunks_to_bytes_gen(
             chs = dm_chunks.unwrap()
         )
-
         put_chunks_dm_generator_results = STORAGE_CLIENT.put_chunked(
             key       = dm_id, 
             chunks    = chunks_dm_bytes, 
@@ -2043,10 +2044,12 @@ def nnc():
                 "dtype":"float64"
             }
         )
-
-        put_dm_st = time.time() - put_ptm_start_time
+        put_dm_st = time.time() - put_dm_start_time
+        service_time_client = time.time() - local_start_time
         logger.info({
             "event":"PUT.CHUNKS",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "key":dm_id,
             "bucket_id":BUCKET_ID,
             "shape":str(dm.shape),
@@ -2054,9 +2057,8 @@ def nnc():
             "service_time":put_dm_st
         })
 
-        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-
         get_worker_start_time = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_result     = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
@@ -2064,7 +2066,6 @@ def nnc():
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
-
         if get_worker_result.is_err:
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
@@ -2078,11 +2079,13 @@ def nnc():
         logger.info({
             "event":"MANAGER.GET.WORKER",
             "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
             "worker_id":_worker_id,
             "port":port,
             "service_time":get_worker_service_time,
         })
 
+        worker_start_time = time.time()
         worker         = RoryWorker( #Allows to establish the connection with the worker
             workerId   = worker_id,
             port       = port,
@@ -2122,23 +2125,28 @@ def nnc():
         end_time             = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]
-        client_service_time  = end_time - local_start_time # Get the service time
+        response_time        = end_time - local_start_time # Get the service time
+        worker_end_time       = time.time()
+        worker_response_time  = worker_end_time - worker_start_time
         logger.info({
             "event":"NNC.COMPLETED",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "worker_id":_worker_id,
-            "worker_service_time":worker_service_time,
-            "service_time":client_service_time
+            "service_time_manager":get_worker_service_time,
+            "service_time_worker":worker_response_time,
+            "service_time_client":service_time_client,
+            "response_time_clustering":response_time,
         })
 
         return Response(
             response = json.dumps({
                 "label_vector" : label_vector,
-                "worker_id"    :_worker_id,
-                "algorithm"    : algorithm,
-                "worker_service_time" : worker_service_time,
-                "service_time": str(client_service_time),
+                "algorithm":algorithm,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
             }),
             status   = 200,
             headers  = {}

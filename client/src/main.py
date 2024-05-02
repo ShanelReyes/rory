@@ -32,7 +32,6 @@ NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
 MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",4)) #Total of process for encryption
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
 MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
-# M                    = int(os.environ.get("M","3"))
 LIU_SECURITY_LEVEL   = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
 LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","0")))
@@ -52,6 +51,7 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
+    
 
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
@@ -81,10 +81,19 @@ MANAGER = RoryManager(
     hostname = RORY_MANAGER_IP_ADDR,
     port     = RORY_MANAGER_PORT,
 )
+
+def console_handler_filter(record:logging.LogRecord):
+    if DEBUG:
+        return True
+    elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
+        return True
+    else:
+        return False
+
 LOGGER = Log(
     name                   = LOGGER_NAME,
     path                   = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
+    console_handler_filter = console_handler_filter,
     interval               = 24,
     when                   = "h"
 )
