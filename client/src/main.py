@@ -54,9 +54,9 @@ except Exception as e:
     
 
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",3600))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_PEERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
+MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
@@ -69,7 +69,7 @@ MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mict
 STORAGE_CLIENT = Client(
     client_id       = MICTLANX_CLIENT_ID,
     bucket_id       = MICTLANX_BUCKET_ID,
-    routers         = list(Utils.routers_from_str(MICTLANX_PEERS)),
+    routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
     debug           = MICTLANX_DISABLED_LOG,

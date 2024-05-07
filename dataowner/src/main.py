@@ -81,8 +81,6 @@ def client_request(row:pd.Series,url:str,headers:Dict[str,str], timeout:int = 30
         response.raise_for_status()
         return response
     except Exception as e:
-        print(e)
-        LOGGER.error("Error to process {} ".format(row["DATASET_ID"]))
         raise e
 
 def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
@@ -98,6 +96,7 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
         LOGGER.debug({
             "event":"CLUSTERING.STARTED",
             "algorithm":ALGORITHM,
+            "operation_id": id_nanoid,
             "matrix_id":plainTextMatrixId,
             "clustering_max_iterations": max_iterations,
             "k": k,
@@ -159,9 +158,18 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
         
         print("_"*40)
         return Ok((row,_response,current_experiment_iteration))
+    except R.exceptions.RequestException as e:
+        LOGGER.error({
+            "msg":"Something went wrong with the request",
+            "detail":str(e)
+        })
+        return Err((row, e, current_experiment_iteration))
     except Exception as e:
-        LOGGER.error("DATAOWNER_ERROR "+str(e))
-        return Err((row,Exception,current_experiment_iteration))
+        LOGGER.error({
+            "msg":"Uknown exception",
+            "detail":str(e)
+        })
+        return Err((row,e,current_experiment_iteration))
 
 def classification_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,Exception, int]]:
     try:
@@ -253,7 +261,7 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
         labelVector           = jsonClient2Response["label_vector"]
         service_time_manager  = jsonClient2Response["service_time_manager"]
         service_time_worker   = jsonClient2Response["service_time_worker"]
-        service_time_client   = jsonClientResponse["service_time_client"]
+        service_time_client   = jsonClient2Response["service_time_client"]
         service_time_predict  = jsonClient2Response["service_time_predict"]
         
         write_to_file(labelVectorId,labelVector)
@@ -304,6 +312,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                 
                 for fut in as_completed(futures): # Espera para completar todos los EXPERIMENT_ITERATIONS 
                     result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
+                    
                     if result.is_err: # Si falla                         
                         (failed_row, error_response, experiment_iteration) = result.unwrap_err() # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
                         datasetId = failed_row["DATASET_ID"] # Sacamos el DatasetID
@@ -359,7 +368,8 @@ if __name__ =="__main__":
         "total_estimated_operations": total_estimated_operations,
         "sink_path":SINK_PATH,
         "source_path":SOURCE_PATH,
-        "log_path":LOG_PATH
+        "log_path":LOG_PATH,
+        "client_timeout":CLIENT_TIMEOUT,
     })
     # 2. Experimentos (programa principal).
     result        = main(trace_df=trace_df,max_experiment_iterations=MAX_EXPERIMENT_ITERATIONS)
@@ -368,11 +378,13 @@ if __name__ =="__main__":
     start_time = time.time()
     while result.is_err and current_tries < MAX_RETRIES:
         failed_rows       = result.unwrap_err()
-        sucess_percentage = ((trace_df.shape[0] - failed_rows.shape[0]) / trace_df.shape[0])*100
+        failed_rows_n = failed_rows.shape[0]
+        sucess_percentage = ((n_trace_records - failed_rows_n ) / n_trace_records )*100
         error_percentage  = 100 - sucess_percentage
-        LOGGER.error("{} completed with {} failed operations".format(EXPERIMENT_ID, failed_rows.shape[0]))
+        # LOGGER.error("{} completed with {} failed operations".format(EXPERIMENT_ID, failed_rows.shape[0]))
+        event_name = "COMPLETED.WITH.ERRORS"if failed_rows_n >0 else "COMPLETED.SUCCESSFULLY" 
         LOGGER.debug({
-            "event":"COMPLETED.WITH.ERRORS",
+            "event":event_name,
             "completed": EXPERIMENT_ID,
             "failed": failed_rows.shape[0],
             "sucess_percentage":sucess_percentage,

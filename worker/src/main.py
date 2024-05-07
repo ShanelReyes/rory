@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
 app = Flask(__name__)
-DEBUG                 = bool(int(os.environ.get("RORY_DEBUG",0)))
+DEBUG                 = bool(int(os.environ.get("RORY_DEBUG",1)))
 if DEBUG:
     load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
 

@@ -14,7 +14,7 @@ services:
       - RORY_MANAGER_PORT=6000
       - NUM_CHUNKS=4
       - MAX_WORKERS=1
-      - WORKER_TIMEOUT=300
+      - WORKER_TIMEOUT=3600
       - MAX_ITERATIONS=10
       - LIU_SECURITY_LEVEL=128
       - RELOAD=0
@@ -22,7 +22,7 @@ services:
       - LIU_DECIMALS=5
       - NP_RANDOM=1
       - TESTING=0
-      - RORY_DEBUG=0
+      - RORY_DEBUG=1
       - LOGGER_NAME=rory-client-0
       - MAX_RETRIES=10
       - MAX_DELAY=3
@@ -71,11 +71,11 @@ services:
       - MAX_RETRIES=10
       - LOAD_BALANCING=0
       - WORKER_MAX_THREADS=2
-      - WORKER_MEMORY=1000000000
+      - WORKER_MEMORY=4294967296
       - WORKER_CPU=2
-      - WORKER_TIMEOUT=300
+      - WORKER_TIMEOUT=3600
       - SWARM_NODES=2,3,4,8
-      - RORY_DEBUG=0
+      - RORY_DEBUG=1
       - WORKER_MAX_RETRIES=10
       - WORKER_MAX_DELAY=3
       - WORKER_JITTER=(.1,.5)

@@ -1,7 +1,7 @@
 import time, json
 import numpy as np
 import numpy.typing as npt
-from typing import Awaitable,List,Tuple
+from typing import Awaitable,List,Tuple,Generator,Dict
 from flask import Blueprint,current_app,request,Response
 from rory.core.clustering.kmeans import kmeans as kMeans
 from rory.core.clustering.secure.local.dbsnnc import Dbsnnc
@@ -12,23 +12,13 @@ from rory.core.clustering.secure.distributed.skmeans import SKMeans
 from rory.core.clustering.secure.distributed.dbskmeans import DBSKMeans
 # from mictlanx.v3.client import Client 
 from mictlanx.v4.client import Client as V4Client
-from option import Result
+from option import Result, Some
 from mictlanx.utils.segmentation import Chunks
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse,PutResponse
 from option import Option,Some,NONE
 from utils.utils import Utils as LocalUtils
 
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
-
-def delete_and_put(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,ndarray:npt.NDArray):
-    _x = STORAGE_CLIENT.delete_by_ball_id(ball_id=key, bucket_id=bucket_id)
-    return STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
-        key       = key, 
-        ndarray   = ndarray,
-        tags      = {},
-        bucket_id = bucket_id
-    )
-
 
 @clustering.route("/test",methods=["GET","POST"])
 def test():
@@ -102,16 +92,18 @@ def skmeans_1(requestHeaders) -> Response:
         return Response("Num-Chunks header is required", status=503)
     try:
         responseHeaders["Start-Time"] = str(arrival_time)
+
         logger.debug({
-            "event":"GET.MERGE.NDARRAY.BEFORE",
+            "event":"GET.MERGE.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
-            "shape":encrypted_matrix_shape,
+            "shape": str(encrypted_matrix_shape),
             "dtype":_encrypted_matrix_dtype
         })
         get_merge_encrypted_matrix_start_time  = time.time()
+
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_matrix_id,
             bucket_id = BUCKET_ID,
@@ -121,6 +113,7 @@ def skmeans_1(requestHeaders) -> Response:
         
         if x.is_err:
             raise Exception("{} not found".format(encrypted_matrix_id))
+        
         response                  = x.unwrap()
         encryptedMatrix           = response.value
         encrypted_matrix_metadata = response.metadata 
@@ -130,19 +123,19 @@ def skmeans_1(requestHeaders) -> Response:
         get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
 
         logger.info({
-            "event":"GET.MERGE.NDARRAY",
+            "event":"GET.MERGE.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
-            "shape":encrypted_matrix_shape,
+            "shape": str(encrypted_matrix_shape),
             "dtype":_encrypted_matrix_dtype,
             "service_time":get_merge_encrypted_matrix_st
         })
         
         logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
@@ -157,7 +150,7 @@ def skmeans_1(requestHeaders) -> Response:
         udm_get_st = time.time() - udm_get_start_time
         udm        = udm_matrix_response.value
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID,
@@ -171,7 +164,7 @@ def skmeans_1(requestHeaders) -> Response:
         
         if is_start_status: #if the status is start
             logger.debug({
-                "event":"NO.CentJ.WORKER.RUN1.BEFORE",
+                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
@@ -186,11 +179,11 @@ def skmeans_1(requestHeaders) -> Response:
 
         else: 
             logger.debug({
-                "event":"BEFORE.GET.NDARRAY",
+                "event":"GET.MATRIX.OR.ERROR.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
+                "key":cent_j_id,
             })
             cent_j_start_time = time.time()
             Cent_j_response   = LocalUtils.get_matrix_or_error(
@@ -204,7 +197,7 @@ def skmeans_1(requestHeaders) -> Response:
             cent_j_st = time.time() - cent_j_start_time
 
             logger.info({
-                "event":"GET.NDARRAY",
+                "event":"GET.MATRIX.OR.ERROR",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "bucket_id":BUCKET_ID,
@@ -248,39 +241,205 @@ def skmeans_1(requestHeaders) -> Response:
             return Response(str(error), status=500 )
         S1,Cent_i,Cent_j,label_vector = run1_result.unwrap()
 
+        Cent_i = np.array(Cent_i)
+        Cent_j = np.array(Cent_j)
+
+        logger.debug({
+                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "bucket_id":BUCKET_ID,
+                "key":cent_i_id,
+                "shape":str(Cent_i.shape), 
+                "dtype":str(Cent_i.dtype)
+            })
         
-        x = delete_and_put(
+        cent_i_chunks = Chunks.from_ndarray(
+            ndarray      = Cent_i,
+            group_id     = cent_i_id,
+            chunk_prefix = Some(cent_i_id),
+            num_chunks   = k,
+        )
+
+        if cent_i_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.info({
+                "event":"CHUNKS.FROM.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "bucket_id":BUCKET_ID,
+                "key":cent_i_id,
+                "shape":str(Cent_i.shape), 
+                "dtype":str(Cent_i.dtype)
+            })
+        
+        logger.debug({
+                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "bucket_id":BUCKET_ID,
+                "key":cent_i_id,
+                "shape":str(Cent_i.shape), 
+                "dtype":str(Cent_i.dtype)
+            })
+        
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = cent_i_chunks.unwrap()
+        )
+
+        x = LocalUtils.delete_and_put_chunked(
             STORAGE_CLIENT = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
+            ball_id        = cent_i_id,
             key            = cent_i_id,
-            ndarray        = np.array(Cent_i)
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(Cent_i.shape),
+                "dtype": str(Cent_i.dtype)
+            }
         )
+
+        logger.info({
+                "event":"DELETE.AND.PUT.CHUNKED",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "bucket_id":BUCKET_ID,
+                "key":cent_i_id,
+                "shape":str(Cent_i.shape), 
+                "dtype":str(Cent_i.dtype)
+            })
+
+        logger.debug({
+            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":cent_j_id,
+            "shape":str(Cent_j.shape), 
+            "dtype":str(Cent_j.dtype)
+        })
         
-        y = delete_and_put(
+        cent_j_chunks = Chunks.from_ndarray(
+            ndarray      = Cent_j,
+            group_id     = cent_j_id,
+            chunk_prefix = Some(cent_j_id),
+            num_chunks   = k,
+        )
+
+        if cent_j_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.info({
+            "event":"CHUNKS.FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":cent_j_id,
+            "shape":str(Cent_j.shape), 
+            "dtype":str(Cent_j.dtype)
+        })
+
+        logger.debug({
+            "event": "DELETE.AND.PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":cent_j_id,
+            "shape":str(Cent_j.shape), 
+            "dtype":str(Cent_j.dtype)
+        })
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = cent_j_chunks.unwrap()
+        )
+
+        y = LocalUtils.delete_and_put_chunked(
             STORAGE_CLIENT = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
+            ball_id        = cent_j_id,
             key            = cent_j_id,
-            ndarray        = np.array(Cent_j)
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(Cent_j.shape),
+                "dtype": str(Cent_j.dtype)
+            }
         )
 
-        z = delete_and_put(
+        logger.info({
+            "event": "DELETE.AND.PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":cent_j_id,
+            "shape":str(Cent_j.shape), 
+            "dtype":str(Cent_j.dtype)
+        })
+
+        logger.debug({
+            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":encrypted_shift_matrix_id,
+            "shape":str(S1.shape), 
+            "dtype":str(S1.dtype)
+        })
+        
+        s1_chunks = Chunks.from_ndarray(
+            ndarray      = S1,
+            group_id     = encrypted_shift_matrix_id,
+            chunk_prefix = Some(encrypted_shift_matrix_id),
+            num_chunks   = num_chunks,
+        )
+
+        if s1_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.info({
+            "event":"CHUNKS.FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":encrypted_shift_matrix_id,
+            "shape":str(S1.shape), 
+            "dtype":str(S1.dtype)
+        })
+
+        logger.debug({
+            "event": "DELETE.AND.PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":encrypted_shift_matrix_id,
+            "shape":str(S1.shape), 
+            "dtype":str(S1.dtype)
+        })
+
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = s1_chunks.unwrap()
+        )
+
+        z = LocalUtils.delete_and_put_chunked(
             STORAGE_CLIENT = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
+            ball_id        = encrypted_shift_matrix_id,
             key            = encrypted_shift_matrix_id,
-            ndarray        = np.array(S1)
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(S1.shape),
+                "dtype": str(S1.dtype)
+            }
         )
-        
-        _x:Result[PutResponse,Exception] = x.result()
-        if _x.is_err:
-            raise _x.unwrap_err()
 
-        _y:Result[PutResponse,Exception] = y.result()
-        if _y.is_err :
-            raise _y.unwrap_err()
-        
-        _z:Result[PutResponse,Exception] = z.result() 
-        if _z.is_err:
-            raise _z.unwrap_err()
+        logger.info({
+            "event": "DELETE.AND.PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "key":encrypted_shift_matrix_id,
+            "shape":str(S1.shape), 
+            "dtype":str(S1.dtype)
+        })
 
         end_time     = time.time()
         service_time = end_time - arrival_time
@@ -339,7 +498,7 @@ def skmeans_2(requestHeaders):
     
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
-    
+    num_chunks       = int(requestHeaders.get("Num-Chunks",-1))
     udm_id           = "{}udm".format(plaintext_matrix_id)
     cent_i_id        = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
     cent_j_id        = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
@@ -360,17 +519,18 @@ def skmeans_2(requestHeaders):
     try:
         get_UDM_start_time = time.time()
         logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id, 
-            "bucket_id":BUCKET_ID,
+            "bucket_id":BUCKET_ID
         })
+
         UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = udm_id,
-            bucket_id = BUCKET_ID,
+            key         = udm_id,
+            bucket_id   = BUCKET_ID,
             max_retries = 20,
-            delay = 2
+            delay       = 2
         )
         UDM_result:Result[GetNDArrayResponse,Exception] = UDM_put_future.result()
         if UDM_result.is_err:
@@ -381,7 +541,7 @@ def skmeans_2(requestHeaders):
         UDM = UDM_response.value
 
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":udm_id, 
@@ -392,12 +552,13 @@ def skmeans_2(requestHeaders):
         })
         
         logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id, 
             "bucket_id":BUCKET_ID,
         })
+
         get_cent_i_start_time = time.time()
         Cent_i_response = LocalUtils.get_matrix_or_error(
             client    = STORAGE_CLIENT,
@@ -406,8 +567,9 @@ def skmeans_2(requestHeaders):
         )
         Cent_i        = Cent_i_response.value
         get_cent_i_st = time.time() - get_cent_i_start_time
+
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id, 
@@ -418,7 +580,7 @@ def skmeans_2(requestHeaders):
         })
 
         logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id, 
@@ -435,7 +597,7 @@ def skmeans_2(requestHeaders):
 
         get_cent_j_st = time.time() - get_cent_j_start_time
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id, 
@@ -446,7 +608,7 @@ def skmeans_2(requestHeaders):
         })
         
         logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":shift_matrix_id, 
@@ -460,10 +622,10 @@ def skmeans_2(requestHeaders):
             bucket_id = BUCKET_ID
         )
         shiftMatrix = shiftMatrix_get_response.value
-        get_shift_matrix_st = time.time() - get_cent_j_start_time
+        get_shift_matrix_st = time.time() - get_shift_matrix_start_time
 
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":shift_matrix_id, 
@@ -472,6 +634,7 @@ def skmeans_2(requestHeaders):
             "dtype":str(shiftMatrix.dtype),
             "service_time":get_shift_matrix_st
         })
+
         min_error = 0.15
         isZero = Utils.verify_mean_error(
             old_matrix = Cent_i, 
@@ -535,18 +698,6 @@ def skmeans_2(requestHeaders):
                 "udm_dtype":str(UDM_array.dtype),
             })
             
-            udm_delete_result = STORAGE_CLIENT.delete(key=udm_id,bucket_id=BUCKET_ID)
-            if udm_delete_result.is_err:
-                error = udm_delete_result.unwrap_err()
-                logger.error(str(error))
-                return Response(str(error), status=500)
-            logger.debug({
-                "event":"UDM.DELETED",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID
-            })
             logger.debug({
                 "event":"PUT.NDARRAY.BEFORE",
                 "algorithm":algorithm,
@@ -557,17 +708,65 @@ def skmeans_2(requestHeaders):
                 "udm_dtype":str(UDM_array.dtype),
             })
             put_udm_start_time = time.time()
-            x = STORAGE_CLIENT.put_ndarray(
-                key       = udm_id, 
-                ndarray   = UDM_array,
-                tags      = {},
-                bucket_id = BUCKET_ID
-            ).result() # UDM is extracted from the storage system
+
+            udm_chunks = Chunks.from_ndarray(
+                ndarray      = UDM_array,
+                group_id     = udm_id,
+                chunk_prefix = Some(udm_id),
+                num_chunks   = num_chunks,
+            )
+
+            if udm_chunks.is_none:
+                raise "something went wrong creating the chunks"
+            
+            logger.info({
+                "event":"PUT.NDARRAY",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "key":udm_id,
+                "bucket_id":BUCKET_ID,
+                "udm_shape": str(UDM_array.shape),
+                "udm_dtype":str(UDM_array.dtype),
+            })
+
+            logger.debug({
+                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "key":udm_id,
+                "bucket_id":BUCKET_ID,
+                "udm_shape": str(UDM_array.shape),
+                "udm_dtype":str(UDM_array.dtype),
+            })
+
+            chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+                chs = udm_chunks.unwrap()
+            )
+
+            x = LocalUtils.delete_and_put_chunked(
+                STORAGE_CLIENT = STORAGE_CLIENT,
+                bucket_id      = BUCKET_ID,
+                ball_id        = udm_id,
+                key            = udm_id,
+                chunks         = chunks_bytes,
+                tags = {
+                    "shape": str(UDM_array.shape),
+                    "dtype": str(UDM_array.dtype)
+                }
+            )
+            
+            if x.is_err:
+                error = str(x.unwrap_err())
+                logger.error({
+                    "msg":error
+                })
+                return Response(error,status=500)
+            
             endTime2   = time.time()
             put_udm_st = endTime2 - put_udm_start_time
 
             logger.info({
-                "event":"PUT.NDARRAY",
+                "event":"DELETE.AND.PUT.CHUNKED",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "key":udm_id,
@@ -635,18 +834,46 @@ def kmeans():
         "plaintext_matrix_id":plaintext_matrix_id,
         "k":k
     })
-
     try:
+        logger.debug({
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":plaintext_matrix_id
+        })
         plaintext_matrix_response = LocalUtils.get_matrix_or_error(
             client    = STORAGE_CLIENT,
             key       = plaintext_matrix_id,
             bucket_id = BUCKET_ID
         ) 
+
         plaintext_matrix = plaintext_matrix_response.value
+
+        logger.info({
+            "event":"GET.MATRIX.OR.ERROR",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":plaintext_matrix_id,
+        })
+
+        logger.debug({
+            "event":"KMEANS.PROCESS.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":plaintext_matrix_id,
+        })
         result = kMeans(
             k                = k, 
             plaintext_matrix = plaintext_matrix
         )
+
+        logger.info({
+            "event":"KMEANS.PROCESS",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":plaintext_matrix_id,
+        })
+
         end_time     = time.time()
         service_time = end_time - local_start_time
 
@@ -749,7 +976,7 @@ def dbskmeans_1(requestHeaders) -> Response:
         response_headers["Start-Time"] = str(arrival_time)
 
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
@@ -764,19 +991,21 @@ def dbskmeans_1(requestHeaders) -> Response:
             max_retries = 20,
             delay = 2
             ).result()
+        
         if x.is_err:
             raise Exception("{} not found".format(encrypted_matrix_id))
         response = x.unwrap()
         encryptedMatrix = response.value
         encrypted_matrix_metadata = response.metadata 
         
+        # time.sleep(10)
         get_merge_st = time.time() - get_merge_start_time
         
         response_headers["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
         response_headers["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
         
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
@@ -788,7 +1017,7 @@ def dbskmeans_1(requestHeaders) -> Response:
         })
 
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
@@ -804,15 +1033,17 @@ def dbskmeans_1(requestHeaders) -> Response:
             max_retries = 20,
             delay = 2
             ).result()
+        
         if x.is_err:
             raise Exception("{} not found".format(encrypted_udm_id))
-        response = x.unwrap()
+        
+        response      = x.unwrap()
         encrypted_udm = response.value
-        udm_metadata = response.metadata 
+        udm_metadata  = response.metadata 
 
         get_merge_st = time.time() - get_merge_start_time
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "bucket_id":BUCKET_ID ,
@@ -822,14 +1053,15 @@ def dbskmeans_1(requestHeaders) -> Response:
             "dtype":str(encrypted_udm.dtype),
             "service_time":get_merge_st
         })
-        
+        # time.sleep(60)
+
         response_headers["Encrypted-Udm-Dtype"] = str(udm_metadata.tags.get("dtype",encrypted_udm.dtype)) # Extract the type
         response_headers["Encrypted-Udm-Shape"] = str(udm_metadata.tags.get("shape",encrypted_udm.shape)) # Extract the shape
         
         if is_start_status: #if the status is start
             __Cent_j = NONE #There is no Cent_j
             logger.debug({
-                "event":"NO.CentJ.WORKER.RUN1.BEFORE",
+                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "status":status,
@@ -843,12 +1075,13 @@ def dbskmeans_1(requestHeaders) -> Response:
 
         else: 
             logger.debug({
-                "event":"GET.MATRIX.BEFORE",
+                "event":"GET.MATRIX.OR.ERROR.BEFORE",
                 "key":cent_i_id,
                 "bucket_id":BUCKET_ID
             })
             get_matrix_cent_i_start_time = time.time()
-
+            # print("BEFORE GET MATRIX ERROR CENT_I")
+            # time.sleep(60)
             Cent_j_response = LocalUtils.get_matrix_or_error(
                 bucket_id = BUCKET_ID,
                 client    = STORAGE_CLIENT,
@@ -859,11 +1092,14 @@ def dbskmeans_1(requestHeaders) -> Response:
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS
 
             logger.info({
-                "event":"GET.MATRIX",
-                "key":cent_i_id,
+                "event":"GET.MATRIX.OR.ERROR",
+                "key":cent_j_id,
                 "bucket_id":BUCKET_ID,
+                "shape":str(cent_j_value.shape),
+                "dtype":str(cent_j_value.dtype),
                 "service_time":time.time() - get_matrix_cent_i_start_time
             })
+            # time.sleep(60)
         
             logger.debug({
                 "event":"DBSKMEANS.RUN.1.BEFORE",
@@ -878,6 +1114,9 @@ def dbskmeans_1(requestHeaders) -> Response:
                 "k":k,
                 "m":m
             })
+
+        # print("BEGORE RUN 1")
+        # time.sleep(60)
 
         run1_start_time = time.time()
         run1_result = dbskmeans.run1(
@@ -895,8 +1134,11 @@ def dbskmeans_1(requestHeaders) -> Response:
                 "msg":str(error)
             })
             return Response(str(error),status=500)
-        S1,Cent_i,Cent_j,label_vector = run1_result.unwrap()
-        run1_st = time.time()- run1_start_time
+        
+        S1, Cent_i, Cent_j, label_vector = run1_result.unwrap()
+
+        run1_st = time.time() - run1_start_time
+        
         logger.info({
             "event":"DBSKMEANS.RUN.1",
             "algorithm":algorithm,
@@ -915,112 +1157,257 @@ def dbskmeans_1(requestHeaders) -> Response:
             "cent_j_dtype":str(Cent_j.dtype),
             "service_time":run1_st
         })
+        # print("AFTER RUN1")
+        # time.sleep(60)
 
         logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
+            "event":"FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_i_id,
+            "bucket_id":BUCKET_ID,
+            "cent_i_shape":str(Cent_i.shape),
+            "k":k
+        })
+        put_ndarray_start_time = time.time()
+
+
+        # print("BEGORE CHUNKS FROM NDARRAY")
+        # logger.debug({
+        #     "msg":"BEGORE CHHUNKS",
+        #     "shape":str(Cent_i.shape),
+        #     "ndarray":str(Cent_i)
+        # })
+        cent_i_chunks = Chunks.from_ndarray(
+            ndarray      = Cent_i,
+            group_id     = cent_i_id,
+            chunk_prefix = Some(cent_i_id),
+            num_chunks   = k,
+        )
+        logger.debug({"msg":"AFTER NDARRAY CHUNKS","obj":str(cent_i_chunks)})
+
+
+        if cent_i_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        # time.sleep(100)
+        logger.info({
+            "event":"FROM.NDARRAY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
             "bucket_id":BUCKET_ID
         })
-        put_ndarray_start_time = time.time()
-        xd = STORAGE_CLIENT.delete(
-            key       = cent_i_id,
-            bucket_id = BUCKET_ID
+        
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = cent_i_chunks.unwrap()
         )
-        x:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
-            key       = cent_i_id, 
-            ndarray   = Cent_i,
-            tags      = {},
-            bucket_id = BUCKET_ID
-        ).result()
+
+        logger.debug({
+            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_i_id,
+            "bucket_id":BUCKET_ID,
+            "cent_i_shape":str(Cent_i.shape),
+            "cent_i_dtype":str(Cent_i.dtype),
+        })
+
+        del_put_result_cent_i = LocalUtils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = cent_i_id,
+            key            = cent_i_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(Cent_i.shape),
+                "dtype": str(Cent_i.dtype)
+            }
+        )
+        
+
+
+        if del_put_result_cent_i.is_err:
+            error = str(del_put_result_cent_i.unwrap_err())
+            logger.error({
+                "msg":error
+            })
+            return Response(error,status=500)
+
+      
+
         put_ndarray_st = time.time() - put_ndarray_start_time
-        if x.is_err:
+
+        logger.info({
+            "event":"DELETE.AND.PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_i_id,
+            "bucket_id":BUCKET_ID,
+            "cent_i_shape":str(Cent_i.shape),
+            "cent_i_dtype":str(Cent_i.dtype),
+            "service_time":put_ndarray_st
+        })
+        # print("AFTER DELETE PUT CHUNKED...............")
+        # time.sleep(60)
+        del chunks_bytes
+        del cent_i_chunks
+        del Cent_i
+
+        logger.debug({
+            "event":"FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_j_id,
+            "bucket_id":BUCKET_ID
+        })
+        put_ndarray_start_time = time.time()
+
+        cent_j_chunks = Chunks.from_ndarray(
+            ndarray      = Cent_j,
+            group_id     = cent_j_id,
+            chunk_prefix = Some(cent_j_id),
+            num_chunks   = k,
+        )
+
+        if cent_j_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.info({
+            "event":"FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_j_id,
+            "bucket_id":BUCKET_ID
+        })
+
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = cent_j_chunks.unwrap()
+        )
+
+        logger.debug({
+            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":cent_j_id,
+            "bucket_id":BUCKET_ID,
+            "cent_i_shape":str(Cent_j.shape),
+            "cent_i_dtype":str(Cent_j.dtype)
+        })
+
+        y = LocalUtils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = cent_j_id,
+            key            = cent_j_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(Cent_j.shape),
+                "dtype": str(Cent_j.dtype)
+            }
+        )
+
+        if y.is_err:
             error = str(x.unwrap_err())
             logger.error({
                 "msg":error
             })
             return Response(error,status=500)
-        logger.info({
-            "event":"PUT.NDARRAY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id,
-            "bucket_id":BUCKET_ID,
-            "service_time":put_ndarray_st
-        })
         
-        logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id,
-            "bucket_id":BUCKET_ID
-        })
-        put_ndarray_start_time = time.time()
-        yd = STORAGE_CLIENT.delete(
-            key=cent_j_id,
-            bucket_id=BUCKET_ID
-        )
-        y:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_j to storage
-            key       = cent_j_id, 
-            ndarray   = Cent_j,
-            tags      = {},
-            bucket_id = BUCKET_ID
-        ).result()
-        if y.is_err:
-            error = str(y.unwrap_err())
-            logger.error({
-                "msg":error
-            })
-            return Response(error,status=500)
-
         put_ndarray_st = time.time() - put_ndarray_start_time
+
         logger.info({
-            "event":"PUT.NDARRAY",
+            "event":"DELETE.AND.PUT.CHUNKED",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
             "bucket_id":BUCKET_ID,
-            "service_time":put_ndarray_st
+            "cent_i_shape":str(Cent_j.shape),
+            "cent_i_dtype":str(Cent_j.dtype)
         })
 
+        del chunks_bytes
+        del cent_j_chunks
+        del Cent_j
+
+
         logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
+            "event":"FROM.NDARRAY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id,
+            "key":encrypted_shift_matrix_id,
+            "encrypted_shift_matrix":str(S1.shape),
             "bucket_id":BUCKET_ID
         })
         put_ndarray_start_time = time.time()
-        zd = STORAGE_CLIENT.delete(
-            key=encrypted_shift_matrix_id,
-            bucket_id=BUCKET_ID
+
+
+        s1_chunks = Chunks.from_ndarray(
+            ndarray      = S1,
+            group_id     = encrypted_shift_matrix_id,
+            chunk_prefix = Some(encrypted_shift_matrix_id),
+            num_chunks   = k,
         )
-        z = STORAGE_CLIENT.put_ndarray( # Saving S1 matrix to storage
-            key       = encrypted_shift_matrix_id,  
-            ndarray   = S1,
-            tags      = {},
-            bucket_id = BUCKET_ID
-        ).result()
 
-        if z.is_err:
-            error = str(z.unwrap_err())
-            logger.error({
-                "msg":error
-            })
-            return Response(error,status=500)
-
-        put_ndarray_st = time.time() - put_ndarray_start_time
+        if s1_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
         logger.info({
-            "event":"PUT.NDARRAY",
+            "event":"FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":encrypted_shift_matrix_id,
+            "bucket_id":BUCKET_ID
+        })
+
+        logger.debug({
+            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_shift_matrix_id,
             "bucket_id":BUCKET_ID,
-            "service_time":put_ndarray_st
+            "shape": str(S1.shape),
+            "dtype": str(S1.dtype)
+        })
+
+        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
+            chs = s1_chunks.unwrap()
+        )
+
+        z = LocalUtils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = encrypted_shift_matrix_id,
+            key            = encrypted_shift_matrix_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(S1.shape),
+                "dtype": str(S1.dtype)
+            }
+        )
+
+        if z.is_err:
+            error = str(x.unwrap_err())
+            logger.error({
+                "msg":error
+            })
+            return Response(error,status=500)
+
+        put_ndarray_st = time.time() - put_ndarray_start_time
+
+        logger.info({
+            "event":"DELETE.AND.PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":encrypted_shift_matrix_id,
+            "bucket_id":BUCKET_ID,
+            "shape": str(S1.shape),
+            "dtype": str(S1.dtype)
         })
         
+        del chunks_bytes
+        del s1_chunks
+        del S1
+
         end_time                                      = time.time()
         service_time                                  = end_time - arrival_time
         response_headers["Service-Time"]              = str(service_time)
@@ -1124,7 +1511,7 @@ def dbskmeans_2(requestHeaders):
     
     try:
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
@@ -1148,7 +1535,7 @@ def dbskmeans_2(requestHeaders):
         encrypted_udm_metadata = udm_.metadata 
 
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":encrypted_udm_id,
@@ -1160,7 +1547,7 @@ def dbskmeans_2(requestHeaders):
         })
         
         logger.debug({
-            "event":"GET.MATRIX.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
@@ -1174,7 +1561,7 @@ def dbskmeans_2(requestHeaders):
         )
         cent_i = Cent_i_response.value
         logger.info({
-            "event":"GET.MATRIX",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_i_id,
@@ -1183,7 +1570,7 @@ def dbskmeans_2(requestHeaders):
         })
 
         logger.debug({
-            "event":"GET.MATRIX.BEFORE",
+            "event":"GET.MATRIX.OR.ERROR.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
@@ -1197,7 +1584,7 @@ def dbskmeans_2(requestHeaders):
         ) 
         cent_j = Cent_j_response.value
         logger.info({
-            "event":"GET.MATRIX",
+            "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "key":cent_j_id,
@@ -1262,7 +1649,7 @@ def dbskmeans_2(requestHeaders):
             status    = Constants.ClusteringStatus.WORK_IN_PROGRESS #The status is changed to WORK IN PROGRESS
             response_headers["Clustering-Status"] = status
             logger.debug({
-                "event":"GET.MATRIX.BEFORE",
+                "event":"GET.MATRIX.OR.ERROR.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
@@ -1277,7 +1664,7 @@ def dbskmeans_2(requestHeaders):
             shift_matrix_ope:npt.NDArray = shift_matrix_ope_response.value
 
             logger.info({
-                "event":"GET.MATRIX",
+                "event":"GET.MATRIX.OR.ERROR",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "key":shift_matrix_ope_id,
@@ -1296,6 +1683,7 @@ def dbskmeans_2(requestHeaders):
                 "prev_udm_shape":str(prev_encrypted_udm.shape),
                 "prev_udm_dtype":str(prev_encrypted_udm.dtype),
             })
+            # 
             current_udm = dbskmeans.run_2( # The second part of the skmeans starts
                 k           = k,
                 UDM         = prev_encrypted_udm,
@@ -1319,6 +1707,15 @@ def dbskmeans_2(requestHeaders):
                 "service_time":time.time()- udm_start_time
             })
             
+            logger.debug({
+                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "key":encrypted_udm_id,
+                "bucket_id":BUCKET_ID,
+                "num_chunks":num_chunks
+            }) 
+
             maybe_udm_chunks:Option[Chunks] = Chunks.from_ndarray(
                 ndarray    = current_udm,
                 group_id   = encrypted_udm_id,
@@ -1336,40 +1733,67 @@ def dbskmeans_2(requestHeaders):
                 )
             
             udm_chunks = maybe_udm_chunks.unwrap()
+
+            cm_shape = str(current_udm.shape)
+            cm_dtype = str(current_udm.dtype)
+            del current_udm
             
             logger.debug({
-                "event":"PUT.CHUNKED.BEFORE",
+                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_udm_id,
                 "bucket_id":BUCKET_ID,
                 "num_chunks":num_chunks
-            })
-            put_chunks_start_time = time.time()
+            }) 
             
-            chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
-                chs = encrypted_udm_id
-            )
-            
-            put_chunks_udm_generator_results = STORAGE_CLIENT.put_chunked(
-                key       = encrypted_udm_id, 
-                chunks    = chunks_udm_bytes, 
-                bucket_id = BUCKET_ID,
-                tags      = {
-                    "shape": str(encrypted_udm_shape),
-                    "dtype":"float64"
-                }
-            )
-            
-            logger.info({
-                "event":"PUT.CHUNKED",
+            logger.debug({
+                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
                 "key":encrypted_udm_id,
                 "bucket_id":BUCKET_ID,
                 "num_chunks":num_chunks,
+                "shape":cm_shape,
+                "dtype":cm_dtype,
+            })
+            put_chunks_start_time = time.time()
+            
+            chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
+
+                chs = udm_chunks # PUNISTE UN STR EN LUGAR DE UN CHUNKS
+
+            )
+            
+            put_chunks_udm_generator_results = LocalUtils.delete_and_put_chunked(
+                STORAGE_CLIENT = STORAGE_CLIENT,
+                bucket_id      = BUCKET_ID,
+                ball_id        = encrypted_udm_id,
+                key            = encrypted_udm_id, 
+                chunks         = chunks_udm_bytes, 
+                tags = {
+                    "shape":cm_shape,
+                    "dtype":cm_dtype,
+                }
+            )
+            
+            logger.info({
+                "event": "DELETE.AND.PUT.CHUNKED",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "key":encrypted_udm_id,
+                "bucket_id":BUCKET_ID,
+                "num_chunks":num_chunks,
+                "shape":cm_shape,
+                "dtype":cm_dtype,
                 "service_time":time.time() - put_chunks_start_time
             })
+            del udm_chunks
+            del chunks_udm_bytes
+            
+            
+            # del prev_encrypted_udm
+
             end_time                         = time.time()
             service_time                     = end_time - local_start_time  #Service time is calculated
             response_headers["End-Time"]     = str(end_time)
@@ -1393,18 +1817,21 @@ def dbskmeans_2(requestHeaders):
                 "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
                 "prev_udm_shape":str(prev_encrypted_udm.shape),
                 "prev_udm_dtype":str(prev_encrypted_udm.dtype),
-                "current_udm_shape":str(current_udm.shape),
-                "current_udm_dtype":str(current_udm.dtype),
+                "shape":cm_shape,
+                "dtype":cm_dtype,
                 "num_chunks":num_chunks,
                 "service_time":service_time
             })
+            
+            
+            del prev_encrypted_udm
             
             return Response( #Return none and headers
                 response = json.dumps({
                     "end_time":end_time,
                     "service_time":service_time,
-                    "encrypted_udm_shape":str(current_udm.shape),
-                    "encrypted_udm_dtype":str(current_udm.dtype),
+                    "encrypted_udm_shape":cm_shape,
+                    "encrypted_udm_dtype":str(cm_dtype),
                 }),
                 status   = 200, 
                 headers  = { **response_headers}
@@ -1495,7 +1922,7 @@ def dbsnnc():
         responseHeaders["Start-Time"] = str(local_start_time)
         
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
@@ -1506,6 +1933,7 @@ def dbsnnc():
             
         })
         get_merge_encrypted_matrix_start_time = time.time()
+
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
             key       = encrypted_matrix_id,
             bucket_id = BUCKET_ID,
@@ -1521,7 +1949,7 @@ def dbsnnc():
 
         get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_matrix_id,
@@ -1535,7 +1963,7 @@ def dbsnnc():
         responseHeaders["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
 
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_dm_id,
@@ -1559,7 +1987,7 @@ def dbsnnc():
 
         get_merge_encrypted_dm_st = time.time() - get_merge_encrypted_dm_start_time
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "encrypted_matrix_id":encrypted_dm_id,
@@ -1672,7 +2100,7 @@ def nnc():
         response_headers["Start-Time"] = str(local_start_time)
         
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
@@ -1683,13 +2111,15 @@ def nnc():
         get_merge_plaintext_matrix_start_time = time.time()
 
         x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = plaintext_matrix_id,
-            bucket_id = BUCKET_ID,
+            key         = plaintext_matrix_id,
+            bucket_id   = BUCKET_ID,
             max_retries = 20,
-            delay = 2
+            delay       = 2
             ).result()
+        
         if x.is_err:
             raise Exception("{} not found".format(plaintext_matrix_id))
+        
         response = x.unwrap()
         plaintextMatrix = response.value
         plaintext_matrix_metadata = response.metadata 
@@ -1697,7 +2127,7 @@ def nnc():
         get_merge_plaintext_matrix_st = time.time() - get_merge_plaintext_matrix_start_time
         
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
@@ -1710,7 +2140,7 @@ def nnc():
         responseHeaders["Plaintext-Matrix-Shape"] = plaintext_matrix_metadata.tags.get("shape",plaintextMatrix.shape) #Save the shape
 
         logger.debug({
-            "event":"GET.NDARRAY.MERGE.BEFORE",
+            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "num_chunks":num_chunks,
@@ -1735,7 +2165,7 @@ def nnc():
 
         get_merge_dm_st = time.time() - get_merge_dm_start_time
         logger.info({
-            "event":"GET.NDARRAY.MERGE",
+            "event":"GET.NDARRAY.WITH.RETRY",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "dm_id":dm_id,

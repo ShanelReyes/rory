@@ -11,6 +11,7 @@ from mictlanx.utils.segmentation import Chunks
 import numpy.typing as npt
 from option import Result, Some
 
+import numpy as np
 classification = Blueprint("classification",__name__,url_prefix = "/classification")
 
 @classification.route("/test",methods=["GET","POST"])
@@ -212,21 +213,35 @@ def sknn_pedict_1(requestHeaders):
         if maybe_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-        _ = STORAGE_CLIENT.delete_by_ball_id(
-            ball_id   = distances_id, 
-            bucket_id = BUCKET_ID
-        )
+        # _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=BUCKET_ID, ball_id=distances_id)
+        
+        # _ = STORAGE_CLIENT.delete_by_ball_id(
+        #     ball_id   = distances_id, 
+        #     bucket_id = BUCKET_ID
+        # )
 
         chunks_distances_bytes = Utils.chunks_to_bytes_gen(
             chs = maybe_chunks.unwrap()
         )
 
-        put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
-            key       = distances_id, 
-            chunks    = chunks_distances_bytes, 
-            bucket_id = BUCKET_ID,
-            tags      = {
-                "shape": str(distances_shape),
+        # put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
+        #     key       = distances_id, 
+        #     chunks    = chunks_distances_bytes, 
+        #     bucket_id = BUCKET_ID,
+        #     tags      = {
+        #         "shape": str(distances_shape),
+        #         "dtype":"float64"
+        #     }
+        # )
+        put_chunks_generator_results = Utils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = distances_id,
+            key            = distances_id,
+            chunks         = chunks_distances_bytes,
+            tags = {
+                # "shape": str((r,a,m)),
+                "shape":str(distances_shape),
                 "dtype":"float64"
             }
         )
@@ -499,7 +514,7 @@ def knn_predict():
             "models_labels_shape":str(model_labels.dtype)
         })
         knn_predict_start_time = time.time()
-        label_vector = KNN.predict(
+        label_vector:npt.NDArray = KNN.predict(
             dataset      = records,
             model        = model,
             model_labels = model_labels
@@ -528,7 +543,7 @@ def knn_predict():
         })
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({
-                "label_vector":label_vector.tolist(),
+                "label_vector":label_vector.flatten().tolist(),
                 "service_time":service_time
             }),
             status   = 200,

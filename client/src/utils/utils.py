@@ -1,6 +1,6 @@
 from mictlanx.v4.client import Client as V4Client
 from mictlanx.utils.index import Utils as MictlanXUtils
-from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata
+from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata,PutChunkedResponse,PutResponse
 from option import Option, NONE,Result,Ok,Err,Some
 from functools import reduce
 import numpy as np
@@ -8,7 +8,7 @@ import numpy.typing as npt
 import pandas as pd
 import os
 import operator
-from typing import Tuple, Generator
+from typing import Tuple, Generator,Dict
 from retry import retry
 from mictlanx.utils.segmentation import Chunks,Chunk
 from rory.core.security.dataowner import DataOwner
@@ -84,8 +84,8 @@ class Utils:
 
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
-    def get_matrix_or_error(client:V4Client,key:str, bucket_id:str)->GetNDArrayResponse:
-        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id).result()
+    def get_matrix_or_error(client:V4Client,key:str, bucket_id:str,timeout:int = 3600)->GetNDArrayResponse:
+        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,timeout=timeout).result()
         if x.is_err:
             e = x.unwrap_err()
             # print("GET_ERROR",e)
@@ -152,6 +152,145 @@ class Utils:
     def chunks_to_bytes_gen(chs:Chunks) -> Generator[bytes,None,None]:
         for chunk in chs.iter():
             yield chunk.data
+
+    @staticmethod
+    def while_not_delete(STORAGE_CLIENT:V4Client ,bucket_id:str, key:str): 
+        n_deletes = -1
+
+        while not n_deletes == 0:
+            _delete_result = STORAGE_CLIENT.delete(bucket_id=bucket_id,key=key)
+            if _delete_result.is_ok:
+                del_response = _delete_result.unwrap()
+                n_deletes = del_response.n_deletes
+        return n_deletes
+    
+    @staticmethod
+    def while_not_delete_ball_id(STORAGE_CLIENT:V4Client ,bucket_id:str, ball_id:str,timeout:int = 3600): 
+        n_deletes = -1
+        
+        while not n_deletes == 0:
+            _delete_result = STORAGE_CLIENT.delete_by_ball_id(bucket_id=bucket_id,ball_id=ball_id,timeout=timeout)
+            if _delete_result.is_ok:
+                del_response = _delete_result.unwrap()
+                # print("DEL_RESPONSE_BY_BID", del_response)
+                n_deletes = del_response.n_deletes
+        return n_deletes
+    
+    @staticmethod
+    def delete_and_put_ndarray_by_ball_id(STORAGE_CLIENT:V4Client,bucket_id:str,ball_id:str,ndarray:npt.NDArray,tags:Dict[str,str]={})->Result[PutResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+            put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+            key       = ball_id, 
+            ndarray   = ndarray,
+            tags      = tags,
+            bucket_id = bucket_id
+            ).result()
+            if put_res.is_ok:
+                return put_res
+            
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+
+    @staticmethod
+    def delete_and_put_chunked_by_ball_id(STORAGE_CLIENT:V4Client,bucket_id:str,ball_id:str,chunks:Generator[bytes,None,None], tags:Dict[str,str]={})->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+            put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
+            key       = ball_id, 
+            chunks= chunks,
+            tags      = tags,
+            bucket_id = bucket_id
+            )
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+    
+
+    @staticmethod
+    def delete_and_put_ndarray_by_key(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,ndarray:npt.NDArray,tags:Dict[str,str]={})->Result[PutResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, key=key)
+            put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+            key       = key, 
+            ndarray   = ndarray,
+            tags      = tags,
+            bucket_id = bucket_id
+            ).result()
+            if put_res.is_ok:
+                return put_res
+            
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+
+    @staticmethod
+    def delete_and_put_chunked_by_key(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,chunks:Generator[bytes,None,None], tags:Dict[str,str]={})->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, key=key)
+            put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
+            key       = key, 
+            chunks= chunks,
+            tags      = tags,
+            bucket_id = bucket_id
+            )
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+    
+    @staticmethod
+    def delete_and_put_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str,ball_id:str,key:str,ndarray:npt.NDArray, tags:Dict[str,str]={})->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+            put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+            key       = key, 
+            ndarray   = ndarray,
+            tags      = tags,
+            bucket_id = bucket_id
+            ).result()
+
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+    @staticmethod
+    def delete_and_put_chunked(
+        STORAGE_CLIENT:V4Client,
+        bucket_id:str,
+        ball_id:str,
+        key:str,chunks:Generator[bytes,None,None], tags:Dict[str,str]={},
+        timeout:int = 3600
+    )->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(
+                STORAGE_CLIENT=STORAGE_CLIENT, 
+                bucket_id=bucket_id, 
+                ball_id=ball_id
+            )
+            put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
+                key       = key, 
+                chunks    = chunks,
+                tags      = tags,
+                bucket_id = bucket_id,
+                timeout=timeout
+            )
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
 
 if __name__ =="__main__":
     MICTLANX_TIMEOUT      = 120

@@ -1,9 +1,9 @@
 from mictlanx.v4.client import Client as V4Client
-from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata
+from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata,PutResponse,PutChunkedResponse
 from mictlanx.utils.segmentation import Chunks,Chunk
 from option import Option,NONE,Result,Ok,Err
 from functools import reduce
-from typing import Tuple, Generator
+from typing import Tuple, Generator,Dict
 import operator
 import pandas as pd
 import numpy as np
@@ -77,3 +77,96 @@ class Utils:
     def chunks_to_bytes_gen(chs:Chunks) -> Generator[bytes,None,None]:
         for chunk in chs.iter():
             yield chunk.data
+
+    @staticmethod
+    def while_not_delete(STORAGE_CLIENT:V4Client ,bucket_id:str, key:str): 
+        n_deletes = -1
+
+        while not n_deletes == 0:
+            _delete_result = STORAGE_CLIENT.delete(bucket_id=bucket_id,key=key)
+            if _delete_result.is_ok:
+                del_response = _delete_result.unwrap()
+                n_deletes = del_response.n_deletes
+        return n_deletes
+    
+    @staticmethod
+    def while_not_delete_ball_id(STORAGE_CLIENT:V4Client ,bucket_id:str, ball_id:str): 
+        n_deletes = -1   
+        while not n_deletes == 0:
+            _delete_result = STORAGE_CLIENT.delete_by_ball_id(bucket_id=bucket_id,ball_id=ball_id)
+            if _delete_result.is_ok:
+                del_response = _delete_result.unwrap()
+                n_deletes = del_response.n_deletes
+        return n_deletes
+    
+    @staticmethod
+    def delete_and_put_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str,ball_id:str,key:str,ndarray:npt.NDArray,tags:Dict[str,str]={})->Result[PutResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+            put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+                key       = key, 
+                ndarray   = ndarray,
+                tags      = tags,
+                bucket_id = bucket_id
+            ).result()
+            if put_res.is_ok:
+                return put_res
+            
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+
+    @staticmethod
+    def delete_and_put_chunked(STORAGE_CLIENT:V4Client,bucket_id:str,ball_id:str,key:str,chunks:Generator[bytes,None,None], tags:Dict[str,str]={})->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+            put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
+                key       = key, 
+                chunks= chunks,
+                tags      = tags,
+                bucket_id = bucket_id
+            )
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        
+        return put_res
+    
+
+    @staticmethod
+    def delete_and_put_ndarray_by_key(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,ndarray:npt.NDArray,tags:Dict[str,str]={})->Result[PutResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, key=key)
+            put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
+            key       = key, 
+            ndarray   = ndarray,
+            tags      = tags,
+            bucket_id = bucket_id
+            ).result()
+            if put_res.is_ok:
+                return put_res
+            
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
+
+    @staticmethod
+    def delete_and_put_chunked_by_key(STORAGE_CLIENT:V4Client,bucket_id:str,key:str,chunks:Generator[bytes,None,None], tags:Dict[str,str]={})->Result[PutChunkedResponse,Exception]:
+        condition = True
+        put_res = None
+        while condition: 
+            _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, key=key)
+            put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
+            key       = key, 
+            chunks= chunks,
+            tags      = tags,
+            bucket_id = bucket_id
+            )
+            if put_res.is_ok:
+                return put_res
+            condition = put_res.is_err and not (_delete_result == 0)
+        return put_res
