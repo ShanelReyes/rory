@@ -61,7 +61,7 @@ services:
       - NODE_PORT=6000
       - SERVER_IP_ADDR=0.0.0.0
       - NODE_PREFIX=rory-worker-
-      - INIT_WORKERS=1
+      - INIT_WORKERS=2
       - WORKER_INIT_PORT=9000
       - DOCKER_IMAGE_NAME=shanelreyes/rory
       - DOCKER_IMAGE_TAG=worker

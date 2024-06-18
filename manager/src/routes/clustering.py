@@ -206,3 +206,4 @@ def test_secure():
         sem.release()
         logger.error(str(e))
         return ("SERVER_ERROR",500)
+    

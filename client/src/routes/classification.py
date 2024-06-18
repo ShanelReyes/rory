@@ -732,6 +732,7 @@ def sknn_predict():
         return Response(
             response = json.dumps({
                 "label_vector":label_vector,
+                "worker_id":worker_id,
                 "service_time_manager":get_worker_service_time,
                 "service_time_worker":worker_response_time,
                 "service_time_client":service_time_client,
@@ -1177,6 +1178,7 @@ def knn_predict():
         return Response(
             response = json.dumps({
                 "label_vector":label_vector,
+                "worker_id":worker_id,
                 "service_time_manager":get_worker_service_time,
                 "service_time_worker":worker_response_time,
                 "service_time_client":service_time_client,

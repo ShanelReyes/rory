@@ -135,6 +135,8 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
         service_time_worker     = jsonClientResponse["service_time_worker"]
         service_time_client     = jsonClientResponse["service_time_client"]
         service_time_clustering = jsonClientResponse["response_time_clustering"]
+        worker_id               = jsonClientResponse["worker_id"]
+        
 
 
         write_to_file(label_vector_id,labelVector)
@@ -148,6 +150,7 @@ def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
             "arrival_time":arrival_time,
             "end_time":end_time,
             "response_time":response_time,
+            "worker_id":worker_id,
             "current_iteration":current_experiment_iteration,
             "max_iterations":max_iterations,
             "service_time_manager":service_time_manager,
@@ -263,6 +266,7 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
         service_time_worker   = jsonClient2Response["service_time_worker"]
         service_time_client   = jsonClient2Response["service_time_client"]
         service_time_predict  = jsonClient2Response["service_time_predict"]
+        worker_id             = jsonClient2Response["worker_id"]
         
         write_to_file(labelVectorId,labelVector)
         endTime       = time.time() # Get the time when it ends
@@ -273,6 +277,7 @@ def classification_experiment(row:pd.Series,current_experiment_iteration:int)->R
             "algorithm":ALGORITHM,
             "matrix_id":matrixId,
             "model_id":modelId,
+            "worker_id":worker_id,
             "record_test_id":recordsTestId,
             "experiment_iteration": current_experiment_iteration,
             "arrival_time":arrivalTime,
@@ -308,7 +313,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                 for experiment_iteration in range(max_experiment_iterations): # Cada registro se repetira EXPERIMENT_ITERATION veces
                     fut = executor.submit(run_experiment,row,experiment_iteration) # Lanzar la operacion a un thread utilizando la Thread Pool. 
                     futures.append(fut) # Añadir a la lista de futuros el nuevo futuro.
-                    time.sleep(row["INTERARRIVAL_TIME"]) # Duerme el thread para esperar INTERARRIVAL_TIME
+                    time.sleep(float(row["INTERARRIVAL_TIME"])) # Duerme el thread para esperar INTERARRIVAL_TIME
                 
                 for fut in as_completed(futures): # Espera para completar todos los EXPERIMENT_ITERATIONS 
                     result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
