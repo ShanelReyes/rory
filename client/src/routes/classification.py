@@ -44,6 +44,7 @@ def sknn_train():
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm             = Constants.ClassificationAlgorithms.SKNN_TRAIN
@@ -74,6 +75,7 @@ def sknn_train():
             "model_labels_filename":model_labels_filename,
             "model_labels_path":model_labels_path,
             "extension":extension,
+            "security_level":securitylevel,
             "m":int(m),
             "liu_round":liu.round
         })        
@@ -138,14 +140,7 @@ def sknn_train():
             })
 
             put_model_labels_start_time = time.time()
-            # _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=BUCKET_ID, key=model_labels_id)
-            # del_result = STORAGE_CLIENT.delete(key= model_labels_id, bucket_id=BUCKET_ID)
-            # X = STORAGE_CLIENT.put_ndarray(
-            #     key       = model_labels_id,
-            #     ndarray   = model_labels,
-            #     tags      = {},
-            #     bucket_id = BUCKET_ID
-            # ).result()
+            
             ptm_result = Utils.delete_and_put_ndarray(
             STORAGE_CLIENT = STORAGE_CLIENT, 
             bucket_id      = BUCKET_ID, 
@@ -214,24 +209,11 @@ def sknn_train():
                 "num_chunks":num_chunks
             })
             put_chunked_start_time = time.time()
-            # _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=BUCKET_ID, ball_id=encrypted_model_id)
-            # STORAGE_CLIENT.delete_by_ball_id(
-            #     ball_id   = encrypted_model_id, 
-            #     bucket_id = BUCKET_ID
-            # )
+            
             chunks_bytes = Utils.chunks_to_bytes_gen(
                 chs = encrypted_model_chunks
             )
-            # put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
-            #     key       = encrypted_model_id, 
-            #     chunks    = chunks_bytes, 
-            #     bucket_id = BUCKET_ID,
-            #     tags      = {
-            #         "shape": str(encrypted_model_shape),
-            #         "dtype":"float64"
-            #     }
-            # )
-
+            
             put_chunks_generator_results = Utils.delete_and_put_chunked(
             STORAGE_CLIENT = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
@@ -295,6 +277,7 @@ def sknn_predict():
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClassificationAlgorithms.SKNN_PREDICT
@@ -336,6 +319,7 @@ def sknn_predict():
             "encrypted_model_dtype":_encrypted_model_dtype,
             "records_test_path":records_test_path,
             "liu_round":liu.round,
+            "security_level":securitylevel
         })        
 
         logger.debug({
@@ -585,12 +569,15 @@ def sknn_predict():
             "model_id":model_id,
             "records_test_id":records_test_id,
             "algorithm":algorithm,
+            "security_level":securitylevel,
+            "m":m,
         })
 
         matrix_distances_plain = liu.decryptMatrix(
             ciphertext_matrix = all_distances,
-            secret_key        = liu.sk,
-            m                 = int(m)
+            secret_key        = dataowner.sk,
+            securitylevel     = securitylevel,
+            # m                 = int(m)
         )
 
         min_distances_index         = np.argmin(matrix_distances_plain.matrix,axis=1)

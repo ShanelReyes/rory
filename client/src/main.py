@@ -56,7 +56,7 @@ except Exception as e:
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",3600))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
+MICTLANX_ROUTERS             = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
@@ -97,6 +97,7 @@ LOGGER = Log(
     interval               = 24,
     when                   = "h"
 )
+
 LIU  = Liu(
     _round = LIU_ROUND,
     decimals = LIU_DECIMALS
@@ -121,24 +122,25 @@ def create_app(*args):
     app.register_blueprint(clustering)
     app.register_blueprint(classification)
     with app.app_context():
-        current_app.config["request_counter"]  = 0
-        current_app.config["logger"]           = LOGGER
-        current_app.config["manager"]          = MANAGER
-        current_app.config["liu"]              = LIU
-        current_app.config["dataowner"]        = DATAOWNER
-        current_app.config["SOURCE_PATH"]      = SOURCE_PATH
-        current_app.config["SINK_PATH"]        = SINK_PATH
-        current_app.config["NODE_ID"]          = NODE_ID
-        current_app.config["LOG_PATH"]         = LOG_PATH
-        current_app.config["MAX_ITERATIONS"]   = MAX_ITERATIONS
-        current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
-        current_app.config["TESTING"]          = TESTING
-        current_app.config["NUM_CHUNKS"]       = NUM_CHUNKS
-        current_app.config["MAX_WORKES"]       = max_workers
-        current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
-        current_app.config["executor"]         = executor
-        current_app.config["WORKER_TIMEOUT"]   = WORKER_TIMEOUT
-        current_app.config["np_random"]        = NP_RANDOM
+        current_app.config["request_counter"]    = 0
+        current_app.config["logger"]             = LOGGER
+        current_app.config["manager"]            = MANAGER
+        current_app.config["liu"]                = LIU
+        current_app.config["dataowner"]          = DATAOWNER
+        current_app.config["SOURCE_PATH"]        = SOURCE_PATH
+        current_app.config["SINK_PATH"]          = SINK_PATH
+        current_app.config["NODE_ID"]            = NODE_ID
+        current_app.config["LOG_PATH"]           = LOG_PATH
+        current_app.config["MAX_ITERATIONS"]     = MAX_ITERATIONS
+        current_app.config["STORAGE_CLIENT"]     = STORAGE_CLIENT
+        current_app.config["TESTING"]            = TESTING
+        current_app.config["NUM_CHUNKS"]         = NUM_CHUNKS
+        current_app.config["MAX_WORKES"]         = max_workers
+        current_app.config["MICTLANX_TIMEOUT"]   = MICTLANX_TIMEOUT
+        current_app.config["executor"]           = executor
+        current_app.config["WORKER_TIMEOUT"]     = WORKER_TIMEOUT
+        current_app.config["np_random"]          = NP_RANDOM
+        current_app.config["LIU_SECURITY_LEVEL"] = LIU_SECURITY_LEVEL
 
     # return app
 

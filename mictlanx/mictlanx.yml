@@ -39,6 +39,9 @@ services:
         - mictlanx-peer-0
         - mictlanx-peer-1
 
+      command: 
+        uvicorn mictlanxrouter.server:app --host ${MICTLANX_ROUTER_HOST-0.0.0.0} --port ${MICTLANX_ROUTER_PORT-60666}
+
   mictlanx-peer-0:
     image: nachocode/mictlanx:peer
     container_name: mictlanx-peer-0

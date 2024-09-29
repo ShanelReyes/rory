@@ -297,6 +297,7 @@ def skmeans():
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         
@@ -317,6 +318,7 @@ def skmeans():
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         requestId                 = "request-{}".format(plaintext_matrix_id)
         m                         = dataowner.m
+        # securitylevel             = int(request_headers.get("Security-Level",128))
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         
         logger.debug({
@@ -327,6 +329,7 @@ def skmeans():
             "udm_id":udm_id,
             "plaintext_matrix_filename":plaintext_matrix_filename,
             "plaintext_matrix_path":plaintext_matrix_path,
+            "security_level":securitylevel,
             "m":m,
             "k":k,
             "num_chunks":num_chunks,
@@ -700,7 +703,8 @@ def skmeans():
             shiftMatrix_chipher_schema_res = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encrypted_shift_matrix.tolist(),
                 secret_key        = dataowner.sk,
-                m                 = int(m)
+                securitylevel     = securitylevel,
+                # m                 = int(m)
             )
             logger.info({
                 "event":"DECRYPT",
@@ -886,6 +890,7 @@ def dbskmeans():
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor               == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.DBSKMEANS
@@ -903,7 +908,7 @@ def dbskmeans():
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",3600))
-        MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
 
         request_id                = "request{}".format(plaintext_matrix_id)
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
@@ -916,6 +921,7 @@ def dbskmeans():
             "encrypted_matrix_id":encrypted_matrix_id,
             "plaintext_matrix_filename":plaintext_matrix_filename,
             "plaintext_matrix_path":plaintext_matrix_path,
+            "security_level":securitylevel,
             "m":m,
             "k":k,
             "num_chunks":num_chunks,
@@ -1314,7 +1320,8 @@ def dbskmeans():
             cipher_schema_res  = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
                 secret_key        = dataowner.sk,
-                m                 = int(m)
+                securitylevel     = securitylevel,
+                # m                 = int(m)
             )
             descrypy_st = time.time() - decrypt_start_time
             logger.info({
@@ -1599,6 +1606,7 @@ def dbsnnc():
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor                  == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.DBSNNC
@@ -1627,6 +1635,7 @@ def dbsnnc():
             "plaintext_matrix_filename":plaintext_matrix_filename,
             "extension":extension,
             "plaintext_matrix_path":plaintext_matrix_path,
+            "security_level":securitylevel,
             "m":m,
             "num_chunks":num_chunks,
             "max_workers":max_workers,
@@ -1863,15 +1872,6 @@ def dbsnnc():
             "plaintext_matrix_id":plaintext_matrix_id,
             "service_time":segment_encrypt_fdhope_st
         })
-
-        
-        # logger.info({
-        #     "event":"PUT.SEGMENT.ENCRYPT", 
-        #     "plaintext_matrix_id":plaintext_matrix_id,
-        #     "encrypted_dm_id":encrypted_dm_id,
-        #     "algorithm":algorithm,
-        #     "service_time":segment_encrypt_fdhope_st
-        # })
         
         logger.debug({
             "event":"ENCRYPTED.THRESHOLD.BEFORE", 
