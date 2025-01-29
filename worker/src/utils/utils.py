@@ -9,13 +9,112 @@ import pandas as pd
 import numpy as np
 import numpy.typing as npt
 from retry import retry
+from typing import List,Awaitable
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 import os
+from Pyfhel import PyCtxt
+import pickle
 
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES","10"))
 MAX_DELAY   = int(os.environ.get("MAX_DELAY","1"))
 JITTER      = eval(os.environ.get("JITTER","0"))
 
 class Utils:
+
+    # Serializer
+    @staticmethod
+    def pyctxt_list_to_bytes(ciphertext:List[PyCtxt]) -> bytes:
+        serialized_ciphertexts = [ctxt.to_bytes() for ctxt in ciphertext]
+        return pickle.dumps(serialized_ciphertexts)
+    
+    @staticmethod
+    def pyctxt_list_to_gen_bytes(ciphertext:List[PyCtxt]) -> Generator[bytes, None, None]:
+        try: 
+            print("PYCTXT_LIST_GNE", ciphertext)
+            serialized_ciphertexts = [ctxt.to_bytes() for ctxt in ciphertext]
+            print("SERIALIZED", len(serialized_ciphertexts))
+            xs= pickle.dumps(serialized_ciphertexts)
+            print("XS")
+            print("*"*20)
+            for x in xs:
+                yield x
+        except Exception as e:
+            print("EXCEPTION",e)
+
+    @staticmethod
+    def bytes_to_pyctxt_list_v2(ckks:Ckks, data:bytes):
+        xs = pickle.loads(data)
+        scheme = ckks.he_object
+        xx = [PyCtxt(None, scheme, None, x, "FRACTIONAL") for x in xs ]
+        return xx
+
+    
+    @staticmethod
+    def bytes_to_pyctxt_list(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
+        scheme  = ckks.he_object
+        xx = []
+        for x in serialized_ctxt_bytes:
+          
+            y = PyCtxt(None, scheme, None,x, "FRACTIONAL")
+            xx.append(y)
+            # xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
+        return xx
+    
+    @staticmethod
+    def get_pyctxt_with_retry(
+            STORAGE_CLIENT,
+            bucket_id:str, 
+            num_chunks:int,
+            key:str,
+            ckks:Ckks,
+            )-> List[PyCtxt]:
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id)
+        if x.is_err:
+            e = x.unwrap_err()
+            raise e
+        serialized_ctxt_bytes = x.unwrap().value 
+        chs = Chunks.from_bytes(data= serialized_ctxt_bytes, group_id="", num_chunks = num_chunks).unwrap()
+        encryptedMatrix = Utils.chunks_to_pyctxt_list(ckks= ckks, chunks= chs)
+        return encryptedMatrix
+    
+    @staticmethod
+    def chunks_to_pyctxt_list(chunks:Chunks, ckks:Ckks)->List[PyCtxt]:
+        xs = []
+        for ch in chunks.iter():
+            # print("CHUNK",ch)
+            x  = pickle.loads(ch.data)
+            xx = Utils.bytes_to_pyctxt_list(ckks=ckks,serialized_ctxt_bytes=x)
+            xs.extend(xx)
+        return xs
+    
+    @staticmethod
+    def chunks_to_pyctxt_list_v1(
+        ckks:Ckks,
+        serialized_ctxt_bytes:bytes, 
+    )->List[PyCtxt]:
+        
+        x  = pickle.loads(serialized_ctxt_bytes)
+        xx = Utils.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
+        return xx
+    
+    
+    @staticmethod
+    @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
+    def get_pyctxt_or_error(
+        client:V4Client,
+        ckks:Ckks,
+        key:str,
+        bucket_id:str
+    )->List[PyCtxt]:
+        
+        x:Result[GetBytesResponse, Exception] = client.get_with_retry(key = key, bucket_id=bucket_id)
+        if x.is_err:
+            e = x.unwrap_err()
+            raise e
+        serialized_ctxt_bytes = x.unwrap().value
+        return Utils.bytes_to_pyctxt_list(ckks=ckks ,serialized_ctxt_bytes=serialized_ctxt_bytes)
+
+
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def get_matrix_or_error(client:V4Client,key:str, bucket_id:str)->GetNDArrayResponse:
@@ -170,3 +269,5 @@ class Utils:
                 return put_res
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
+    
+    

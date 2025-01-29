@@ -1,12 +1,11 @@
 #!/bin/bash
-#readonly URL=${1:-http://localhost:60667}
-readonly URL=${1:-http://148.247.201.141:60667}
+readonly URL=${1:-http://localhost:60666}
+#readonly URL=${1:-http://148.247.201.141:60667}
 #readonly URL=${1:-https://alpha.tamps.cinvestav.mx/v0/mictlanx/router}
-
 peersprotocol=("http" "http")
 peershostname=("mictlanx-peer-0" "mictlanx-peer-1")
-peersport=("25000" "25001")
-#peersport=("7001" "10000")
+# peersport=("25000" "25001")
+peersport=("7000" "7001")
 for ((i=0; i<${#peersprotocol[@]}; i++ )); do
         protocol="${peersprotocol[i]}"
         host_name="${peershostname[i]}"

@@ -28,7 +28,7 @@ def example_run():
     args = sys.argv[1:]
     if(len(args) >= 2  or len(args)==0):
         raise Exception("Please try to pass a valid file path: python examples/v4/14_get.py <BUCKET_ID>")
-    routers        =  Utils.routers_from_str(routers_str=os.environ.get("MICTLANX_ROUTERS","mictlanx-router-0:localhost:60667"))
+    routers        =  Utils.routers_from_str(routers_str=os.environ.get("MICTLANX_ROUTERS","mictlanx-router-0:localhost:60666"))
     bucket_id = Utils.get_or_default(iterator=args, i = 0, default="mictlanx").unwrap()
     client            = Client(
         client_id   = "client-example-0",

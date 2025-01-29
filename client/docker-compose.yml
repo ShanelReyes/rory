@@ -44,6 +44,7 @@ services:
       - /rory/rory-client-0/sink:/rory/sink
       - /rory/rory-client-0/log:/rory/log
       - /rory/rory-client-0/mictlanx:/rory/mictlanx
+      - /rory/rory-client-0/keys:/rory/keys
     networks:
       - mictlanx
 

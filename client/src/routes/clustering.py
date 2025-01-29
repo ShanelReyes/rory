@@ -8,8 +8,10 @@ from option import Result
 from rory.core.interfaces.rorymanager import RoryManager
 from rory.core.interfaces.roryworker import RoryWorker
 from rory.core.security.dataowner import DataOwner
+from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.cryptosystem.fdhope import Fdhope
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.utils.constants import Constants
 from rory.core.utils.utils import Utils as RoryUtils
 from mictlanx.v4.interfaces.responses import PutResponse
@@ -283,7 +285,7 @@ def kmeans():
         })
         return Response(response = None, status= 500, headers = {"Error-Message":str(e)})
 
-
+#SKMEANS
 @clustering.route("/skmeans",methods = ["POST"])
 def skmeans():
     try:
@@ -871,10 +873,8 @@ def skmeans():
             "msg":str(e)
         })
         return Response(response= str(e) , status= 500)
-    
 
-
-
+#DBSKMEANS
 @clustering.route("/dbskmeans", methods = ["POST"])
 def dbskmeans():
     try:
@@ -1591,7 +1591,7 @@ def dbskmeans():
         })
         return Response(response= str(e) , status= 500)
     
-
+#DBSNNC
 @clustering.route("/dbsnnc", methods      = ["POST"])
 def dbsnnc():
     try:
@@ -2017,7 +2017,7 @@ def dbsnnc():
         })
         return Response(response =None, status= 500, headers={"Error-Message":str(e)})
     
-
+#NNC
 @clustering.route("/nnc", methods = ["POST"])
 def nnc():
     try:
@@ -2371,3 +2371,657 @@ def nnc():
         })
         return Response(response =None, status= 500, headers={"Error-Message":str(e)})
  
+#PCQ-SKMEANS
+@clustering.route("/pqc/skmeans",methods = ["POST"])
+def pqc_skmeans():
+    try:
+        arrivalTime                  = time.time()
+        logger                       = current_app.config["logger"]
+        BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
+        TESTING                      = current_app.config.get("TESTING",True)
+        SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
+        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
+        np_random                    = current_app.config.get("np_random")
+        executor:ProcessPoolExecutor = current_app.config.get("executor")
+        
+        if executor == None:
+            raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
+        algorithm                 = Constants.ClusteringAlgorithms.SKMEANS_PQC
+        s                         = Session()
+        request_headers           = request.headers #Headers for the request
+        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
+        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
+        udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
+        plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix0")
+        extension                 = request_headers.get("Extension","csv")
+        k                         = int(request_headers.get("K"))
+        experiment_iteration      = request_headers.get("Experiment-Iteration","0")
+        MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
+        WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
+        requestId                 = "request-{}".format(plaintext_matrix_id)
+        plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
+
+        cent_i_id = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
+        cent_j_id = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
+
+        _round   = False
+        decimals = 2
+        path               = os.environ.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
+        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
+        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        rotatekey_filename = os.environ.get("ROTATE_KEY_FILENAME","rotatekey")
+        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
+        
+        # _______________________________________________________________________________
+        ckks = Ckks.from_pyfhel(
+            _round   = _round,
+            decimals = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            secretkey_filename = secretkey_filename
+        )
+        # _______________________________________________________________________________
+        dataowner = DataOwnerPQC(scheme = ckks)
+
+        logger.debug({
+            "event":"SKMEANS.STARTED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "encrypted_matrix_id":encrypted_matrix_id,
+            "udm_id":udm_id,
+            "plaintext_matrix_filename":plaintext_matrix_filename,
+            "plaintext_matrix_path":plaintext_matrix_path,
+            "security_level":securitylevel,
+            "k":k,
+            "num_chunks":num_chunks,
+            "max_workers":max_workers,
+            "bucket_id":BUCKET_ID,
+            "testing":TESTING,
+            "experiment_iteration":experiment_iteration,
+            "max_iterations":MAX_ITERATIONS,
+            "request_id":requestId,
+            "worker_timeout":WORKER_TIMEOUT,
+            "source_path":SOURCE_PATH,
+        })
+        
+        logger.debug({
+            "event":"LOCAL.READ.DATASET.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "path":plaintext_matrix_path,
+            "filename":plaintext_matrix_filename,
+        })
+
+        local_read_dataset_start_time = time.time()
+        plaintext_matrix_result  = Utils.read_numpy_from(
+            client    = STORAGE_CLIENT,
+            path      = plaintext_matrix_path,
+            extension = extension,
+        )
+        if plaintext_matrix_result.is_ok:
+            plaintext_matrix = plaintext_matrix_result.unwrap()
+        else:
+            raise plaintext_matrix_result.unwrap_err()
+
+        local_read_dataset_st = time.time() - local_read_dataset_start_time
+        
+        plaintext_matrix = plaintext_matrix.astype(np.float64)
+
+        r = plaintext_matrix.shape[0]
+        a = plaintext_matrix.shape[1]
+        logger.debug({
+            "event":"LOCAL.READ.DATASET",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "path":plaintext_matrix_path,
+            "filename":plaintext_matrix_filename,
+            "records":r,
+            "attributes":a,
+            "service_time":local_read_dataset_st
+        })
+
+        cores       = os.cpu_count()
+        max_workers = num_chunks if max_workers > num_chunks else max_workers
+        max_workers = cores if max_workers > cores else max_workers
+
+        encryption_start_time = time.time()
+        n = a*r
+
+        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+            executor           = executor,
+            key                = encrypted_matrix_id,
+            plaintext_matrix   = plaintext_matrix,
+            n                  = n,
+            num_chunks         = num_chunks,
+            np_random          = np_random,
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            secretkey_filename = secretkey_filename
+        )
+        segment_encrypt_service_time = time.time() - encryption_start_time
+        logger.info({
+            "event":"SEGMENT.ENCRYPT.CKKS",
+            "key":encrypted_matrix_id,
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "n":n,
+            "num_chunks":num_chunks,
+            "max_workers":max_workers,
+            "service_time":segment_encrypt_service_time
+        })
+  
+        put_chunks_start_time = time.time()
+
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = encrypted_matrix_chunks
+        )
+        put_chunks_generator_results = Utils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = encrypted_matrix_id,
+            key            = encrypted_matrix_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str((r,a)),
+                "dtype":"float64"
+            }
+        )
+        print("RES", put_chunks_generator_results)
+        put_chunks_st = time.time() - put_chunks_start_time
+        logger.info({
+            "event":"DELETE.AND.PUT.CHUNKED",
+            "key":encrypted_matrix_id,
+            "num_chunks":num_chunks,
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "service_time":put_chunks_st
+        })
+        logger.debug({
+            "event":"UDM.GENERATION.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
+        })
+        udm_start_time = time.time()
+        udm            = dataowner.get_U(
+            plaintext_matrix = plaintext_matrix,
+            algorithm        = algorithm
+        )
+        
+        udm_gen_st = time.time()- udm_start_time
+        logger.info({
+            "event":"UDM.GENERATION",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "shape":str(udm.shape),
+            "udm_id":udm_id,
+            "service_time":udm_gen_st,
+        })
+        
+        logger.debug({
+            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":udm_id,
+            "bucket_id":BUCKET_ID,
+            "udm_shape":str(udm.shape),
+            "udm_dtype":str(udm.dtype),
+        })
+        udm_put_start_time = time.time()
+        
+        udm_matrix_chunks = Chunks.from_ndarray(
+            ndarray      = udm,
+            group_id     = udm_id,
+            chunk_prefix = Some(udm_id),
+            num_chunks   = num_chunks,
+        )
+
+        if udm_matrix_chunks.is_none:
+            raise "something went wrong creating the chunks"
+        
+        logger.info({
+            "event":"CHUNKS.FROM.NDARRAY",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":udm_id,
+            "bucket_id":BUCKET_ID,
+            "udm_shape":str(udm.shape),
+            "udm_dtype":str(udm.dtype),
+        })
+        
+        logger.debug({            
+            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":udm_id,
+            "bucket_id":BUCKET_ID,
+            "udm_shape":str(udm.shape),
+            "udm_dtype":str(udm.dtype)
+        })
+
+        chunks_bytes = Utils.chunks_to_bytes_gen(
+            chs = udm_matrix_chunks.unwrap()
+        )
+
+        udm_put_result = Utils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = udm_id,
+            key            = udm_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str(udm.shape),
+                "dtype": str(udm.dtype)
+            }
+        )
+
+        if udm_put_result.is_err:
+            raise udm_put_result.unwrap_err()
+        udm_put_st = time.time() - udm_put_start_time
+
+        service_time_client = time.time() - arrivalTime
+        logger.info({            
+            "event":"DELETE.AND.PUT.CHUNKED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "key":udm_id,
+            "bucket_id":BUCKET_ID,
+            "udm_shape":str(udm.shape),
+            "udm_dtype":str(udm.dtype),
+            "service_time":udm_put_st
+        })
+        
+        init_sm_id = "{}initsm".format(plaintext_matrix_id)
+        
+        zero_shiftmatrix = np.zeros((k, a))
+        n2 = a*k
+        
+        logger.debug({
+            "event":"SEGMENT.ENCRYPT.INITSHIFTMATRIX.BEFORE",
+            "key":encrypted_matrix_id,
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "init_shift_matrix_id":init_sm_id,
+            "n":n,
+            "num_chunks":num_chunks,
+            "max_workers":max_workers,
+        })
+        
+        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+            executor           = executor,
+            key                = init_sm_id,
+            plaintext_matrix   = zero_shiftmatrix,
+            n                  = n2,
+            num_chunks         = num_chunks,
+            np_random          = np_random,
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            secretkey_filename = secretkey_filename
+        )
+
+        logger.info({
+            "event":"SEGMENT.ENCRYPT.INITSHIFTMATRIX",
+            "key":init_sm_id,
+            "plaintext_matrix_shape":str(plaintext_matrix.shape),
+            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "n":n,
+            "num_chunks":num_chunks,
+            "max_workers":max_workers,
+        })
+
+        logger.debug({
+            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
+            "key":init_sm_id,
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "num_chunks":num_chunks
+        })
+        put_chunks_start_time = time.time()
+
+        chunks_bytes = Utils.chunks_to_bytes_gen( chs = encrypted_matrix_chunks)
+        put_chunks_generator_results = Utils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = init_sm_id,
+            key            = init_sm_id,
+            chunks         = chunks_bytes,
+            tags = {
+                "shape": str((k,a)),
+                "dtype":"float64"
+            }
+        )
+        put_chunks_st = time.time() - put_chunks_start_time
+        logger.info({
+            "event":"DELETE.AND.PUT.CHUNKED",
+            "key":init_sm_id,
+            "num_chunks":num_chunks,
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "service_time":put_chunks_st,
+            "result":str(put_chunks_generator_results),
+        })
+        
+        get_worker_start_time       = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+            headers = {
+                "Algorithm"             : algorithm,
+                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
+            }
+        )
+        if get_worker_result.is_err:
+            error = get_worker_result.unwrap_err()
+            logger.error(str(error))
+            return Response(str(error), status=500)
+        (worker_id,port) = get_worker_result.unwrap()
+
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else worker_id
+
+        logger.info({
+            "event":"MANAGER.GET.WORKER1",
+            "worker_id":worker_id,
+            "port":port,
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "service_time":get_worker_service_time,
+            "k":k,
+        })
+        
+        worker_start_time = time.time()
+        worker = RoryWorker( #Allows to establish the connection with the worker
+            workerId  = worker_id,
+            port      = port,
+            session   = s,
+            algorithm = algorithm,
+        )
+        status               = Constants.ClusteringStatus.START #Set the status to start
+        worker_run1_response = None
+
+        interaction_arrival_time = time.time()
+        iterations               = 0
+        label_vector             = None
+
+        while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
+            
+            inner_interaction_arrival_time = time.time()
+            run1_headers  = {
+                "Step-Index"             : "1",
+                "Clustering-Status"      : str(status),
+                "Plaintext-Matrix-Id"    : plaintext_matrix_id,
+                "Request-Id"             : requestId,
+                "Encrypted-Matrix-Id"    : encrypted_matrix_id,
+                "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
+                "Encrypted-Matrix-Dtype" : "float64",
+                "Encrypted-Udm-Dtype"    : "float64",
+                "Num-Chunks"             : str(num_chunks),
+                "Iterations"             : str(iterations),
+                "K"                      : str(k),
+                "Experiment-Iteration"   : str(experiment_iteration), 
+                "Max-Iterations"         : str(MAX_ITERATIONS) 
+            }  
+            
+            logger.debug({
+                "event":"WORKER.RUN1.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "step_index":"1",
+                "clustering_status":str(status),
+                "request_id":requestId,
+                "encrypted_matrix_id":encrypted_matrix_id,
+                "encrypted_matrix_dtype":"float64", 
+                "num_chunks":num_chunks,
+                "iterations":iterations,
+                "k":k, 
+                "experiment_iteration":experiment_iteration,
+                "max_iterations":MAX_ITERATIONS
+            })
+            
+            worker_run1_response = worker.run(
+                timeout = WORKER_TIMEOUT, 
+                headers = run1_headers
+            ) #Run 1 starts
+            worker_run1_status = worker_run1_response.status_code
+
+            if worker_run1_status !=200:
+                return Response("Worker error: {}".format(worker_run1_response.content),status=500)
+
+            worker_run1_response.raise_for_status()
+            stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
+            jsonWorkerResponse        = json.loads(stringWorkerResponse) #pass to json
+            encrypted_shift_matrix_id = jsonWorkerResponse["encrypted_shift_matrix_id"]
+            run1_service_time         = jsonWorkerResponse["service_time"]
+            run1_n_iterations         = jsonWorkerResponse["n_iterations"]
+            label_vector              = jsonWorkerResponse["label_vector"]
+
+            logger.info({
+                "event":"SKMEANS.RUN1",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "step_index":"1",
+                "clustering_status":str(status),
+                "request_id":requestId,
+                "encrypted_matrix_id":encrypted_matrix_id,
+                "encrypted_matrix_shape":"({},{})".format(r,a),
+                "encrypted_matrix_dtype":"float64", 
+                "num_chunks":num_chunks,
+                "iterations":iterations,
+                "k":k, 
+                "experiment_iteration":experiment_iteration,
+                "max_iterations":MAX_ITERATIONS,
+                "status":worker_run1_status,
+                "worker_service_time": run1_service_time,
+                "n_iterations":run1_n_iterations,
+                "response_time":time.time() - inner_interaction_arrival_time
+            })
+            
+            encrypted_shift_matrix_start_time = time.time()
+            
+            encrypted_shift_matrix_result = STORAGE_CLIENT.get_with_retry(
+                bucket_id = BUCKET_ID, 
+                key       = encrypted_shift_matrix_id
+            )
+            if encrypted_shift_matrix_result.is_err:
+                return Response(response=f"GET Encrypted shift matrix error [{encrypted_shift_matrix_id}]", status=503)
+            response               = encrypted_shift_matrix_result.unwrap().value
+            encrypted_shift_matrix = Utils.bytes_to_pyctxt_list_v2(ckks = ckks, data=response)
+            
+            logger.debug({
+                "event":"CKKS.DECRYPT.BEFORE",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+            })
+
+            decrypt_start_time = time.time()
+            shift_matrix = ckks.decryptMatrix( #Shift Matrix is decrypted
+                ciphertext_matrix = encrypted_shift_matrix,
+                shape = [k,a]
+            )
+
+            shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
+            put_shift_matrix_start_time = time.time()
+
+            shift_matrix_chunks = Chunks.from_ndarray(
+                ndarray      = shift_matrix,
+                group_id     = shift_matrix_id,
+                chunk_prefix = Some(shift_matrix_id),
+                num_chunks   = num_chunks,
+                )
+            if shift_matrix_chunks.is_none:
+                raise "something went wrong creating the chunks"
+            
+            chunks_bytes = Utils.chunks_to_bytes_gen(
+                chs = shift_matrix_chunks.unwrap()
+            )
+            
+            t_chunks_generator_results = Utils.delete_and_put_chunked(
+                STORAGE_CLIENT = STORAGE_CLIENT,
+                bucket_id      = BUCKET_ID,
+                ball_id        = shift_matrix_id,
+                key            = shift_matrix_id,
+                chunks         = chunks_bytes,
+                tags = {
+                    "shape": str(shift_matrix.shape),
+                    "dtype": str(shift_matrix.dtype)
+                }
+            )
+
+            Cent_i_response = STORAGE_CLIENT.get_with_retry(
+                bucket_id = BUCKET_ID, 
+                key       = cent_i_id
+            )
+            if Cent_i_response.is_err:
+                return Response(response=f"GET Cent_i error [{cent_i_id}]", status=503)
+            response = Cent_i_response.unwrap().value
+            Cent_i = Utils.bytes_to_pyctxt_list_v2(
+                ckks = ckks, 
+                data=response
+            )
+
+
+            Cent_j_response = STORAGE_CLIENT.get_with_retry(
+                bucket_id = BUCKET_ID, 
+                key       = cent_j_id
+            )
+            if Cent_j_response.is_err:
+                return Response(response=f"GET Cent_j error [{cent_j_id}]", status=503)
+            response = Cent_j_response.unwrap().value
+            Cent_j = Utils.bytes_to_pyctxt_list_v2(
+                ckks = ckks, 
+                data = response
+            )
+
+            old_matrix = ckks.decryptMatrix(
+                ciphertext_matrix = Cent_i, 
+                shape             = [1,k],
+            )
+            
+            new_matrix = ckks.decryptMatrix(
+                ciphertext_matrix = Cent_j, 
+                shape             = [1,k],
+            )
+
+            min_error = 0.15
+            isZero = Utils.verify_mean_error(
+                old_matrix = old_matrix, 
+                new_matrix = new_matrix, 
+                min_error  = min_error
+            )
+
+            status = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
+
+            run2_headers = {
+                "Step-Index"             : "2",
+                "Clustering-Status"      : str(status),
+                "Shift-Matrix-Id"        : shift_matrix_id,
+                "Plaintext-Matrix-Id"    : plaintext_matrix_id,
+                "Encrypted-Matrix-Id"    : encrypted_matrix_id,
+                "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
+                "Encrypted-Matrix-Dtype" : "float64",
+                "Num-Chunks"             : str(num_chunks),
+                "Iterations"             : str(iterations),
+                "K"                      : str(k),
+                "Experiment-Iteration"   : str(experiment_iteration), 
+                "Max-Iterations"         : str(MAX_ITERATIONS),
+                "Is-Zero"                : str(isZero)
+            }
+
+            worker_run2_response = worker.run(
+                timeout = WORKER_TIMEOUT,
+                headers = run2_headers
+            ) #Start run 2
+            worker_run2_response.raise_for_status()
+            service_time_worker = worker_run2_response.headers.get("Service-Time",0) 
+            iterations+=1
+            if (iterations >= MAX_ITERATIONS): #If the number of iterations is equal to the maximum
+                status              = Constants.ClusteringStatus.COMPLETED #Change the status to complete
+                startTime           = float(s.headers.get("Start-Time",0))
+                service_time_worker = time.time() - startTime #The service time is calculated
+            else: 
+                status = int(worker_run2_response.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
+            endTime    = time.time() # Get the time when it ends
+            inner_interaction_service_time = endTime - inner_interaction_arrival_time
+
+            logger.info({
+                "event":"SKMEANS.ITERATION.COMPLETED",
+                "algorithm":algorithm,
+                "plaintext_matrix_id":plaintext_matrix_id,
+                "worker_id":worker_id,
+                "k":k,
+                "iterations":iterations,
+                "service_time":inner_interaction_service_time,
+            })
+
+        interaction_end_time     = time.time()
+        interaction_service_time = interaction_end_time - interaction_arrival_time 
+        worker_response_time     = endTime - worker_start_time
+        response_time            = endTime - arrivalTime 
+
+        logger.info({
+            "event":"SKMEANS.COMPLETED",
+            "algorithm":algorithm,
+            "plaintext_matrix_id":plaintext_matrix_id,
+            "encrypted_matrix_id":encrypted_matrix_id,
+            "num_chunks":num_chunks,
+            "worker_id":worker_id,
+            "k":k,
+            "n_iterations":iterations, 
+            "max_iterations":MAX_ITERATIONS,
+            "service_time_encrypted_matrix":segment_encrypt_service_time,
+            "service_time_dm_generation":udm_gen_st,
+            "service_time_manager":get_worker_service_time,
+            "service_time_worker":worker_response_time,
+            "service_time_client":service_time_client,
+            "response_time_clustering":response_time,
+            "iterations_service_time":interaction_service_time
+        })
+    
+        return Response(
+            response = json.dumps({
+                "label_vector" : label_vector,
+                "iterations":iterations,
+                "algorithm":algorithm,
+                "worker_id":worker_id,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "response_time_clustering":response_time,
+            }),
+            status   = 200,
+            headers  = {}
+        )
+
+    except Exception as e:
+        logger.error({
+            "msg":str(e)
+        })
+        return Response(response= str(e) , status= 500)
+    
+       

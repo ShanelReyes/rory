@@ -49,6 +49,7 @@ def deploy_nodes(
             CONTAINER_SOURCE_PATH = "{}/source".format(WORKER_BASE_PATH)
             CONTAINER_SINK_PATH   = "{}/sink".format(WORKER_BASE_PATH)
             CONTAINER_LOG_PATH    = "{}/log".format(WORKER_BASE_PATH)
+            CONTAINER_KEYS_PATH   = "{}/keys".format(WORKER_BASE_PATH)
             CONTAINER_MICTLANX_CLIENT_PATH = "{}/mictlanx".format(WORKER_BASE_PATH)
             
             mounts = [
@@ -71,6 +72,11 @@ def deploy_nodes(
                     source="{}-mictlanx".format(container_id),
                     target=CONTAINER_MICTLANX_CLIENT_PATH,
                     mount_type=1
+                ),
+                MountX(
+                    source="/rory/{}/keys".format(container_id),
+                    target=CONTAINER_KEYS_PATH,
+                    mount_type=0
                 )
             ]
             selected_node = swarm_nodes[i % N]

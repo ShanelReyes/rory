@@ -7,6 +7,7 @@ from mictlanx.v4.client import Client
 from mictlanx.utils.index import Utils
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
+from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
@@ -42,6 +43,7 @@ LOGGER_NAME          = os.environ.get("LOGGER_NAME","rory-client-0")
 SOURCE_PATH          = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH            = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH             = os.environ.get("LOG_PATH","/rory/log")
+KEYS_PATH            = os.environ.get("KEYS_PATH","/rory/keys")  #Agregar en el env
 TESTING              = bool(int(TESTING_ENV))
 
 try:
@@ -107,6 +109,7 @@ DATAOWNER = DataOwner(
     securitylevel = LIU_SECURITY_LEVEL,
     liu_scheme    = LIU
 )
+
 
 cores       = os.cpu_count()
 max_workers = cores if MAX_WORKERS > cores else MAX_WORKERS

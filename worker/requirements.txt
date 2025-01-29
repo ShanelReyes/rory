@@ -22,5 +22,6 @@ pycryptodome==3.20.0
 
 --extra-index-url https://test.pypi.org/simple/ 
 xolo==0.0.7
-mictlanx==0.0.138
-rory==0.0.156
+# mictlanx==0.0.138
+mictlanx==0.0.160a3
+rory==0.0.168

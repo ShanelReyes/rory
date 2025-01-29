@@ -12,8 +12,12 @@ from typing import Tuple, Generator,Dict
 from retry import retry
 from mictlanx.utils.segmentation import Chunks,Chunk
 from rory.core.security.dataowner import DataOwner
+from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from typing import List,Awaitable
 from concurrent.futures import ProcessPoolExecutor
+from Pyfhel import PyCtxt
+import pickle
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 # from option import Result,Some
 
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES","10"))
@@ -21,6 +25,38 @@ MAX_DELAY   = int(os.environ.get("MAX_DELAY","2"))
 JITTER      = eval(os.environ.get("JITTER","(.1,.5)"))
 
 class Utils:
+    
+    # Serializer
+    @staticmethod
+    def pyctxt_list_to_bytes(ciphertext:List[PyCtxt]):
+        serialized_ciphertexts = [ctxt.to_bytes() for ctxt in ciphertext]
+        return pickle.dumps(serialized_ciphertexts)
+
+    @staticmethod
+    def bytes_to_pyctxt_list_v1(ckks:Ckks,serialized_ctxt_bytes:bytes)->List[PyCtxt]:
+        scheme  = ckks.he_object
+        xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
+        return xx
+        # decrypt = ckks.decryptMatrix(xx, shape=[6,2])
+
+    @staticmethod
+    def bytes_to_pyctxt_list(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
+        scheme  = ckks.he_object
+        xx = []
+        for x in serialized_ctxt_bytes:
+          
+            y = PyCtxt(None, scheme, None,x, "FRACTIONAL")
+            xx.append(y)
+            # xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
+        return xx
+    @staticmethod
+    def bytes_to_pyctxt_list_v2(ckks:Ckks, data:bytes):
+        xs = pickle.loads(data)
+        scheme = ckks.he_object
+        xx = [PyCtxt(None, scheme, None, x, "FRACTIONAL") for x in xs ]
+        return xx
+
+
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def read_numpy_from(client:V4Client,path:str="",extension:str="",plaintext_matrix_id:Option[str]=NONE,bucket_id:Option[str]=NONE)->Result[npt.NDArray,Exception]:
@@ -280,6 +316,7 @@ class Utils:
                 bucket_id=bucket_id, 
                 ball_id=ball_id
             )
+            print("DEL_RES", _delete_result)
             put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
                 key       = key, 
                 chunks    = chunks,
@@ -287,10 +324,105 @@ class Utils:
                 bucket_id = bucket_id,
                 timeout=timeout
             )
+            print("PUT_RES", put_res)
             if put_res.is_ok:
                 return put_res
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
+    
+    @staticmethod
+    def segment_and_encrypt_ckks_with_executor(
+        executor:ProcessPoolExecutor,
+        key:str,
+        plaintext_matrix:npt.NDArray,
+        n:int,
+        np_random:bool,
+        _round:bool, decimals:int, path:str, ctx_filename:str, 
+        pubkey_filename:str, relinkey_filename:str, rotatekey_filename:str,secretkey_filename:str,
+        num_chunks:int=2, 
+    ):
+        plaintext_matrix_chunks                 = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
+        awaitable_chunks:List[Awaitable[Chunk]] = []
+        for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
+            future = executor.submit(
+                Utils.encrypt_chunk_ckks,
+                key       = key,
+                chunk     = plaintext_matrix_chunk,
+                np_random = np_random,
+                _round    = _round,
+                decimals  = decimals,
+                path               = path,
+                ctx_filename       = ctx_filename,
+                pubkey_filename    = pubkey_filename,
+                relinkey_filename  = relinkey_filename,
+                rotatekey_filename = rotatekey_filename,
+                secretkey_filename = secretkey_filename,
+
+            )
+            awaitable_chunks.append(future)
+        return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n)
+    
+    @staticmethod
+    def encrypt_chunk_ckks(key:str, chunk:Chunk, np_random:bool, _round:bool, decimals:int, path:str, ctx_filename:str, 
+                           pubkey_filename:str, relinkey_filename:str, rotatekey_filename:str,secretkey_filename:str)-> Chunk:
+        try:
+            # print("ENCRYPTED_CHUNK_CKSS")
+            dataowner = DataOwnerPQC(
+                scheme= Ckks.from_pyfhel(
+                    _round   = _round,
+                    decimals = decimals,
+                    path               = path,
+                    ctx_filename       = ctx_filename,
+                    pubkey_filename    = pubkey_filename,
+                    relinkey_filename  = relinkey_filename,
+                    rotatekey_filename = rotatekey_filename,
+                    secretkey_filename = secretkey_filename,
+                ) 
+            )
+            plaintext_matrix = chunk.to_ndarray().unwrap().copy()
+            encyrpted_chunk:List[PyCtxt] = dataowner.ckks_encrypt_matrix_chunk(plaintext_matrix = plaintext_matrix, np_random = np_random)
+            data = Utils.pyctxt_list_to_bytes(ciphertext=encyrpted_chunk)
+            return Chunk(
+                group_id=key,
+                index= chunk.index,
+                data=data,
+                chunk_id = Some("{}_{}".format(key,chunk.index))
+            )
+        except Exception as e:
+            print("ENCRYPT_CHUNK_ERROR",e)
+        # return Chunk(grp)
+
+    @staticmethod
+    def get_pyctxt_with_retry(
+        STORAGE_CLIENT,
+        bucket_id:str, 
+        num_chunks:int,
+        key:str,
+        ckks:Ckks,
+        )-> List[PyCtxt]:
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id)
+        if x.is_err:
+            e = x.unwrap_err()
+            raise e
+        serialized_ctxt_bytes = x.unwrap().value 
+        chs = Chunks.from_bytes(data= serialized_ctxt_bytes, group_id="", num_chunks = num_chunks).unwrap()
+        encryptedMatrix = Utils.chunks_to_pyctxt_list(ckks= ckks, chunks= chs)
+        return encryptedMatrix
+    
+    @staticmethod
+    def chunks_to_pyctxt_list(chunks:Chunks, ckks:Ckks)->List[List[PyCtxt]]:
+        xs = []
+        for ch in chunks.iter():
+            # print("CHUNK",ch)
+            x  = pickle.loads(ch.data)
+            xx = Utils.bytes_to_pyctxt_list(ckks=ckks,serialized_ctxt_bytes=x)
+            xs.append(xx)
+        return xs
+    
+    def verify_mean_error(old_matrix:npt.NDArray, new_matrix:npt.NDArray, min_error:float=0.15):
+        mean_error = np.mean(np.abs((old_matrix - new_matrix) / old_matrix))
+        return mean_error <= min_error
+
 
 if __name__ =="__main__":
     MICTLANX_TIMEOUT      = 120
