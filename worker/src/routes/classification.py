@@ -1,10 +1,13 @@
-import time, json
+import time, json, os
 from flask import Blueprint,current_app,request,Response
 from rory.core.utils.constants import Constants
 from rory.core.classification.secure.distributed.sknn import SecureKNearestNeighbors as SKNN
+from rory.core.classification.secure.pqc.sknn import SecureKNearestNeighbors as SKNNPQC
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.classification.knn import KNearestNeighbors as KNN
 from mictlanx.v4.client import Client as V4Client
 from rory.core.interfaces.logger_metrics import LoggerMetrics
+from mictlanx.utils.index import Utils as MictlanXUtils
 from utils.utils import Utils
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse
 from mictlanx.utils.segmentation import Chunks
@@ -558,3 +561,411 @@ def knn_predict():
             status   = 503,
             headers  = {"Error-Message":str(e)}
         )
+    
+def sknn_pqc_pedict_1(requestHeaders):
+    local_start_time         = time.time() #Worker start time
+    headers                  = request.headers
+    logger                   = current_app.config["logger"]
+    worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
+    model_id                 = requestHeaders.get("Model-Id","model0") #iris
+    encrypted_model_id       = "encrypted{}".format(model_id) #encrypted-iris_model
+    model_labels_id          = "{}labels".format(model_id) #iris_model_labels
+    records_test_id          = requestHeaders.get("Records-Test-Id","matrix0")
+    encrypted_records_id     = "encrypted{}".format(records_test_id) # The id of the encrypted matrix is built
+    algorithm                = Constants.ClassificationAlgorithms.SKNN_PQC_PREDICT
+    _encrypted_model_shape   = requestHeaders.get("Encrypted-Model-Shape",-1)
+    _encrypted_model_dtype   = requestHeaders.get("Encrypted-Model-Dtype",-1)
+    _encrypted_records_shape = requestHeaders.get("Encrypted-Records-Shape",-1)
+    _encrypted_records_dtype = requestHeaders.get("Encrypted-Records-Dtype",-1)
+    _round   = False
+    decimals = 2
+    
+    if _encrypted_model_dtype == -1:
+        return Response("Encrypted-Model-Dtype", status=500)
+    if _encrypted_model_shape == -1 :
+        return Response("Encrypted-Model-Shape header is required", status=500)
+    
+    if _encrypted_records_dtype == -1:
+        return Response("Encrypted-Records-Dtype", status=500)
+    if _encrypted_records_shape == -1 :
+        return Response("Encrypted-Records-Shape header is required", status=500)
+    
+    encrypted_model_shape:tuple   = eval(_encrypted_model_shape)
+    encrypted_records_shape:tuple = eval(_encrypted_records_shape)
+    num_chunks                    = int(requestHeaders.get("Num-Chunks",-1))
+    response_headers              = {}
+
+    path               = os.environ.get("KEYS_PATH","/rory/keys")
+    ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
+    pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
+
+    # _______________________________________________________________________________
+    ckks = Ckks.from_pyfhel(
+        _round   = _round,
+        decimals = decimals,
+        path               = path,
+        ctx_filename       = ctx_filename,
+        pubkey_filename    = pubkey_filename,
+        secretkey_filename = secretkey_filename
+    )
+    # _______________________________________________________________________________
+    # dataowner = DataOwnerPQC(scheme = ckks)  ##
+    
+    logger.debug({
+        "event":"SKNN.PQC.PREDICT.1.STARTED",
+        "worker_id":worker_id,
+        "model_id":model_id,
+        "encrypted_model_id":encrypted_model_id,
+        "models_labels_id":model_labels_id,
+        "algorithm":algorithm,
+        "encrypted_records_id":encrypted_records_id,
+        "encrypted_model_shape":_encrypted_model_shape,
+        "encrypted_model_dtype":_encrypted_model_dtype,
+        "encrypted_records_shape":_encrypted_records_shape,
+        "encrypted_records_dtype":_encrypted_records_dtype,
+        "num_chunks":num_chunks
+    })
+    if num_chunks == -1:
+        return Response("Num-Chunks header is required", status=503)
+    try:
+        response_headers["Start-Time"] = str(local_start_time)
+        logger.debug({
+            "event":"GET.PYCTXT.MODEL.BEFORE",
+            "bucket_id":BUCKET_ID,
+            "encrypted_model_id":encrypted_model_id,
+            "shape":_encrypted_model_shape,
+            "dtype":_encrypted_model_dtype,
+            "num_chunks":num_chunks,
+            "model_id":model_id,
+            "algorithm":algorithm,
+        })
+        get_merge_encrypted_model_start_time = time.time()
+
+        # x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+        #     key       = encrypted_model_id,
+        #     bucket_id = BUCKET_ID,
+        #     max_retries = 20,
+        #     delay = 2
+        #     ).result()
+        # if x.is_err:
+        #     raise Exception("{} not found".format(encrypted_model_id))
+        # response = x.unwrap()
+        # 
+        # print("BEGOREGET_ENCRYPTED")
+        encrypted_model = Utils.get_pyctxt_matrix_with_retry(
+            STORAGE_CLIENT = STORAGE_CLIENT, 
+            bucket_id      = BUCKET_ID, 
+            num_chunks     = num_chunks,
+            key            = encrypted_model_id, 
+            ckks           = ckks,
+            chunk_size="10MB"
+        )
+        # print("AFTER_GET_ENCRYPTED")
+        # print("ENCRYPTED_MODEL", encrypted_model)
+        # encrypted_model = response.value
+        # encrypted_model_metadata = response.metadata
+
+        get_merge_encrypted_model_st = time.time()- get_merge_encrypted_model_start_time
+        logger.info({
+            "event":"GET.PYCTXT.MODEL",
+            "bucket_id":BUCKET_ID,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_model_id":encrypted_model_id,
+            "num_chunks":num_chunks,
+            "shape":_encrypted_model_shape,
+            "dtype":_encrypted_model_dtype,
+            "service_time":get_merge_encrypted_model_st
+        })
+        
+        logger.debug({
+            "event":"GET.PYCTXT.DATA.BEFORE",
+            "bucket_id":BUCKET_ID,
+            "encrypted_records_id":encrypted_records_id,
+            "shape":_encrypted_records_shape,
+            "dtype":_encrypted_records_dtype,
+            "num_chunks":num_chunks,
+            "model_id":model_id,
+            "algorithm":algorithm,
+        })
+
+        encrypted_records = Utils.get_pyctxt_matrix_with_retry(
+            STORAGE_CLIENT = STORAGE_CLIENT, 
+            bucket_id      = BUCKET_ID, 
+            num_chunks     = num_chunks,
+            key            = encrypted_records_id, 
+            ckks           = ckks
+        )
+        # raise Exception("Boom!")
+    
+        logger.info({
+            "event":"GET.PYCTXT.DATA",
+            "bucket_id":BUCKET_ID,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_records_id":encrypted_records_id,
+            "shape":_encrypted_records_shape,
+            "dtype":_encrypted_records_dtype,
+            "num_chunks":num_chunks,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            # "service_time":get_merge_encrypted_model_st
+        })
+        # print("ENCRYPTED_RECORDS", encrypted_records)
+        # get_merge_encrypted_records_st = time.time()- get_merge_encrypted_records_start_time
+
+        logger.debug({
+            "event":"CALCULATE.DISTANCES.BEFORE",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_records_id":encrypted_records_id,
+            # "encrypted_records_shape":str(encrypted_records.shape),
+            # "encrypted_records_dtype":str(encrypted_records.dtype),
+            "encrypted_model_id":encrypted_model_id,
+            "encrypted_model_shape":str(encrypted_model_shape),
+            "encrypted_model_dtype":str(encrypted_records_shape)
+        })
+        # print("BEFORE_CALCULATE_DISTANCE")
+
+        # print("encrypted_records", encrypted_records)
+        # print("encrypted_model", encrypted_model)
+
+        all_distances = SKNNPQC.calculate_distances(
+			dataset = encrypted_records,
+			model   = encrypted_model,
+            # dataset       = np.array(encrypted_records),
+			# model         = np.array(encrypted_model),
+            model_shape   = encrypted_model_shape,
+            dataset_shape = encrypted_records_shape
+		)
+        
+        # logger.info({
+        #     "event":"ALL_DISTANCES",
+        #     "result":type(all_distances)
+        # })
+        
+        logger.info({
+            "event":"CALCULATE.DISTANCES",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_records_id":encrypted_records_id,
+            "encrypted_records_shape":str(encrypted_records_shape),
+            # "encrypted_records_dtype":str(encrypted_records_dtype),
+            "encrypted_model_id":encrypted_model_id,
+            "encrypted_model_shape":str(encrypted_model_shape),
+            # "encrypted_model_dtype":str(encrypted_model.dtype)/
+        })
+
+        
+        distances_id = "distances{}".format(records_test_id) 
+        distances_shape = all_distances.shape
+        distances_dtype = all_distances.dtype
+
+        # print(distances_shape)
+
+        
+        logger.debug({
+            "event":"PUT.CHUNKED",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_records_id":encrypted_records_id,
+            "encrypted_model_id":encrypted_model_id,
+            "distances_shape":str(distances_shape),
+            "distances_dtype":str(distances_dtype)
+        })    
+
+        distances_chunks = MictlanXUtils.to_gen_bytes(data=Utils.pyctxt_matrix_to_bytes(ciphertext=all_distances))
+
+        
+
+        z = Utils.delete_and_put_chunked(
+            STORAGE_CLIENT = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            ball_id        = distances_id,
+            key            = distances_id,
+            chunks         = distances_chunks,
+        )
+
+        logger.debug({
+            "event":"PUT.CHUNKED",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "encrypted_records_id":encrypted_records_id,
+            "encrypted_model_id":encrypted_model_id,
+            "distances_shape":str(distances_shape),
+            "distances_dtype":str(distances_dtype)
+        })
+
+        end_time     = time.time()
+        service_time = end_time - local_start_time
+
+        # 
+        logger.info({
+            "event":"SKNN.PREDICT.1.COMPLETED",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "service_time":service_time
+        })
+        # raise Exception("BOOM")
+        return Response( #Returns the final response as a label vector + the headers
+            response = json.dumps({
+                "distances_id":distances_id,
+                "distances_shape":str(distances_shape),
+                "distances_dtype":str(distances_dtype),
+                "service_time":service_time
+            }),
+            status   = 200,
+        )
+
+    except Exception as e:
+        logger.error({
+            "msg":str(e)
+        })
+        return Response(
+            response = None,
+            status   = 503,
+            headers  = {"Error-Message":str(e)}
+        )
+
+def sknn_pqc_predict_2(requestHeaders):
+    local_start_time        = time.time() #Worker start time
+    headers                 = request.headers
+    logger                  = current_app.config["logger"]
+    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    model_id                = requestHeaders.get("Model-Id","model0") #iris
+    model_labels_id         = "{}labels".format(model_id) #iris_model_labels
+    records_test_id         = requestHeaders.get("Records-Test-Id","matrix0")
+    min_distances_index_id  = "distancesindex{}".format(records_test_id)
+    algorithm               = Constants.ClassificationAlgorithms.SKNN_PQC_PREDICT
+
+    # path               = os.environ.get("KEYS_PATH","/rory/keys")
+    # ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
+    # pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
+    # secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
+
+    # _round   = False
+    # decimals = 2
+
+    # # _______________________________________________________________________________
+    # ckks = Ckks.from_pyfhel(
+    #     _round   = _round,
+    #     decimals = decimals,
+    #     path               = path,
+    #     ctx_filename       = ctx_filename,
+    #     pubkey_filename    = pubkey_filename,
+    #     secretkey_filename = secretkey_filename
+    # )
+
+    try:
+        logger.debug({
+            "event":"SKNN.PQC.PREDICT.2.STARTED",
+            "worker_id":worker_id,
+            "model_id":model_id,
+            "models_labels_id":model_labels_id,
+            "records_test_id":records_test_id,
+            "min_distances_index_id":min_distances_index_id,
+            "algorithm":algorithm,
+        })
+
+        logger.debug({
+            "event":"GET.NDARRAY.BEFORE",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "key":model_labels_id,
+            "bucket_id":BUCKET_ID,
+        })
+        model_labels_get_start_time = time.time()
+        model_labels = Utils.get_matrix_or_error(
+            client    = STORAGE_CLIENT,
+            key       = model_labels_id,
+            bucket_id = BUCKET_ID
+        ).value
+
+        model_labels_get_st = time.time() - model_labels_get_start_time
+
+        logger.info({
+            "event":"GET.NDARRAY",
+            "bucket_id":BUCKET_ID,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "key":model_labels_id,
+            "shape":str(model_labels.shape), 
+            "dtype":str(model_labels.dtype),
+            "service_time":model_labels_get_st
+        })
+
+        logger.debug({
+            "event":"GET.MATRIX.BEFORE",
+            "bucket_id":BUCKET_ID,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "models_labels_id":model_labels_id,
+            "min_distances_index_id":min_distances_index_id
+        })
+
+        min_distances_index = Utils.get_matrix_or_error(
+            client    = STORAGE_CLIENT,
+            key       = min_distances_index_id,
+            bucket_id = BUCKET_ID
+        ).value
+
+        logger.info({
+            "event":"GET.MATRIX",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "models_labels_id":model_labels_id,
+            "min_distances_index_id":min_distances_index_id
+        })
+
+        label_vector = SKNN.get_label_vector(
+            model_labels = model_labels,
+            min_indexes = min_distances_index
+        )
+        end_time                       = time.time()
+        service_time                   = end_time - local_start_time
+        requestHeaders["Service-Time"] = str(service_time)
+
+        logger.info({
+            "event":"SKNN.PREDICT.2.COMPLETED",
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "service_time":service_time
+        })
+
+        return Response( #Returns the final response as a label vector + the headers
+            response = json.dumps({
+                "label_vector":label_vector.tolist(),
+                "service_time":service_time
+            }),
+            status   = 200,
+        )
+    except Exception as e:
+        logger.error({
+            "msg":str(e)
+        })
+        # print(e)
+        return Response(
+            response = None,
+            status   = 503,
+            headers  = {"Error-Message":str(e)}
+        )
+
+@classification.route("/pqc/sknn/predict",methods = ["POST"])
+def sknn_pqc_predict():
+    headers         = request.headers
+    head            = ["User-Agent","Accept-Encoding","Connection"]
+    filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
+    step_index      = int(filteredHeaders.get("Step-Index",1))
+    response        = Response()
+    # print("SKNN_WORKER")
+    if step_index == 1:
+        return sknn_pqc_pedict_1(filteredHeaders)
+    elif step_index == 2:
+        return sknn_pqc_predict_2(filteredHeaders)
+    else:
+        return response

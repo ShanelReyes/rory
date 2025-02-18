@@ -30,12 +30,12 @@ class Utils:
     @staticmethod
     def pyctxt_list_to_gen_bytes(ciphertext:List[PyCtxt]) -> Generator[bytes, None, None]:
         try: 
-            print("PYCTXT_LIST_GNE", ciphertext)
+            # print("PYCTXT_LIST_GNE", ciphertext)
             serialized_ciphertexts = [ctxt.to_bytes() for ctxt in ciphertext]
-            print("SERIALIZED", len(serialized_ciphertexts))
+            # print("SERIALIZED", len(serialized_ciphertexts))
             xs= pickle.dumps(serialized_ciphertexts)
-            print("XS")
-            print("*"*20)
+            # print("XS")
+            # print("*"*20)
             for x in xs:
                 yield x
         except Exception as e:
@@ -62,7 +62,7 @@ class Utils:
     
     @staticmethod
     def get_pyctxt_with_retry(
-            STORAGE_CLIENT,
+            STORAGE_CLIENT:V4Client,
             bucket_id:str, 
             num_chunks:int,
             key:str,
@@ -72,7 +72,9 @@ class Utils:
         if x.is_err:
             e = x.unwrap_err()
             raise e
+        # print("X",x)
         serialized_ctxt_bytes = x.unwrap().value 
+        # print("SERIALIZED_CTX_BYTEs", serialized_ctxt_bytes)
         chs = Chunks.from_bytes(data= serialized_ctxt_bytes, group_id="", num_chunks = num_chunks).unwrap()
         encryptedMatrix = Utils.chunks_to_pyctxt_list(ckks= ckks, chunks= chs)
         return encryptedMatrix
@@ -97,6 +99,48 @@ class Utils:
         xx = Utils.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
         return xx
     
+    @staticmethod
+    def get_pyctxt_matrix_with_retry(
+            STORAGE_CLIENT:V4Client,
+            bucket_id:str, 
+            num_chunks:int,
+            key:str,
+            ckks:Ckks,
+            chunk_size:str = "5MB"
+            )-> List[PyCtxt]:
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id,chunk_size=chunk_size)
+        if x.is_err:
+            e = x.unwrap_err()
+            raise e
+        # print("X",x)
+        serialized_ctxt_bytes = x.unwrap().value 
+        # print("SERIALIZED_CTX_BYTEs", serialized_ctxt_bytes)
+        chs = Chunks.from_bytes(data= serialized_ctxt_bytes, group_id="", num_chunks = num_chunks).unwrap()
+        encryptedMatrix = Utils.chunks_to_pyctxt_matrix(ckks= ckks, chunks= chs)
+        return encryptedMatrix
+    
+    @staticmethod
+    def chunks_to_pyctxt_matrix(chunks:Chunks, ckks:Ckks)->List[PyCtxt]:
+        xs = []
+        for ch in chunks.iter():
+            # print("CHUNK",ch)
+            x  = pickle.loads(ch.data)
+            xx = Utils.bytes_to_pyctxt_matrix(ckks=ckks,serialized_ctxt_bytes=x)
+            xs.extend(xx)
+        return xs
+    
+    @staticmethod
+    def bytes_to_pyctxt_matrix(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
+        scheme  = ckks.he_object
+        # xx = []
+        matrix = []
+        for xs in serialized_ctxt_bytes:
+            tmp_row = []
+            for x in xs:
+                element = PyCtxt(None, scheme, None,x, "FRACTIONAL")
+                tmp_row.append(element)
+            matrix.append(tmp_row)
+        return matrix
     
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
@@ -189,13 +233,16 @@ class Utils:
         return n_deletes
     
     @staticmethod
-    def while_not_delete_ball_id(STORAGE_CLIENT:V4Client ,bucket_id:str, ball_id:str): 
+    def while_not_delete_ball_id(STORAGE_CLIENT:V4Client ,bucket_id:str, ball_id:str,max_tries:int=5): 
         n_deletes = -1   
-        while not n_deletes == 0:
+        i = 0
+        while not ( n_deletes == 0 or i >= max_tries):
             _delete_result = STORAGE_CLIENT.delete_by_ball_id(bucket_id=bucket_id,ball_id=ball_id)
+            # print("_DETELTE", _delete_result)
             if _delete_result.is_ok:
                 del_response = _delete_result.unwrap()
                 n_deletes = del_response.n_deletes
+            i+=1
         return n_deletes
     
     @staticmethod
@@ -222,12 +269,14 @@ class Utils:
         put_res = None
         while condition: 
             _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, ball_id=ball_id)
+
             put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
                 key       = key, 
                 chunks= chunks,
                 tags      = tags,
                 bucket_id = bucket_id
             )
+            # print("PUT_CHUNK_RES", put_res)
             if put_res.is_ok:
                 return put_res
             condition = put_res.is_err and not (_delete_result == 0)
@@ -270,4 +319,12 @@ class Utils:
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
     
+    def pyctxt_matrix_to_bytes(ciphertext:List[PyCtxt]):
+        serialized_ciphertexts = []
+        for ctxts in ciphertext:
+            inner_sctxts = []
+            for ctxt in ctxts:
+                inner_sctxts.append(ctxt.to_bytes())
+            serialized_ciphertexts.append(inner_sctxts)
+        return pickle.dumps(serialized_ciphertexts)
     

@@ -30,7 +30,7 @@ SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
 NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
-MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",4)) #Total of process for encryption
+MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",2)) #Total of process for encryption
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
 MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
 LIU_SECURITY_LEVEL   = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
@@ -113,6 +113,7 @@ DATAOWNER = DataOwner(
 
 cores       = os.cpu_count()
 max_workers = cores if MAX_WORKERS > cores else MAX_WORKERS
+# print("MAX_WORKERS", max_workers)
 executor    = ProcessPoolExecutor(max_workers=max_workers)
 
 """
