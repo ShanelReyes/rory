@@ -398,24 +398,10 @@ def sknn_predict():
         put_chunks_start_time = time.time()
         encrypted_records_shape = (r,a,int(m))
 
-        # _delete_result = Utils.while_not_delete_ball_id(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=BUCKET_ID, ball_id=encrypted_records_test_id)
-
-        # STORAGE_CLIENT.delete_by_ball_id(
-        #     ball_id   = encrypted_records_test_id, 
-        #     bucket_id = BUCKET_ID
-        # )
         chunks_bytes = Utils.chunks_to_bytes_gen(
             chs = encrypted_records_chunks
         )
-        # put_chunks_generator_results = STORAGE_CLIENT.put_chunked(
-        #     key       = encrypted_records_test_id, 
-        #     chunks    = chunks_bytes, 
-        #     bucket_id = BUCKET_ID,
-        #     tags      = {
-        #         "shape": str(encrypted_records_shape),
-        #         "dtype":"float64"
-        #     }
-        # )
+        
         put_chunks_generator_results = Utils.delete_and_put_chunked(
             STORAGE_CLIENT = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
@@ -579,11 +565,9 @@ def sknn_predict():
             ciphertext_matrix = all_distances,
             secret_key        = dataowner.sk,
             securitylevel     = securitylevel,
-            # m                 = int(m)
         )
 
         min_distances_index         = np.argmin(matrix_distances_plain.matrix,axis=1)
-        print("MIN_DISTANCE_INDEX",min_distances_index.shape)
         min_distances_index_id      = "distancesindex{}".format(records_test_id)
         decrypt_matrix_end_time     = time.time()
         decrypt_matrix_service_time = decrypt_matrix_start_time - decrypt_matrix_end_time
@@ -630,26 +614,7 @@ def sknn_predict():
             }
         )
 
-        # _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=BUCKET_ID, key=min_distances_index_id)
-        # yd = STORAGE_CLIENT.delete(
-        #     key       = min_distances_index_id,
-        #     bucket_id = BUCKET_ID
-        # )
-        # y:Result[PutResponse,Exception]  = STORAGE_CLIENT.put_ndarray(
-        #     key       = min_distances_index_id,
-        #     ndarray   = min_distances_index,
-        #     tags      = {},
-        #     bucket_id = BUCKET_ID
-        # ).result()
-        # ptm_result = Utils.delete_and_put_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT, 
-        #     bucket_id      = BUCKET_ID, 
-        #     ball_id        = min_distances_index_id, 
-        #     key            = min_distances_index_id,
-        #     ndarray        = min_distances_index, 
-        #     tags           = {}
-        # )
-
+        
         logger.info({
             "event":"PUT.NDARRAY",
             "model_id":model_id,
@@ -736,7 +701,6 @@ def sknn_predict():
         logger.error({
             "msg":str(e)
         })
-        # logger.error("CLIENT_ERROR "+str(e))
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
 
 
@@ -829,7 +793,6 @@ def knn_train():
         "dtype":str(model.dtype),
     })
     put_model_start_time = time.time()
-    # print("tres")
     model_chunks = Chunks.from_ndarray(
         ndarray      = model,
         group_id     = model_id,
@@ -862,7 +825,6 @@ def knn_train():
 
     chunks_bytes = Utils.chunks_to_bytes_gen(
         chs = model_chunks.unwrap()
-    
     )
 
     t_chunks_generator_results = Utils.delete_and_put_chunked(
@@ -1242,8 +1204,7 @@ def sknn_pqc_train():
             "model_labels_filename":model_labels_filename,
             "model_labels_path":model_labels_path,
             "extension":extension,
-        })       
-        # raise Exception ("BOOM") 
+        })
 
         model_path_exists        = os.path.exists(model_path) 
         model_path_labels_exists = os.path.exists(model_labels_path)
@@ -1321,7 +1282,6 @@ def sknn_pqc_train():
             logger.info({
                 "result":str(ptm_result)
             })
-            # raise Exception("BOOM!")
 
             put_model_labels_st = time.time() - put_model_labels_start_time
 
@@ -1340,7 +1300,6 @@ def sknn_pqc_train():
             r:int = model.shape[0]
             a:int = model.shape[1]
             encrypted_model_shape = "({},{})".format(r,a)
-            # n = a*r*int(m)
             n = a*r
 
             logger.debug({
@@ -1368,9 +1327,7 @@ def sknn_pqc_train():
                 pubkey_filename    = pubkey_filename,
                 secretkey_filename = secretkey_filename
             )
-            print("SEGMENT AND ENCRYPT CHUNKS",encrypted_model_chunks.iter())
-            # raise Exception("BOOM")
-            # raise Exception("Boom!")
+            
             segment_encrypt_model_st = time.time() - segment_encrypt_model_start_time
 
             logger.info({
@@ -1428,7 +1385,7 @@ def sknn_pqc_train():
             response_time = endTime - local_start_time # Get the service time
 
             logger.info({
-                "event":"SKNN.TRAIN.COMPLETED",
+                "event":"SKNN.PQC.TRAIN.COMPLETED",
                 "model_id":model_id,
                 "algorithm":algorithm,
                 "response_time":response_time
@@ -1457,15 +1414,12 @@ def sknn_pqc_predict():
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        # liu:Liu                      = current_app.config.get("liu")
-        # dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
-        # securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClassificationAlgorithms.SKNN_PQC_PREDICT
@@ -1478,7 +1432,6 @@ def sknn_pqc_predict():
         records_test_filename     = request_headers.get("Records-Test-Filename",records_test_id)
         encrypted_records_test_id = "encrypted{}".format(records_test_id) # The id of the encrypted matrix is built
         extension                 = request_headers.get("Extension","npy")
-        # m                         = dataowner.m
         model_labels_id           = "{}labels".format(model_id)
         _encrypted_model_shape    = request_headers.get("Encrypted-Model-Shape",-1)
         _encrypted_model_dtype    = request_headers.get("Encrypted-Model-Dtype",-1)
@@ -1510,7 +1463,7 @@ def sknn_pqc_predict():
         dataowner = DataOwnerPQC(scheme = ckks)  ##
 
         logger.debug({
-            "event":"SKNN.1.PREDICT.STARTED",
+            "event":"SKNN.PQC.1.PREDICT.STARTED",
             "bucket_id":BUCKET_ID,
             "testing":TESTING,
             "source_path":SOURCE_PATH, 
@@ -1522,12 +1475,9 @@ def sknn_pqc_predict():
             "records_test_id":records_test_id,
             "records_test_filename":records_test_filename,
             "extension":extension,
-            # "m":m,
             "encrypted_model_shape":_encrypted_model_shape,
             "encrypted_model_dtype":_encrypted_model_dtype,
             "records_test_path":records_test_path,
-            # "liu_round":liu.round,
-            # "security_level":securitylevel
         })        
 
         logger.debug({
@@ -1571,16 +1521,6 @@ def sknn_pqc_predict():
         })
 
         segment_encrypt_start_time = time.time()
-        # encrypted_records_chunks:Chunks = Utils.segment_and_encrypt_liu_with_executor( #Encrypt 
-        #     executor         = executor,
-        #     key              = encrypted_records_test_id,
-        #     plaintext_matrix = records_test,
-        #     dataowner        = dataowner,
-        #     n                = n,
-        #     num_chunks       = num_chunks,
-        #     np_random        = np_random
-        # )
-
         encrypted_records_chunks = Utils.segment_and_encrypt_ckks_with_executor_v2( #Encrypt 
                 executor           = executor,
                 key                = encrypted_records_test_id,
@@ -1594,7 +1534,6 @@ def sknn_pqc_predict():
                 pubkey_filename    = pubkey_filename,
                 secretkey_filename = secretkey_filename
             )
-        
         
         encryption_service_time = time.time() - segment_encrypt_start_time
         logger.info({
@@ -1636,7 +1575,6 @@ def sknn_pqc_predict():
             }
         )
 
-        # print("RESULT_PUT",put_chunks_generator_results)
         put_chunks_st = time.time() - put_chunks_start_time
         service_time_client = time.time() - local_start_time
         logger.info({
@@ -1677,7 +1615,6 @@ def sknn_pqc_predict():
             "port":port,
             "algorithm":algorithm,
             "service_time":get_worker_service_time,
-            # "m":m
         })
         worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
@@ -1735,7 +1672,6 @@ def sknn_pqc_predict():
             "num_chunks":num_chunks,
             "algorithm":algorithm,
         })
-        # print("Cero")
         get_all_distances_start_time = time.time()
         logger.debug({
             "event":"GET.NDARRAY.BEFORE",
@@ -1747,37 +1683,18 @@ def sknn_pqc_predict():
             "num_chunks":num_chunks,
             "algorithm":algorithm,
         })
-        # print(_encrypted_model_shape)
-        # raise Exception("BOOM")
-        # print("Hola")
-        # x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-        #     key         = distances_id,
-        #     bucket_id   = BUCKET_ID,
-        #     max_retries = 20,
-        #     delay       = 2
-        #     ).result()
-        
+
         all_distances = Utils.get_pyctxt_matrix_with_retry(
             STORAGE_CLIENT = STORAGE_CLIENT, 
             bucket_id      = BUCKET_ID, 
             num_chunks     = 1, # Siempre debe de ser 1, porque no se utiliza el metodo segment_and_encrypt 
             key            = distances_id, 
             ckks           = ckks,
-            # pickle_chunks=True,
         )
-        # print("ALL_DISTANCES", all_distances)
-        # raise Exception("BOOM!")
-
-        # print("Cero uno")
-        # if x.is_err:
-        #     raise Exception("{} not found".format(distances_id))
-        # response = x.unwrap()
-        # print("Cero dos")
-        # all_distances                  = response.value
-        # all_distances_metadata         = response.metadata 
+        
         get_all_distances_end_time     = time.time()
         get_all_distances_service_time = get_all_distances_end_time - get_all_distances_start_time
-        # print("Cero tres")
+        
         logger.info({
             "event":"GET.NDARRAY",
             "model_id":model_id,
@@ -1789,27 +1706,20 @@ def sknn_pqc_predict():
             "service_time":get_all_distances_service_time,
             "algorithm":algorithm,
         }) 
-        # print("Uno")
+        
         decrypt_matrix_start_time = time.time()
         logger.debug({
             "event":"DECRYPT.MIN.BEFORE",
             "model_id":model_id,
             "records_test_id":records_test_id,
             "algorithm":algorithm,
-            # "security_level":securitylevel,
-            # "m":m,
         })
 
-        # print("Dos")
         matrix_distances_plain = ckks.decrypt_matrix_list(
             xs   = all_distances, 
             take = int(_encrypted_model_shape[1])
             )
-        # print("Tres")
-        # print("All distances", all_distances_decrypt)
-
         min_distances_index         = np.argmin(matrix_distances_plain,axis=1)
-        # print("MIN_DISTANCE_INDEX",min_distances_index.shape)
         min_distances_index_id      = "distancesindex{}".format(records_test_id)
         decrypt_matrix_end_time     = time.time()
         decrypt_matrix_service_time = decrypt_matrix_start_time - decrypt_matrix_end_time
@@ -1916,7 +1826,7 @@ def sknn_pqc_predict():
         response_time = endTime - local_start_time # Get the service time
 
         logger.info({
-            "event":"SKNN.PREDICT.COMPLETED",
+            "event":"SKNN.PQC.PREDICT.COMPLETED",
             "algorithm":algorithm,
             "model_id":model_id,
             "worker_service_time":worker_service_time,
@@ -1943,5 +1853,4 @@ def sknn_pqc_predict():
         logger.error({
             "msg":str(e)
         })
-        # logger.error("CLIENT_ERROR "+str(e))
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})

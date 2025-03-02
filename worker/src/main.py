@@ -23,6 +23,7 @@ RELOAD               = bool(int(os.environ.get("RELOAD",0)))
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
+DISTANCE             = os.environ.get("DISTANCE","EUCLIDEAN")
 
 #CREAR FOLDERS
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
@@ -95,6 +96,7 @@ def create_app():
         current_app.config["LOG_PATH"]         = LOG_PATH
         current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
         current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
+        current_app.config["DISTANCE"]         = DISTANCE
 
 """
 Description:

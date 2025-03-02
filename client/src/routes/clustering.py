@@ -107,15 +107,6 @@ def kmeans():
         })
         put_pm_start_time = time.time()
 
-        # ptm_result = Utils.delete_and_put_ndarray(
-        #     STORAGE_CLIENT = STORAGE_CLIENT, 
-        #     bucket_id      = BUCKET_ID, 
-        #     ball_id        = plaintext_matrix_id, 
-        #     key            = plaintext_matrix_id,
-        #     ndarray        = plaintextMatrix, 
-        #     tags           = {}
-        # )
-
         plaintext_matrix_chunks = Chunks.from_ndarray(
             ndarray      = plaintextMatrix,
             group_id     = plaintext_matrix_id,
@@ -320,7 +311,6 @@ def skmeans():
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         requestId                 = "request-{}".format(plaintext_matrix_id)
         m                         = dataowner.m
-        # securitylevel             = int(request_headers.get("Security-Level",128))
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         
         logger.debug({
@@ -706,13 +696,11 @@ def skmeans():
                 ciphertext_matrix = encrypted_shift_matrix.tolist(),
                 secret_key        = dataowner.sk,
                 securitylevel     = securitylevel,
-                # m                 = int(m)
             )
             logger.info({
                 "event":"DECRYPT",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
-                "m":m,
                 "shape":str(encrypted_shift_matrix.shape),
                 "dtype":str(encrypted_shift_matrix.dtype),
                 "service_time":time.time() - decrypt_start_time
@@ -1140,8 +1128,7 @@ def dbskmeans():
             key            = encrypted_udm_id,
             chunks         = chunks_udm_bytes,
             tags = {
-                # "shape": str(udm_shape), # No se que dimensiones tiene la Encrypted UDM ??? pusiste udm_shape. 
-                "shape": str((r,r,a)), # ya vi que mas abajo esta la variable initial_udm_shape
+                "shape": str((r,r,a)),
                 "dtype":"float64"
             },
             timeout=MICTLANX_TIMEOUT
@@ -1156,7 +1143,7 @@ def dbskmeans():
             "service_time":time.time() - put_chunks_start_time
         })
         service_time_client = time.time() - local_start_time
-        # We don't need this variable anymore so throw away.
+        
         del chunks_udm_bytes
         del chunks_bytes
         del udm 
@@ -1293,8 +1280,8 @@ def dbskmeans():
                 timeout=MICTLANX_TIMEOUT
             )
 
-            get_matrix_st = time.time() - get_matrix_start_time
-            encryptedShiftMatrix = encryptedShiftMatrix_get_response.value
+            get_matrix_st              = time.time() - get_matrix_start_time
+            encryptedShiftMatrix       = encryptedShiftMatrix_get_response.value
             encryptedShiftMatrix_shape = encryptedShiftMatrix.shape
             encryptedShiftMatrix_dtype = encryptedShiftMatrix.dtype
 
@@ -1321,7 +1308,6 @@ def dbskmeans():
                 ciphertext_matrix = encryptedShiftMatrix.tolist(),
                 secret_key        = dataowner.sk,
                 securitylevel     = securitylevel,
-                # m                 = int(m)
             )
             descrypy_st = time.time() - decrypt_start_time
             logger.info({
@@ -1337,7 +1323,6 @@ def dbskmeans():
             del encryptedShiftMatrix
             del encryptedShiftMatrix_get_response
             
-    
             cipher_schema_res_matrix= cipher_schema_res.matrix
             cipher_schema_res_matrix_shape = cipher_schema_res_matrix.shape
             cipher_schema_res_matrix_dtype = cipher_schema_res_matrix.dtype
@@ -1351,8 +1336,6 @@ def dbskmeans():
                 "shift_matrix_dtype":str(cipher_schema_res_matrix_dtype),
             })
 
-
-
             encrypted_start_time = time.time()
             shift_matrix_ope_res = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
                 plaintext_matrix = cipher_schema_res_matrix, 
@@ -1361,7 +1344,6 @@ def dbskmeans():
             )
             
             del cipher_schema_res_matrix
-        
 
             shift_matrix_ope = shift_matrix_ope_res.matrix
             shift_matrix_ope_shape = shift_matrix_ope.shape
@@ -2326,7 +2308,6 @@ def nnc():
             "dm_shape":str(dm_shape),
             "dm_dtype":str(dm.dtype)
         })
-        # time.sleep(1000)
         worker_response  = worker.run(
             timeout = WORKER_TIMEOUT, 
             headers = run_headers
@@ -2413,8 +2394,6 @@ def pqc_skmeans():
         path               = os.environ.get("KEYS_PATH","/rory/keys")
         ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
         pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        # relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
-        # rotatekey_filename = os.environ.get("ROTATE_KEY_FILENAME","rotatekey")
         secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
         
         # _______________________________________________________________________________
@@ -2424,8 +2403,6 @@ def pqc_skmeans():
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
         # _______________________________________________________________________________
@@ -2501,14 +2478,11 @@ def pqc_skmeans():
             plaintext_matrix   = plaintext_matrix,
             n                  = n,
             num_chunks         = num_chunks,
-            # np_random          = np_random,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
         segment_encrypt_service_time = time.time() - encryption_start_time
@@ -2541,7 +2515,6 @@ def pqc_skmeans():
                 "dtype":"float64"
             }
         )
-        # print("RES", put_chunks_generator_results)
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"DELETE.AND.PUT.CHUNKED",
@@ -2671,14 +2644,11 @@ def pqc_skmeans():
             plaintext_matrix   = zero_shiftmatrix,
             n                  = n2,
             num_chunks         = num_chunks,
-            # np_random          = np_random,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
 
@@ -3029,7 +2999,6 @@ def pqc_skmeans():
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])
 def pqc_dbskmeans():
     try:
-        # local_start_time             = time.time()
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
@@ -3074,8 +3043,6 @@ def pqc_dbskmeans():
         path               = os.environ.get("KEYS_PATH","/rory/keys")
         ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
         pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        # relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
-        # rotatekey_filename = os.environ.get("ROTATE_KEY_FILENAME","rotatekey")
         secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
         
         # _______________________________________________________________________________
@@ -3085,8 +3052,6 @@ def pqc_dbskmeans():
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
         # _______________________________________________________________________________
@@ -3171,14 +3136,11 @@ def pqc_dbskmeans():
             plaintext_matrix   = plaintext_matrix,
             n                  = n,
             num_chunks         = num_chunks,
-            # np_random          = np_random,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
 
@@ -3233,7 +3195,7 @@ def pqc_dbskmeans():
 
         del plaintext_matrix
         
-        udm_gen_st = time.time()- udm_start_time
+        udm_gen_st = time.time() - udm_start_time
         logger.info({
             "event":"UDM.GENERATION",
             "algorithm":algorithm,
@@ -3349,14 +3311,11 @@ def pqc_dbskmeans():
             plaintext_matrix   = zero_shiftmatrix,
             n                  = n2,
             num_chunks         = num_chunks,
-            # np_random          = np_random,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            # relinkey_filename  = relinkey_filename,
-            # rotatekey_filename = rotatekey_filename,
             secretkey_filename = secretkey_filename
         )
         
@@ -3563,7 +3522,6 @@ def pqc_dbskmeans():
                 "event":"ENCRYPT.FDHOPE",
                 "algorithm":algorithm,
                 "plaintext_matrix_id":plaintext_matrix_id,
-                # "m":int(m),
                 "shift_matrix_shape":str(shift_matrix_ope_shape),
                 "shift_matrix_dtype":str(shift_matrix_ope_dtype),
                 "service_time":time.time() - encrypted_start_time

@@ -22,4 +22,4 @@ pycryptodome==3.20.0
 
 --extra-index-url https://test.pypi.org/simple/ 
 mictlanx==0.0.160a3
-rory==0.0.179
+rory==0.0.182

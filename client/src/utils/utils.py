@@ -46,17 +46,14 @@ class Utils:
         scheme  = ckks.he_object
         xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
         return xx
-        # decrypt = ckks.decryptMatrix(xx, shape=[6,2])
 
     @staticmethod
     def bytes_to_pyctxt_list(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
         scheme  = ckks.he_object
         xx = []
         for x in serialized_ctxt_bytes:
-          
             y = PyCtxt(None, scheme, None,x, "FRACTIONAL")
             xx.append(y)
-            # xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
         return xx
     @staticmethod
     def bytes_to_pyctxt_list_v2(ckks:Ckks, data:bytes):
@@ -92,7 +89,6 @@ class Utils:
                         return result
                 else:
                     return Err(Exception("Path, extension and plaintext_matrix_id was not provided"))
-
         except Exception as e:
             return Err(e)
 
@@ -133,7 +129,6 @@ class Utils:
         x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,timeout=timeout).result()
         if x.is_err:
             e = x.unwrap_err()
-            # print("GET_ERROR",e)
             raise e
         return x.unwrap()
 
@@ -172,7 +167,6 @@ class Utils:
     def segment_and_encrypt_fdhope_with_executor(executor:ProcessPoolExecutor,algorithm:str, key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int ,num_chunks:int=2, sens:float = 0.00001 ):
         plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
         awaitable_chunks:List[Awaitable[Chunk]] = []
-        
         for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
             future = executor.submit(Utils.encrypt_chunk_fdhope,
                     key       = key, 
@@ -182,8 +176,6 @@ class Utils:
                     sens      = sens 
                     )
             awaitable_chunks.append(future)
-        # print("FUTURES", awaitable_chunks)
-        # raise Exception("INSIDE_BOOM")
         return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n  )
 
     @staticmethod
@@ -207,7 +199,6 @@ class Utils:
     @staticmethod
     def while_not_delete(STORAGE_CLIENT:V4Client ,bucket_id:str, key:str): 
         n_deletes = -1
-
         while not n_deletes == 0:
             _delete_result = STORAGE_CLIENT.delete(bucket_id=bucket_id,key=key)
             if _delete_result.is_ok:
@@ -219,10 +210,8 @@ class Utils:
     def while_not_delete_ball_id(STORAGE_CLIENT:V4Client ,bucket_id:str, ball_id:str,timeout:int = 3600,max_tries:int = 5): 
         n_deletes = -1
         i = 0
-        # print("AQUI")
         while not ( n_deletes == 0 or i >= max_tries):
             _delete_result = STORAGE_CLIENT.delete_by_ball_id(bucket_id=bucket_id,ball_id=ball_id,timeout=timeout)
-            # print("DELETE_RESULT",_delete_result)
             if _delete_result.is_ok:
                 del_response = _delete_result.unwrap()
                 n_deletes = del_response.n_deletes
@@ -243,7 +232,6 @@ class Utils:
             )
             if put_res.is_ok:
                 return put_res
-            
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
 
@@ -271,17 +259,14 @@ class Utils:
         put_res = None
         while condition: 
             _delete_result = Utils.while_not_delete(STORAGE_CLIENT=STORAGE_CLIENT, bucket_id=bucket_id, key=key)
-            
             put_res:Result[PutResponse,Exception] = STORAGE_CLIENT.put_ndarray( # Saving Cent_i to storage
             key       = key, 
             ndarray   = ndarray,
             tags      = tags,
             bucket_id = bucket_id
             )
-
             if put_res.is_ok:
                 return put_res
-            
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
 
@@ -314,8 +299,6 @@ class Utils:
             tags      = tags,
             bucket_id = bucket_id
             )
-            # print("_DEL_RESULT", _delete_result)
-            # print("PUT_RES", put_res)
             if put_res.is_ok:
                 return put_res
             condition = put_res.is_err and not (_delete_result == 0)
@@ -336,7 +319,6 @@ class Utils:
                 bucket_id=bucket_id, 
                 ball_id=ball_id
             )
-            # print("DEL_RES", _delete_result)
             put_res = STORAGE_CLIENT.put_chunked( # Saving Cent_i to storage
                 key       = key, 
                 chunks    = chunks,
@@ -344,7 +326,6 @@ class Utils:
                 bucket_id = bucket_id,
                 timeout=timeout
             )
-            # print("PUT_RES", put_res)
             if put_res.is_ok:
                 return put_res
             condition = put_res.is_err and not (_delete_result == 0)
@@ -358,7 +339,6 @@ class Utils:
         n:int,
         _round:bool, decimals:int, path:str, ctx_filename:str, 
         pubkey_filename:str, 
-        # relinkey_filename:str, rotatekey_filename:str,
         secretkey_filename:str,
         num_chunks:int=2, 
     ):
@@ -374,10 +354,7 @@ class Utils:
                 path               = path,
                 ctx_filename       = ctx_filename,
                 pubkey_filename    = pubkey_filename,
-                # relinkey_filename  = relinkey_filename,
-                # rotatekey_filename = rotatekey_filename,
                 secretkey_filename = secretkey_filename,
-
             )
             awaitable_chunks.append(future)
         return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n)
@@ -386,7 +363,6 @@ class Utils:
     def encrypt_chunk_ckks(key:str, chunk:Chunk, _round:bool, decimals:int, path:str, ctx_filename:str, 
                            pubkey_filename:str, secretkey_filename:str)-> Chunk:
         try:
-            # print("ENCRYPTED_CHUNK_CKSS")
             dataowner = DataOwnerPQC(
                 scheme= Ckks.from_pyfhel(
                     _round   = _round,
@@ -394,8 +370,6 @@ class Utils:
                     path               = path,
                     ctx_filename       = ctx_filename,
                     pubkey_filename    = pubkey_filename,
-                    # relinkey_filename  = relinkey_filename,
-                    # rotatekey_filename = rotatekey_filename,
                     secretkey_filename = secretkey_filename,
                 ) 
             )
@@ -410,7 +384,6 @@ class Utils:
             )
         except Exception as e:
             print("ENCRYPT_CHUNK_ERROR",e)
-        # return Chunk(grp)
     
     @staticmethod
     def segment_and_encrypt_ckks_with_executor_v2(
@@ -420,13 +393,10 @@ class Utils:
         n:int,
         _round:bool, decimals:int, path:str, ctx_filename:str, 
         pubkey_filename:str, 
-        # relinkey_filename:str, rotatekey_filename:str,
         secretkey_filename:str,
         num_chunks:int=2, 
     ):
-        
-        plaintext_matrix_chunks                 = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
-
+        plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
         awaitable_chunks:List[Awaitable[Chunk]] = []
         for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
             future = executor.submit(
@@ -438,8 +408,6 @@ class Utils:
                 path               = path,
                 ctx_filename       = ctx_filename,
                 pubkey_filename    = pubkey_filename,
-                # relinkey_filename  = relinkey_filename,
-                # rotatekey_filename = rotatekey_filename,
                 secretkey_filename = secretkey_filename,
 
             )
@@ -450,7 +418,6 @@ class Utils:
     def encrypt_chunk_ckks_v2(key:str, chunk:Chunk, _round:bool, decimals:int, path:str, ctx_filename:str, 
                            pubkey_filename:str, secretkey_filename:str)-> Chunk:
         try:
-            # print("ENCRYPTED_CHUNK_CKSS")
             dataowner = DataOwnerPQC(
                 scheme= Ckks.from_pyfhel(
                     _round   = _round,
@@ -458,16 +425,11 @@ class Utils:
                     path               = path,
                     ctx_filename       = ctx_filename,
                     pubkey_filename    = pubkey_filename,
-                    # relinkey_filename  = relinkey_filename,
-                    # rotatekey_filename = rotatekey_filename,
                     secretkey_filename = secretkey_filename,
                 ) 
             )
             plaintext_matrix = chunk.to_ndarray().unwrap().copy()
-            # print("Plaintext",plaintext_matrix)
             encyrpted_chunk:List[PyCtxt] = dataowner.ckks_encrypt_matrix_list_chunk(plaintext_chunk = plaintext_matrix)
-            # print("ENCRYPTED_CHUNK", encyrpted_chunk)
-
             data = Utils.pyctxt_matrix_to_bytes(ciphertext=encyrpted_chunk)
             return Chunk(
                 group_id=key,
@@ -477,7 +439,6 @@ class Utils:
             )
         except Exception as e:
             print("ENCRYPT_CHUNK_ERROR",e)
-        # return Chunk(grp)
 
     @staticmethod
     def get_pyctxt_with_retry(
@@ -500,7 +461,6 @@ class Utils:
     def chunks_to_pyctxt_list(chunks:Chunks, ckks:Ckks)->List[List[PyCtxt]]:
         xs = []
         for ch in chunks.iter():
-            # print("CHUNK",ch)
             x  = pickle.loads(ch.data)
             xx = Utils.bytes_to_pyctxt_list(ckks=ckks,serialized_ctxt_bytes=x)
             xs.append(xx)
@@ -517,47 +477,34 @@ class Utils:
             num_chunks:int,
             key:str,
             ckks:Ckks,
-            # pickle_chunks:bool = True,
             chunk_size:str = "5MB"
-    )-> List[PyCtxt]:
-        
+        )-> List[PyCtxt]:
         x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id, chunk_size=chunk_size)
         if x.is_err:
             e = x.unwrap_err()
             raise e
-        # print("X",x)
-        serialized_ctxt_bytes = x.unwrap().value 
-        # print("SERIALIZED_CTX_BYTEs", serialized_ctxt_bytes)
+        serialized_ctxt_bytes = x.unwrap().value
         chs = Chunks.from_bytes(data= serialized_ctxt_bytes, group_id="", num_chunks = num_chunks).unwrap()
-        # print("CHS",chs)
         encryptedMatrix = Utils.chunks_to_pyctxt_matrix(ckks= ckks, chunks= chs)
         return encryptedMatrix
     
-
 
     @staticmethod
     def chunks_to_pyctxt_matrix(chunks:Chunks, ckks:Ckks)->List[PyCtxt]:
         xs = []
         for ch in chunks.iter():
-            # print("CHUNK",ch)
             x = ch.data
-          
-            # if pickle_chunks:
             x  = pickle.loads(x)
-
             xx = Utils.bytes_to_pyctxt_matrix(ckks=ckks,serialized_ctxt_bytes=x)
-
             xs.extend(xx)
         return xs
     
     @staticmethod
     def bytes_to_pyctxt_matrix(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
         scheme  = ckks.he_object
-        # xx = []
         matrix = []
         for xs in serialized_ctxt_bytes:
             tmp_row = []
-            # print("XS",xs)
             for x in xs:
                 element = PyCtxt(None, scheme, None,x, "FRACTIONAL")
                 tmp_row.append(element)
