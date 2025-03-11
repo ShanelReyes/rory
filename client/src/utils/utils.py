@@ -80,7 +80,7 @@ class Utils:
             else:
                 if plaintext_matrix_id.is_some and bucket_id.is_some:
                     key = plaintext_matrix_id.unwrap()
-                    fut = client.get_ndarray(key=key,bucket_id=bucket_id.unwrap())
+                    fut = client.get_ndarray(key=key,bucket_id=bucket_id.unwrap(), headers={"Accept-Encoding":"identity"})
                     result:Result[GetNDArrayResponse,Exception]   = fut.result()
                     if result.is_ok:
                         response = result.unwrap()
@@ -96,6 +96,7 @@ class Utils:
     @staticmethod
     def encrypt_chunk_liu(key:str,dataowner:DataOwner,chunk:Chunk, np_random:bool)-> Chunk:
         encyrpted_chunk:npt.NDArray = dataowner.liu_encrypt_matrix_chunk(plaintext_matrix = chunk.to_ndarray().unwrap(), np_random=np_random)
+        print("ENCRUPTED_CHUNK", encyrpted_chunk.shape)
         return Chunk.from_ndarray(group_id=key, index= chunk.index, ndarray= encyrpted_chunk, chunk_id=Some("{}_{}".format(key,chunk.index)))
 
     @staticmethod
@@ -116,9 +117,11 @@ class Utils:
 
     @staticmethod
     def segment_and_encrypt_liu_with_executor(executor:ProcessPoolExecutor,key:str,dataowner:DataOwner,plaintext_matrix:npt.NDArray, n:int, np_random:bool, num_chunks:int=2, max_workers:int = int(os.cpu_count()/2) ):
-        plaintext_matrix_chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
+        print("NDARRA", plaintext_matrix.shape)
+        plaintext_matrix_chunks:Chunks = Chunks.from_ndarray(ndarray= plaintext_matrix, group_id = key, num_chunks= num_chunks).unwrap()
         awaitable_chunks:List[Awaitable[Chunk]] = []
         for plaintext_matrix_chunk in plaintext_matrix_chunks.iter():
+            print(plaintext_matrix_chunk.to_ndarray().map(lambda x:x.shape))
             future = executor.submit(Utils.encrypt_chunk_liu,key = key, dataowner = dataowner,chunk = plaintext_matrix_chunk, np_random = np_random)
             awaitable_chunks.append(future)
         return Chunks(chs= Utils.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n  )
@@ -126,7 +129,7 @@ class Utils:
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def get_matrix_or_error(client:V4Client,key:str, bucket_id:str,timeout:int = 3600)->GetNDArrayResponse:
-        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,timeout=timeout).result()
+        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,timeout=timeout, headers={"Accept-Encoding":"identity"}).result()
         if x.is_err:
             e = x.unwrap_err()
             raise e
@@ -134,7 +137,7 @@ class Utils:
 
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str)->Tuple[npt.NDArray,Metadata]:
-        encryptedMatrix_result:Result[GetBytesResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks).result()
+        encryptedMatrix_result:Result[GetBytesResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks, headers={"Accept-Encoding":"identity"}).result()
         if encryptedMatrix_result.is_err:
             raise Exception("{} not found".format(key))
         
@@ -228,7 +231,8 @@ class Utils:
             key       = ball_id, 
             ndarray   = ndarray,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id,
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -245,7 +249,8 @@ class Utils:
             key       = ball_id, 
             chunks= chunks,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id, 
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -263,7 +268,8 @@ class Utils:
             key       = key, 
             ndarray   = ndarray,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id,
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -280,7 +286,8 @@ class Utils:
             key       = key, 
             chunks= chunks,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id, 
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -297,7 +304,8 @@ class Utils:
             key       = key, 
             ndarray   = ndarray,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id,
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -324,7 +332,8 @@ class Utils:
                 chunks    = chunks,
                 tags      = tags,
                 bucket_id = bucket_id,
-                timeout=timeout
+                timeout=timeout,
+                # headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res
@@ -442,13 +451,13 @@ class Utils:
 
     @staticmethod
     def get_pyctxt_with_retry(
-        STORAGE_CLIENT,
+        STORAGE_CLIENT:V4Client,
         bucket_id:str, 
         num_chunks:int,
         key:str,
         ckks:Ckks,
         )-> List[PyCtxt]:
-        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id)
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"})
         if x.is_err:
             e = x.unwrap_err()
             raise e
@@ -479,7 +488,7 @@ class Utils:
             ckks:Ckks,
             chunk_size:str = "5MB"
         )-> List[PyCtxt]:
-        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id, chunk_size=chunk_size)
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id, chunk_size=chunk_size, headers={"Accept-Encoding":"identity"})
         if x.is_err:
             e = x.unwrap_err()
             raise e

@@ -112,7 +112,7 @@ class RoryClient(object):
             response.raise_for_status()
             data = KmeansResponse(**response.json())
 
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)        
 
@@ -162,7 +162,7 @@ class RoryClient(object):
             response = R.post(f"{self.skmeans_url}", headers=headers)
             response.raise_for_status()
             data = KmeansResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
 
@@ -215,7 +215,7 @@ class RoryClient(object):
             response = R.post(f"{self.dbskmeans_url}", headers=headers)
             response.raise_for_status()
             data = KmeansResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
 
@@ -264,7 +264,7 @@ class RoryClient(object):
             response = R.post(f"{self.skmeans_pqc_url}", headers=headers)
             response.raise_for_status()
             data = KmeansResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
         
@@ -316,7 +316,7 @@ class RoryClient(object):
             response = R.post(f"{self.dbskmeans_pqc_url}", headers=headers)
             response.raise_for_status()
             data = KmeansResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
 
@@ -356,7 +356,7 @@ class RoryClient(object):
             response = R.post(f"{self.nnc_url}", headers=headers)
             response.raise_for_status()
             data = NncResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
         
@@ -402,7 +402,7 @@ class RoryClient(object):
             response = R.post(f"{self.nnc_url}", headers=headers)
             response.raise_for_status()
             data = NncResponse(**response.json())
-            return data
+            return Ok(data)
         except Exception as e:
             return Err(e)
 
@@ -479,7 +479,7 @@ class RoryClient(object):
                 record_test_filename=record_test_filename,
                 extension=extension
             )
-            return predict_result
+            return Ok(predict_result)
         except Exception as e:
             return Err(e)
 
@@ -541,8 +541,8 @@ class RoryClient(object):
         model_labels_filename:str,
         record_test_id:str,
         record_test_filename:str,       
-        encrypted_model_shape:str,
-        encrypted_model_dtype:str = "float64",
+        # encrypted_model_shape:str,
+        # encrypted_model_dtype:str = "float64",
         num_chunks:int=2,
         extension:str="npy",
         ):
@@ -557,7 +557,7 @@ class RoryClient(object):
             if sknn_train_result.is_err:
                 return sknn_train_result
             train_response = sknn_train_result.unwrap()
-
+            # train_response_data = train_response.
             predict_result = self.sknn_predict(
                 model_id              = model_id,
                 model_filename        = model_filename,
@@ -566,10 +566,10 @@ class RoryClient(object):
                 record_test_filename  = record_test_filename,
                 extension             = extension,
                 num_chunks            = num_chunks,
-                encrypted_model_shape = encrypted_model_shape,
-                encrypted_model_dtype = encrypted_model_dtype
+                encrypted_model_shape = train_response.encrypted_model_shape,
+                encrypted_model_dtype = train_response.encrypted_model_dtype
             )
-            return predict_result
+            return Ok(predict_result)
         except Exception as e:
             return Err(e)    
 
@@ -659,7 +659,7 @@ class RoryClient(object):
                 encrypted_model_shape = encrypted_model_shape,
                 encrypted_model_dtype = encrypted_model_dtype
             )
-            return predict_result
+            return Ok(predict_result)
         except Exception as e:
             return Err(e)
 

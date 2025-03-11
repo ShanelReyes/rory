@@ -1,13 +1,17 @@
 # * This block of code MUST be executed first.  
 # _______________________________________________________
 import sys
+sys.path.append("/home/sreyes/rory/client/src")
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import unittest
 import os
+from utils.utils import Utils
 from flask import Blueprint,current_app,request,Response
 from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
+from rory.core.security.dataowner import DataOwner
+from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from mictlanx.utils.segmentation import Chunks,Chunk
 from concurrent.futures import ProcessPoolExecutor
@@ -27,8 +31,8 @@ ckks = Ckks.from_pyfhel(
     path               = os.environ.get("KEYS_PATH","/rory/keys"),
     ctx_filename       = os.environ.get("CTX_FILENAME","ctx"),
     pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey"),
-    relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey"),
-    rotatekey_filename = os.environ.get("ROTATE_KEY_FILENAME","rotatekey"),
+    # relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey"),
+    # rotatekey_filename = os.environ.get("ROTATE_KEY_FILENAME","rotatekey"),
     secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey"),
 )
 
@@ -574,9 +578,45 @@ class TestApp(unittest.TestCase):
         # print("CHUNK",chks)
         # print("RESULT=>", result,type(result))
         # print("XS",xs,type(xs))
-    @unittest.skip("")
+    # @unittest.skip("")
     def test_uno(self):
         pass
+        # res = np.load("/rory/source/classificationc0r10a5k20model.npy")
+        # # print(res.shape)
+        # liu = Liu()
+        # dataowner = DataOwner(
+        #     liu_scheme = liu
+        # )
+        # encrypted_model_id="xxx"
+        # executor = ProcessPoolExecutor(max_workers=2)
+        # chunks:Chunks = Utils.segment_and_encrypt_liu_with_executor(
+        #     executor         = executor,
+        #     key              = encrypted_model_id,
+        #     plaintext_matrix = res,
+        #     dataowner        = dataowner,
+        #     n                = res.shape[0]*res.shape[1]*3,
+        #     num_chunks       = num_chunks,
+        #     np_random        = np_random
+        # )
+        # chunks_bytes = Utils.chunks_to_bytes_gen(
+        #     chs = chunks
+        # )
+        # bucket_id = "test"
+        # ress = STORAGE_CLIENT.put_chunked(bucket_id=bucket_id,key=encrypted_model_id,chunks=chunks_bytes)
+        # print("RES",ress)
+       
+        # executor.shutdown()
+        # for chunk in chunks.iter():
+        #     # print(chunk.data)
+        bucket_id="rory"
+        encrypted_model_id="encryptedsknn1a"
+        res = STORAGE_CLIENT.get(
+            bucket_id=bucket_id,
+            key=encrypted_model_id
+        )
+        if res.is_ok:
+            x= np.frombuffer(res.unwrap().value)
+            print(x.shape)   
 
 
 if __name__ == '__main__':

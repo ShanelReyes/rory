@@ -100,7 +100,8 @@ def sknn_pedict_1(requestHeaders):
             bucket_id = BUCKET_ID,
             max_retries = 20,
             delay = 2
-            ).result()
+        ).result()
+        # res = Utils.get_and_merge_ndarray()
         if x.is_err:
             raise Exception("{} not found".format(encrypted_model_id))
         response = x.unwrap()
@@ -219,9 +220,13 @@ def sknn_pedict_1(requestHeaders):
 
         if maybe_chunks.is_none:
             raise "something went wrong creating the chunks"
-        
+        print("SHAPE", all_distances.shape)
+        chs = maybe_chunks.unwrap()
+        for c in chs.iter():
+            print(c.data)
+        raise Exception("BOOM!")
         chunks_distances_bytes = Utils.chunks_to_bytes_gen(
-            chs = maybe_chunks.unwrap()
+            chs = chs
         )
 
         put_chunks_generator_results = Utils.delete_and_put_chunked(
@@ -238,10 +243,8 @@ def sknn_pedict_1(requestHeaders):
         
         logger.debug({
             "event":"PUT.CHUNKED",
-            "model_id":model_id,
+            "distances_id":distances_id,
             "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_model_id":encrypted_model_id,
             "distances_shape":str(distances_shape),
             "distances_dtype":str(distances_dtype)
         })

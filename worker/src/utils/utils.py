@@ -68,7 +68,7 @@ class Utils:
             key:str,
             ckks:Ckks,
             )-> List[PyCtxt]:
-        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id)
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"})
         if x.is_err:
             e = x.unwrap_err()
             raise e
@@ -108,7 +108,7 @@ class Utils:
             ckks:Ckks,
             chunk_size:str = "5MB"
             )-> List[PyCtxt]:
-        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id,chunk_size=chunk_size)
+        x = STORAGE_CLIENT.get_with_retry(key = key, bucket_id=bucket_id,chunk_size=chunk_size,headers={"Accept-Encoding":"identity"})
         if x.is_err:
             e = x.unwrap_err()
             raise e
@@ -151,7 +151,7 @@ class Utils:
         bucket_id:str
     )->List[PyCtxt]:
         
-        x:Result[GetBytesResponse, Exception] = client.get_with_retry(key = key, bucket_id=bucket_id)
+        x:Result[GetBytesResponse, Exception] = client.get_with_retry(key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"})
         if x.is_err:
             e = x.unwrap_err()
             raise e
@@ -162,7 +162,7 @@ class Utils:
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def get_matrix_or_error(client:V4Client,key:str, bucket_id:str)->GetNDArrayResponse:
-        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id).result()
+        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"}).result()
         if x.is_err:
             e = x.unwrap_err()
             # print("GET_ERROR",str(e))
@@ -172,7 +172,9 @@ class Utils:
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
     def get_and_merge_ndarray(STORAGE_CLIENT:V4Client,bucket_id:str, key:str,num_chunks:int, shape:tuple,dtype:str)->Tuple[npt.NDArray,Metadata]:
-        encryptedMatrix_result:Result[GetBytesResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(bucket_id=bucket_id,key=key,num_chunks=num_chunks).result()
+        encryptedMatrix_result:Result[GetBytesResponse,Exception] = STORAGE_CLIENT.get_and_merge_with_num_chunks(
+            bucket_id=bucket_id,key=key,num_chunks=num_chunks,headers={"Accept-Encoding":"identity"}
+            ).result()
         if encryptedMatrix_result.is_err:
             raise Exception("{} not found".format(key))
         
@@ -204,7 +206,7 @@ class Utils:
             else:
                 if plaintext_matrix_id.is_some and bucket_id.is_some:
                     key = plaintext_matrix_id.unwrap()
-                    fut = client.get_ndarray(key=key,bucket_id=bucket_id.unwrap())
+                    fut = client.get_ndarray(key=key,bucket_id=bucket_id.unwrap(), headers={"Accept-Encoding":"identity"})
                     result:Result[GetNDArrayResponse,Exception]   = fut.result()
                     if result.is_ok:
                         response = result.unwrap()
@@ -255,7 +257,8 @@ class Utils:
                 key       = key, 
                 ndarray   = ndarray,
                 tags      = tags,
-                bucket_id = bucket_id
+                bucket_id = bucket_id,
+                headers={"Accept-Encoding":"identity"}
             ).result()
             if put_res.is_ok:
                 return put_res
@@ -274,7 +277,8 @@ class Utils:
                 key       = key, 
                 chunks= chunks,
                 tags      = tags,
-                bucket_id = bucket_id
+                bucket_id = bucket_id,
+                # headers={"Accept-Encoding":"identity"}
             )
             # print("PUT_CHUNK_RES", put_res)
             if put_res.is_ok:
@@ -294,7 +298,8 @@ class Utils:
             key       = key, 
             ndarray   = ndarray,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id,
+            headers={"Accept-Encoding":"identity"}
             ).result()
             if put_res.is_ok:
                 return put_res
@@ -312,7 +317,8 @@ class Utils:
             key       = key, 
             chunks= chunks,
             tags      = tags,
-            bucket_id = bucket_id
+            bucket_id = bucket_id,
+            headers={"Accept-Encoding":"identity"}
             )
             if put_res.is_ok:
                 return put_res

@@ -17,7 +17,11 @@ def test_kmeans():
         plaintext_matrix_id       = plaintext_matrix_id,
         extension                 = extension
     )
-    print("KMEANS result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("KMEANS result", response.label_vector)
+    else:
+        print(result)
 
 @pytest.mark.skip("Skmeans algorithm")
 def test_skmeans():
@@ -35,7 +39,11 @@ def test_skmeans():
         num_chunks                = num_chunks,
         max_iterations            = max_iterations
     )
-    print("SKMEANS result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKMEANS result", response.label_vector)
+    else:
+        print(result)
 
 @pytest.mark.skip("Dbskmeans algorithm")
 def test_dbskmeans():
@@ -55,7 +63,11 @@ def test_dbskmeans():
         max_iterations            = max_iterations,
         sens                      = sens
     )
-    print("DBSKMEANS result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("DBSKMEANS result", response.label_vector)
+    else:
+        print(result)
 
 @pytest.mark.skip("skmeans pqc algorithm")
 def test_skmeans_pqc():
@@ -75,7 +87,12 @@ def test_skmeans_pqc():
         num_chunks                = num_chunks,
         max_iterations            = max_iterations,
     )
-    print("SKMEANS PQC result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKMEANS PQC result", response.label_vector)
+    else:
+        print(result)
+    
 
 @pytest.mark.skip("Dbskmeans pqc algorithm")
 def test_dbskmeans_pqc():
@@ -97,10 +114,15 @@ def test_dbskmeans_pqc():
         max_iterations            = max_iterations,
         sens                      = sens
     )
-    print("DBSKMEANS PQC result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("DBSKMEANS PQC result", response.label_vector)
+    else:
+        print(result)
+
 
 #### NNC
-# @pytest.mark.skip("nnc algorithm")
+@pytest.mark.skip("nnc algorithm")
 def test_nnc():
     plaintext_matrix_filename =  "clusteringc0r10a5k20"
     plaintext_matrix_id       = "nnc1"
@@ -112,9 +134,15 @@ def test_nnc():
         threshold                 = threshold,
         extension                 = extension
     )
-    print("NNC result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("NNC result", response.label_vector)
+    else:
+        print(result)
 
-# @pytest.mark.skip("dbsnnc algorithm")
+    # print("NNC result", result.label_vector)
+
+@pytest.mark.skip("dbsnnc algorithm")
 def test_dbsnnc():
     plaintext_matrix_filename =  "clusteringc0r10a5k20"
     plaintext_matrix_id       = "nnc1"
@@ -130,7 +158,12 @@ def test_dbsnnc():
         num_chunks                = num_chunks,
         sens                      = sens
     )
-    print("DBSNNC result", result.label_vector)
+    if result.is_ok:
+        response = result.unwrap()
+        print("DBSNNC result", response.label_vector)
+    else:
+        print(result)
+    # print("DBSNNC result", result.label_vector)
 
 
 #### Classification
@@ -147,7 +180,12 @@ def test_knn_train():
         model_labels_filename = model_labels_filename,
         extension             = extension
     )
-    print("KNN TRAIN RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("KNN TRAIN result", response)
+    else:
+        print(result)
+    # print("KNN TRAIN RESULT",result)
 
 @pytest.mark.skip("KNN PREDICT")
 def test_knn_predict():
@@ -165,14 +203,19 @@ def test_knn_predict():
         record_test_id        = record_test_id,
         extension             = extension
     )
-    print("KNN PREDICT RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("KNN PREDICT result", response.label_vector)
+    else:
+        print(result)
+    # print("KNN PREDICT RESULT",result)
 
 @pytest.mark.skip("KNN COMPLETED")
 def test_knn():
-    model_id              = "knn"
+    model_id              = "knn1a"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "knn1"
+    record_test_id        = "knn1a"
     record_test_filename  = "classificationc0r10a5k20data"
     extension             = "npy"
     result = client.knn(
@@ -185,12 +228,12 @@ def test_knn():
     )
     if result.is_ok:
         response = result.unwrap()
-        print("KNN RESULT",response.label_vector)
+        print("KNN RESULT",response)
     assert result.is_ok
 
 @pytest.mark.skip("SKNN TRAIN")
 def test_sknn_train():
-    model_id              = "sknna"
+    model_id              = "sknn1b"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
     extension             = "npy"
@@ -202,14 +245,20 @@ def test_sknn_train():
         num_chunks            = num_chunks,
         extension             = extension
     )
-    print("SKNN TRAIN RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKNN TRAIN result", response)
+    else:
+        print(result)
+
+    # print("SKNN TRAIN RESULT",result)
 
 @pytest.mark.skip("SKNN PREDICT")
 def test_sknn_predict():
-    model_id              = "sknna"
+    model_id              = "sknn1b"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "sknn1a"
+    record_test_id        = "sknn1b"
     record_test_filename  = "classificationc0r10a5k20data"
     extension             = "npy"
     encrypted_model_shape = "(8,5,3)"
@@ -226,18 +275,23 @@ def test_sknn_predict():
         encrypted_model_shape = encrypted_model_shape,
         encrypted_model_dtype = encrypted_model_dtype
     )
-    print("SKNN PREDICT RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKNN PREDICT result", response.label_vector)
+    else:
+        print(result)
+    # print("SKNN PREDICT RESULT",result)
 
-@pytest.mark.skip("SKNN COMPLETED")
+# @pytest.mark.skip("SKNN COMPLETED")
 def test_sknn():
-    model_id              = "sknn"
+    model_id              = "sknn1a"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "sknn1b"
+    record_test_id        = "xx"
     record_test_filename  = "classificationc0r10a5k20data"
     extension             = "npy"
-    encrypted_model_shape = "(8,5)"
-    encrypted_model_dtype = "float32"
+    # encrypted_model_shape = "(8,5)"
+    # encrypted_model_dtype = "float32"
     num_chunks            = 2
     result = client.sknn(
         model_id              = model_id,
@@ -247,18 +301,18 @@ def test_sknn():
         record_test_id        = record_test_id,
         extension             = extension,
         num_chunks            = num_chunks,
-        encrypted_model_shape = encrypted_model_shape,
-        encrypted_model_dtype = encrypted_model_dtype
+        # encrypted_model_shape = encrypted_model_shape,
+        # encrypted_model_dtype = encrypted_model_dtype
     )
     if result.is_ok:
         response = result.unwrap()
-        print("SKNN RESULT",response.label_vector)
+        print("SKNN RESULT",response)
     assert result.is_ok
 
 
 @pytest.mark.skip("SKNN PQC TRAIN")
 def test_sknn_pqc_train():
-    model_id              = "sknnpqca"
+    model_id              = "sknnpqc1a"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
     extension             = "npy"
@@ -270,14 +324,19 @@ def test_sknn_pqc_train():
         num_chunks            = num_chunks,
         extension             = extension
     )
-    print("SKNN PQC TRAIN RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKNN PQC TRAIN RESULT",response)
+    assert result.is_ok
+
+    # print("SKNN PQC TRAIN RESULT",result)
 
 @pytest.mark.skip("SKNN PQC PREDICT")
 def test_sknn_pqc_predict():
-    model_id              = "sknnpqca"
+    model_id              = "sknnpqc1a"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "sknn1pqca"
+    record_test_id        = "sknn1pqc1a"
     record_test_filename  = "classificationc0r10a5k20data"
     extension             = "npy"
     encrypted_model_shape = "(8,5)"
@@ -294,14 +353,19 @@ def test_sknn_pqc_predict():
         encrypted_model_shape = encrypted_model_shape,
         encrypted_model_dtype = encrypted_model_dtype
     )
-    print("SKNN PQC PREDICT RESULT",result)
+    if result.is_ok:
+        response = result.unwrap()
+        print("SKNN PQC PREDICT RESULT",response.label_vector)
+    assert result.is_ok
+
+    # print("SKNN PQC PREDICT RESULT",result)
 
 @pytest.mark.skip("SKNN PQC COMPLETED")
 def test_sknn_pqc():
-    model_id              = "sknnpqcaa"
+    model_id              = "sknnpqc1aa"
     model_filename        = "classificationc0r10a5k20model"
     model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "sknn1pqcaa"
+    record_test_id        = "sknn1pqc1aa"
     record_test_filename  = "classificationc0r10a5k20data"
     extension             = "npy"
     encrypted_model_shape = "(8,5)"
@@ -320,7 +384,7 @@ def test_sknn_pqc():
     )
     if result.is_ok:
         response = result.unwrap()
-        print("SKNN RESULT",response.label_vector)
+        print("SKNN RESULT",response)
     assert result.is_ok
 
 

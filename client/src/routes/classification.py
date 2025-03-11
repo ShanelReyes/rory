@@ -156,7 +156,6 @@ def sknn_train():
 
             logger.info({
                 "event":"PUT.NDARRAY",
-                "model_id":model_id,
                 "key":model_labels_id,
                 "algorithm":algorithm,
                 "bucket_id":BUCKET_ID,
@@ -181,6 +180,10 @@ def sknn_train():
                 "num_chunks":num_chunks,
             })
             segment_encrypt_model_start_time = time.time()
+            # print(f">> {model.shape}")
+            logger.info({
+                "msg":f'{model.shape}'
+            })
             encrypted_model_chunks:Chunks = Utils.segment_and_encrypt_liu_with_executor( #Encrypt 
                 executor         = executor,
                 key              = encrypted_model_id,
@@ -205,10 +208,9 @@ def sknn_train():
 
             logger.debug({
                 "event":"PUT.CHUNKED.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
                 "key":encrypted_model_id,
-                "num_chunks":num_chunks
+                "num_chunks":num_chunks,
+                "shape":encrypted_model_shape
             })
             put_chunked_start_time = time.time()
             
@@ -231,10 +233,10 @@ def sknn_train():
             put_chunked_st = time.time() - put_chunked_start_time
             logger.info({
                 "event":"PUT.CHUNKED",
-                "model_id":model_id,
                 "key":encrypted_model_id,
                 "num_chunks":num_chunks,
                 "algorithm":algorithm,
+                "shape":encrypted_model_shape,
                 "service_time":put_chunked_st
             })
 
@@ -530,7 +532,7 @@ def sknn_predict():
             bucket_id   = BUCKET_ID,
             max_retries = 20,
             delay       = 2
-            ).result()
+        ).result()
         
         if x.is_err:
             raise Exception("{} not found".format(distances_id))
