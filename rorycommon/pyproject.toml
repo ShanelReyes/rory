@@ -1,0 +1,32 @@
+[project]
+name = "rorycommon"
+version = "0.0.19"
+description = ""
+authors = [
+    {name = "Ignacio Castillo",email = "ignacio.bcastillo@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10,<4"
+dependencies = [
+    "pandas (>=2.2.3,<3.0.0)",
+    "mictlanx @ https://test-files.pythonhosted.org/packages/29/5f/1d4f4e649b0a9ce8468d08cb5f7c5de53d6287d4069e319e1e8eee339bbd/mictlanx-0.0.161a16.tar.gz",
+    "rory @ https://test-files.pythonhosted.org/packages/9c/d1/8e5c4ad7f0feb34f88d5c98908f4911ea57d3af32d16568b1a754490d7e8/rory-0.0.188.tar.gz",
+]
+
+[tool.poetry]
+packages = [{include = "rorycommon", from = "src"}]
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+pytest-asyncio = "^0.25.3"
+ipykernel = "^6.29.5"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
