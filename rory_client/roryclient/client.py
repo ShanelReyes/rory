@@ -485,7 +485,7 @@ class RoryClient(object):
                 record_test_id=record_test_id,
                 record_test_filename=record_test_filename,
                 extension=extension,
-                model_labels_shape=train_response.model_labels_shape
+                model_labels_shape=str(tuple(train_response.model_labels_shape))
             )
             return Ok(predict_result)
         except Exception as e:
@@ -551,8 +551,6 @@ class RoryClient(object):
         model_labels_filename:str,
         record_test_id:str,
         record_test_filename:str,       
-        # encrypted_model_shape:str,
-        # encrypted_model_dtype:str = "float64",
         num_chunks:int=2,
         extension:str="npy",
         )->Result[KnnPredictResponse,Exception]:
