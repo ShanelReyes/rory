@@ -219,15 +219,15 @@ async def sknn_predict_2(requestHeaders):
     model_labels_id         = "{}labels".format(model_id) #iris_model_labels
     records_test_id         = requestHeaders.get("Records-Test-Id","matrix0")
     _model_labels_shape     = requestHeaders.get("Model-Labels-Shape",-1)
+    if _model_labels_shape == -1:
+        return Response("Model-Labels-Shape header is required", status=500)
+    model_labels_shape = eval(_model_labels_shape)
     min_distances_index_id  = "distancesindex{}".format(records_test_id)
     algorithm               = Constants.ClassificationAlgorithms.SKNN_PREDICT
     MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
     backoff_factor = 1.5
     delay          = 1
     max_retries    = 10 
-    if _model_labels_shape == -1:
-        return Response("Model-Labels-Shape header is required", status=500)
-    model_labels_shape = eval(_model_labels_shape)
     try:
 
         model_labels_get_start_time = time.time()
@@ -331,107 +331,90 @@ async def knn_predict():
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     model_id                = filtered_headers.get("Model-Id","model0") #iris
     model_labels_id         = "{}labels".format(model_id) #iris_model_labels
     records_test_id         = filtered_headers.get("Records-Test-Id","matrix0")
     algorithm               = Constants.ClassificationAlgorithms.KNN_PREDICT
     response_headers        = {}
     distance                = current_app.config["DISTANCE"]
-    
-    logger.debug({
-        "event":"KNN.PREDICT.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "model_id":model_id,
-        "model_labels_id":model_labels_id,
-        "records_test_id":records_test_id,
-    })
+    MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10     
+    _model_labels_shape     = filtered_headers.get("Model-Labels-Shape",-1)
+    if _model_labels_shape == -1:
+        error ="Model-Labels-Shape header is required"
+        logger.error(error)
+        return Response(error, status=500)
+    model_labels_shape = eval(_model_labels_shape)
     try:
         response_headers["Start-Time"] = str(local_start_time)
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_id,
-        })
+     
         get_model_start_time = time.time()
-        model_result = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = model_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
-        model        = model_result.unwrap().value
+        model = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = model_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
+        
         get_model_st = time.time() - get_model_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":model_id,
+            "algorithm":algorithm,
             "service_time":get_model_st
         })
-        
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_labels_id,
-        })
+
         get_model_labels_start_time = time.time()
-        model_labels_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key = model_labels_id,
-            bucket_id=BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        model_labels:npt.NDArray  = model_labels_result.unwrap().value
+        model_labels = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = model_labels_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT,
+        )
         get_model_labels_st = time.time() - get_model_labels_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":model_labels_id,
+            "algorithm":algorithm,
             "service_time":get_model_labels_st
         })
 
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":records_test_id,
-        })
+     
         get_records_start_time = time.time()
-        record_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = records_test_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
-        records:npt.NDArray  = record_result.unwrap().value
+        records = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = records_test_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
         get_records_st = time.time() - get_records_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":records_test_id,
+            "algorithm":algorithm,
             "service_time":get_records_st
         })
 
-        logger.debug({
-            "event":"KNN.PREDICT.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "records_shape":str(records.shape),
-            "records_dtype":str(records.dtype),
-            "models_labels_shape":str(model_labels.shape),
-            "models_labels_shape":str(model_labels.dtype)
-        })
         knn_predict_start_time = time.time()
         label_vector:npt.NDArray = KNN.predict(
             dataset      = records,
             model        = model,
-            model_labels = model_labels,
+            model_labels = model_labels.reshape((model_labels_shape[1],)),
             distance     = distance
         )
         knn_predict_st = time.time() - knn_predict_start_time
