@@ -594,10 +594,11 @@ async def knn_train():
     executor:ProcessPoolExecutor = current_app.config.get("executor")
     if executor == None:
         raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
+    
     algorithm             = Constants.ClassificationAlgorithms.KNN_TRAIN
     s                     = Session()
     request_headers       = request.headers #Headers for the request
-    num_chunks                = int(request_headers.get("Num-Chunks",1))
+    num_chunks            = int(request_headers.get("Num-Chunks",1))
     model_id              = request_headers.get("Model-Id","matrix0model")        
     model_filename        = request_headers.get("Model-Filename",model_id)        
     model_labels_id       = "{}labels".format(model_id)
@@ -619,15 +620,18 @@ async def knn_train():
     })
 
     get_model_start_time = time.time()
-    model_ext = "npy"
-    model_result=  await RoryCommon.read_numpy_from(
+    model_ext            = "npy"
+    model_result         = await RoryCommon.read_numpy_from(
         path= model_path,
         extension=model_ext
     )
+
     if model_result.is_err:
         return Response(status=500, response="Failed to read model")
-    model = model_result.unwrap()
+
+    model        = model_result.unwrap()
     get_model_st = time.time()- get_model_start_time
+
     logger.info({
         "event":"GET.MODEL.LOCAL",
         "path":model_path,
@@ -638,18 +642,18 @@ async def knn_train():
     
  
     get_model_labels_start_time = time.time()
-    # with open(model_labels_path, "rb") as f:
-        # model_labels:npt.NDArray = np.load(f)
-        # model_labels             = model_labels.astype(np.int16)
-    model_labels_ext = "npy"
-    model_labels_result = await RoryCommon.read_numpy_from(
-        path=model_labels_path , 
-        extension=model_labels_ext
+    model_labels_ext            = "npy"
+
+    model_labels_result         = await RoryCommon.read_numpy_from(
+        path      = model_labels_path,
+        extension = model_labels_ext
     )
+
     if model_labels_result.is_err:
         return Response(status=500, response="Failed to read model labels")
-    model_labels = model_labels_result.unwrap()
-    model_labels = model_labels.reshape(1,-1)
+    
+    model_labels        = model_labels_result.unwrap()
+    model_labels        = model_labels.reshape(1,-1)
     get_model_labels_st = time.time()- get_model_labels_start_time
 
     logger.info({
@@ -665,7 +669,7 @@ async def knn_train():
 
 
     put_model_start_time = time.time()
-    maybe_model_chunks = Chunks.from_ndarray(
+    maybe_model_chunks   = Chunks.from_ndarray(
         ndarray      = model,
         group_id     = model_id,
         chunk_prefix = Some(model_id),
@@ -673,21 +677,13 @@ async def knn_train():
     )
 
     if maybe_model_chunks.is_none:
-        raise "something went wrong creating the chunks"
+        return Response(status=500, response="something went wrong creating the chunks")
     
-    logger.info({
-        "event":"CHUNKS.FROM.NDARRAY",
-        "key":model_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model.shape),
-        "dtype":str(model.dtype),
-    })
 
 
-    t_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
-        client = STORAGE_CLIENT,
+
+    put_model_result = await RoryCommon.delete_and_put_chunks(
+        client         = STORAGE_CLIENT,
         bucket_id      = BUCKET_ID,
         key            = model_id,
         chunks         = maybe_model_chunks.unwrap(),
@@ -706,10 +702,9 @@ async def knn_train():
         "bucket_id":BUCKET_ID,
         "shape":str(model.shape),
         "dtype":str(model.dtype),
+        "ok":put_model_result.is_ok,
         "service_time":put_model_st
     })
-
-    put_model_labels_start_time = time.time()
 
     maybe_model_labels_chunks = Chunks.from_ndarray(
         ndarray      = model_labels,
@@ -799,6 +794,11 @@ async def knn_predict():
         records_test_filename = request_headers.get("Records-Test-Filename",records_test_id)
         extension             = request_headers.get("Extension","npy")
         records_test_path     = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
+        _model_labels_shape     = request_headers.get("Model-Labels-Shape",-1)
+        if _model_labels_shape == -1:
+            error ="Model-Labels-Shape header is required"
+            logger.error(error)
+            return Response(error, status=500) 
         
         logger.debug({
             "event":"KNN.PREDICT.STARTED",
@@ -812,13 +812,11 @@ async def knn_predict():
 
 
         get_records_test_start_time = time.time()
-        # with open(records_test_path, "rb") as f:
-            # records_test = np.load(f)   
-        records_test_ext = "npy"
-        records_test_result = await RoryCommon.read_numpy_from(path=records_test_path, extension=records_test_ext)
-        get_recors_test_st = time.time() -get_records_test_start_time
+        records_test_ext            = "npy"
+        records_test_result         = await RoryCommon.read_numpy_from(path=records_test_path, extension=records_test_ext)
+        get_recors_test_st          = time.time() -get_records_test_start_time
         if records_test_result.is_err:
-            return Response(status=500, response="Failed to read the records")
+            return Response(status=500, response="Failed to local read the records")
         records_test = records_test_result.unwrap()
         logger.info({
             "event":"GET.RECORDS",
@@ -828,61 +826,50 @@ async def knn_predict():
             "model_id":model_id,
         })
 
-        logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
-            "key":records_test_id,
-            "algorithm":algorithm,
-            "model_id":model_id,
-            "bucket_id":BUCKET_ID,
-            "shape":str(records_test.shape),
-            "dtype":str(records_test.dtype),
-        })
-        put_records_start_time = time.time()
-
-        records_test_chunks = Chunks.from_ndarray(
+     
+        put_records_start_time    = time.time()
+        maybe_records_test_chunks = Chunks.from_ndarray(
             ndarray      = records_test,
             group_id     = records_test_id,
             chunk_prefix = Some(records_test_id),
             num_chunks   = num_chunks,
         )
 
-        if records_test_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_records_test_chunks.is_none:
+            return Response(status=500,response="something went wrong creating the chunks")
         
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = records_test_chunks.unwrap()
-        )
-
-        records_test_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_records_test_result = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = records_test_id,
             key            = records_test_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_records_test_chunks.unwrap(),
             tags = {
-                "shape": str(records_test.shape),
-                "dtype": str(records_test.dtype)
+                "full_shape": str(records_test.shape),
+                "full_dtype": str(records_test.dtype)
             }
         )
+
+        if put_records_test_result.is_err:
+            return Response(status=500, response="Failed to put the records test")
 
         service_time_client_end = time.time()
         service_time_client = service_time_client_end - local_start_time
         put_records_st = time.time() - put_records_start_time
         logger.info({
             "event":"PUT.NDARRAY",
+            "bucket_id":BUCKET_ID,
             "key":records_test_id,
             "algorithm":algorithm,
             "model_id":model_id,
-            "bucket_id":BUCKET_ID,
             "shape":str(records_test.shape),
             "dtype":str(records_test.dtype),
+            "ok":put_records_test_result.is_ok,
             "service_time":put_records_st
         })
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-
-        get_worker_start_time = time.time()
-        get_worker_result     = managerResponse.getWorker( #Gets the worker from the manager
+        get_worker_start_time       = time.time()
+        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
                 "Start-Request-Time"    : str(local_start_time),
@@ -894,7 +881,8 @@ async def knn_predict():
         if get_worker_result.is_err:
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
-            return Response(str(error), status=500)
+            return Response(response=str(error), status=500)
+        
         (_worker_id,port) = get_worker_result.unwrap()
 
         get_worker_end_time     = time.time() 
@@ -911,24 +899,19 @@ async def knn_predict():
         })
 
         worker_start_time = time.time()
-        worker        = RoryWorker( #Allows to establish the connection with the worker
+        worker            = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = port,
             session   = s,
             algorithm = algorithm,
         )
         
-        logger.debug({
-            "event":"WORKER.PREDICT.BEFORE",
-            "algorithm":algorithm,
-            "model_id":model_id,
-            "records_test_id":records_test_id
-        })
 
         workerResponse = worker.run(
             headers    = {
                 "Records-Test-Id": records_test_id,
-                "Model-Id": model_id
+                "Model-Id": model_id,
+                "Model-Labels-Shape":request_headers["Model-Labels-Shape"]
             },
             timeout = WORKER_TIMEOUT
         )
@@ -936,8 +919,7 @@ async def knn_predict():
         
         worker_end_time      = time.time()
         worker_response_time = worker_end_time - worker_start_time 
-        stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
+        jsonWorkerResponse   = workerResponse.json()
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]

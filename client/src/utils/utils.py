@@ -249,7 +249,8 @@ class Utils:
             xs.append(xx)
         return xs
     
-    def verify_mean_error(old_matrix:npt.NDArray, new_matrix:npt.NDArray, min_error:float=0.15):
+    @staticmethod
+    def verify_mean_error(old_matrix:npt.NDArray, new_matrix:npt.NDArray, min_error:float=0.15)->bool:
         mean_error = np.mean(np.abs((old_matrix - new_matrix) / old_matrix))
         return mean_error <= min_error
 

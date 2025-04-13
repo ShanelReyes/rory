@@ -1831,14 +1831,14 @@ async def nnc():
  
 #PCQ-SKMEANS
 @clustering.route("/pqc/skmeans",methods = ["POST"])
-def pqc_skmeans():
+async def pqc_skmeans():
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -1873,6 +1873,9 @@ def pqc_skmeans():
         pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
         
+        delay = 2 
+        backoff_factor = .5
+        max_retries = 10
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
             _round   = _round,
@@ -1906,61 +1909,38 @@ def pqc_skmeans():
             "source_path":SOURCE_PATH,
         })
         
-        logger.debug({
-            "event":"LOCAL.READ.DATASET.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "filename":plaintext_matrix_filename,
-        })
-
         local_read_dataset_start_time = time.time()
-        plaintext_matrix_result  = Utils.read_numpy_from(
-            client    = STORAGE_CLIENT,
+        plaintext_matrix_result  = await RoryCommon.read_numpy_from(
             path      = plaintext_matrix_path,
             extension = extension,
         )
-        if plaintext_matrix_result.is_ok:
-            plaintext_matrix = plaintext_matrix_result.unwrap()
-        else:
-            raise plaintext_matrix_result.unwrap_err()
-
-        local_read_dataset_st = time.time() - local_read_dataset_start_time
+        if plaintext_matrix_result.is_err:
+            return Response(status=500, response="Failed to local read plain text matrix.")
+        plaintext_matrix = plaintext_matrix_result.unwrap()
         
         plaintext_matrix = plaintext_matrix.astype(np.float64)
 
         r = plaintext_matrix.shape[0]
         a = plaintext_matrix.shape[1]
-        logger.debug({
-            "event":"LOCAL.READ.DATASET",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "filename":plaintext_matrix_filename,
-            "records":r,
-            "attributes":a,
-            "service_time":local_read_dataset_st
-        })
 
-        cores       = os.cpu_count()
-        max_workers = num_chunks if max_workers > num_chunks else max_workers
-        max_workers = cores if max_workers > cores else max_workers
+        max_workers = Utils.get_workers(num_chunks=num_chunks)
+       
 
         encryption_start_time = time.time()
         n = a*r
-
-        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+        print(ckks.he_object)
+        encrypted_matrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor( #Encrypt 
             executor           = executor,
             key                = encrypted_matrix_id,
             plaintext_matrix   = plaintext_matrix,
             n                  = n,
-            num_chunks         = num_chunks,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename
+            secretkey_filename = secretkey_filename,
+            num_chunks         = num_chunks,
         )
         segment_encrypt_service_time = time.time() - encryption_start_time
         logger.info({
@@ -1978,20 +1958,17 @@ def pqc_skmeans():
   
         put_chunks_start_time = time.time()
 
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = encrypted_matrix_chunks
-        )
-        put_chunks_generator_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_encrypted_matrix_result = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_matrix_id,
             key            = encrypted_matrix_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_matrix_chunks,
             tags = {
-                "shape": str((r,a)),
-                "dtype":"float64"
+                "full_shape": str((r,a)),
+                "full_dtype":"float64"
             }
         )
+        # raise Exception("BOOM!")
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"DELETE.AND.PUT.CHUNKED",
@@ -1999,15 +1976,10 @@ def pqc_skmeans():
             "num_chunks":num_chunks,
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
+            "ok":put_encrypted_matrix_result.is_ok,
             "service_time":put_chunks_st
         })
-        logger.debug({
-            "event":"UDM.GENERATION.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "plaintext_matrix_shape":str(plaintext_matrix.shape),
-            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
-        })
+
         udm_start_time = time.time()
         udm            = dataowner.get_U(
             plaintext_matrix = plaintext_matrix,
@@ -2024,26 +1996,19 @@ def pqc_skmeans():
             "service_time":udm_gen_st,
         })
         
-        logger.debug({
-            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":udm_id,
-            "bucket_id":BUCKET_ID,
-            "udm_shape":str(udm.shape),
-            "udm_dtype":str(udm.dtype),
-        })
         udm_put_start_time = time.time()
         
-        udm_matrix_chunks = Chunks.from_ndarray(
+        maybe_udm_matrix_chunks = Chunks.from_ndarray(
             ndarray      = udm,
             group_id     = udm_id,
             chunk_prefix = Some(udm_id),
             num_chunks   = num_chunks,
         )
 
-        if udm_matrix_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_udm_matrix_chunks.is_none:
+            error = "Something went wrong creating the UDM chunks"
+            logger.error(error)
+            return Response(status=500,response=error)
         
         logger.info({
             "event":"CHUNKS.FROM.NDARRAY",
@@ -2054,35 +2019,24 @@ def pqc_skmeans():
             "udm_shape":str(udm.shape),
             "udm_dtype":str(udm.dtype),
         })
-        
-        logger.debug({            
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":udm_id,
-            "bucket_id":BUCKET_ID,
-            "udm_shape":str(udm.shape),
-            "udm_dtype":str(udm.dtype)
-        })
 
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = udm_matrix_chunks.unwrap()
-        )
 
-        udm_put_result = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+
+        udm_put_result = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = udm_id,
             key            = udm_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_udm_matrix_chunks.unwrap(),
             tags = {
-                "shape": str(udm.shape),
-                "dtype": str(udm.dtype)
+                "full_shape": str(udm.shape),
+                "full_dtype": str(udm.dtype)
             }
         )
 
         if udm_put_result.is_err:
-            raise udm_put_result.unwrap_err()
+            error = udm_put_result.unwrap_err()
+            e = f"Failed to put the udm: {error}"
+            return Response(status= 500, response=e)
         udm_put_st = time.time() - udm_put_start_time
 
         service_time_client = time.time() - arrivalTime
@@ -2094,6 +2048,7 @@ def pqc_skmeans():
             "bucket_id":BUCKET_ID,
             "udm_shape":str(udm.shape),
             "udm_dtype":str(udm.dtype),
+            "ok":udm_put_result.is_ok,
             "service_time":udm_put_st
         })
         
@@ -2101,21 +2056,8 @@ def pqc_skmeans():
         
         zero_shiftmatrix = np.zeros((k, a))
         n2 = a*k
-        
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.INITSHIFTMATRIX.BEFORE",
-            "key":encrypted_matrix_id,
-            "plaintext_matrix_shape":str(plaintext_matrix.shape),
-            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "init_shift_matrix_id":init_sm_id,
-            "n":n,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
-        
-        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+        encrypt_ckks_start_time = time.time()
+        encrypted_zero_shiftmatrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor( #Encrypt 
             executor           = executor,
             key                = init_sm_id,
             plaintext_matrix   = zero_shiftmatrix,
@@ -2131,46 +2073,38 @@ def pqc_skmeans():
 
         logger.info({
             "event":"SEGMENT.ENCRYPT.INITSHIFTMATRIX",
-            "key":init_sm_id,
-            "plaintext_matrix_shape":str(plaintext_matrix.shape),
-            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
             "algorithm":algorithm,
+            "key":init_sm_id,
             "plaintext_matrix_id":plaintext_matrix_id,
             "n":n,
             "num_chunks":num_chunks,
             "max_workers":max_workers,
+            "service_time": time.time() - encrypt_ckks_start_time
         })
 
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "key":init_sm_id,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks
-        })
         put_chunks_start_time = time.time()
-
-        chunks_bytes = Utils.chunks_to_bytes_gen( chs = encrypted_matrix_chunks)
-        put_chunks_generator_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_encrypted_matrix_result = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = init_sm_id,
             key            = init_sm_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_zero_shiftmatrix_chunks,
             tags = {
-                "shape": str((k,a)),
-                "dtype":"float64"
+                "full_shape": str((k,a)),
+                "full_dtype":"float64"
             }
         )
+        if put_encrypted_matrix_result.is_err:
+            e =f"Failed put chunks: {put_encrypted_matrix_result.unwrap_err()}" 
+            logger.error(e)
+            return Response(status=500, response=e)
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"DELETE.AND.PUT.CHUNKED",
+            "bucket_id":BUCKET_ID,
             "key":init_sm_id,
-            "num_chunks":num_chunks,
             "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
+            "ok":put_encrypted_matrix_result.is_ok,
             "service_time":put_chunks_st,
-            "result":str(put_chunks_generator_results),
         })
         
         get_worker_start_time       = time.time()
@@ -2194,12 +2128,12 @@ def pqc_skmeans():
 
         logger.info({
             "event":"MANAGER.GET.WORKER1",
-            "worker_id":worker_id,
-            "port":port,
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":get_worker_service_time,
+            "worker_id":worker_id,
+            "port":port,
             "k":k,
+            "service_time":get_worker_service_time,
         })
         
         worker_start_time = time.time()
@@ -2215,7 +2149,7 @@ def pqc_skmeans():
         interaction_arrival_time = time.time()
         iterations               = 0
         label_vector             = None
-
+        # raise Exception("Boom!")
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             
             inner_interaction_arrival_time = time.time()
@@ -2261,8 +2195,8 @@ def pqc_skmeans():
                 return Response("Worker error: {}".format(worker_run1_response.content),status=500)
 
             worker_run1_response.raise_for_status()
-            stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
-            jsonWorkerResponse        = json.loads(stringWorkerResponse) #pass to json
+            # stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
+            jsonWorkerResponse        = worker_run1_response.json()
             encrypted_shift_matrix_id = jsonWorkerResponse["encrypted_shift_matrix_id"]
             run1_service_time         = jsonWorkerResponse["service_time"]
             run1_n_iterations         = jsonWorkerResponse["n_iterations"]
@@ -2288,17 +2222,20 @@ def pqc_skmeans():
                 "n_iterations":run1_n_iterations,
                 "response_time":time.time() - inner_interaction_arrival_time
             })
-            
             encrypted_shift_matrix_start_time = time.time()
             
-            encrypted_shift_matrix_result = STORAGE_CLIENT.get_with_retry(
-                bucket_id = BUCKET_ID, 
-                key       = encrypted_shift_matrix_id
+            encrypted_shift_matrix = await RoryCommon.get_pyctxt(
+                client    = STORAGE_CLIENT,
+                bucket_id = BUCKET_ID,
+                key       = encrypted_shift_matrix_id,
+                ckks      = ckks,
+                force     = True,
+                backoff_factor=backoff_factor,
+                delay=delay,
+                max_retries=max_retries
             )
-            if encrypted_shift_matrix_result.is_err:
-                return Response(response=f"GET Encrypted shift matrix error [{encrypted_shift_matrix_id}]", status=503)
-            response               = encrypted_shift_matrix_result.unwrap().value
-            encrypted_shift_matrix = Utils.bytes_to_pyctxt_list_v2(ckks = ckks, data=response)
+            # response               = encrypted_shift_matrix_result.unwrap().value
+            # encrypted_shift_matrix = Utils.bytes_to_pyctxt_list_v2(ckks = ckks, data=response)
             
             logger.debug({
                 "event":"CKKS.DECRYPT.BEFORE",
@@ -2311,7 +2248,6 @@ def pqc_skmeans():
                 ciphertext_matrix = encrypted_shift_matrix,
                 shape = [k,a]
             )
-
             shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
             put_shift_matrix_start_time = time.time()
 
@@ -2322,65 +2258,53 @@ def pqc_skmeans():
                 num_chunks   = num_chunks,
                 )
             if shift_matrix_chunks.is_none:
-                raise "something went wrong creating the chunks"
+                return Response (status=500, response= "something went wrong creating the chunks")
             
-            chunks_bytes = Utils.chunks_to_bytes_gen(
-                chs = shift_matrix_chunks.unwrap()
-            )
+            # chunks_bytes = Utils.chunks_to_bytes_gen(
+            #     chs = shift_matrix_chunks.unwrap()
+            # )
             
-            t_chunks_generator_results = Utils.delete_and_put_bytes(
-                STORAGE_CLIENT = STORAGE_CLIENT,
+            put_shift_matrix_result = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT,
                 bucket_id      = BUCKET_ID,
-                ball_id        = shift_matrix_id,
                 key            = shift_matrix_id,
-                chunks         = chunks_bytes,
+                chunks         = shift_matrix_chunks.unwrap(),
                 tags = {
-                    "shape": str(shift_matrix.shape),
-                    "dtype": str(shift_matrix.dtype)
+                    "full_shape": str(shift_matrix.shape),
+                    "full_dtype": str(shift_matrix.dtype)
                 }
             )
+            if put_shift_matrix_result.is_err:
+                return Response ( status = 500, response = "Failed to put shiftmatrix")
 
-            Cent_i_response = STORAGE_CLIENT.get_with_retry(
+            Cent_i= await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT,
                 bucket_id = BUCKET_ID, 
-                key       = cent_i_id
+                key       = cent_i_id, 
+                ckks= ckks
             )
-            if Cent_i_response.is_err:
-                return Response(response=f"GET Cent_i error [{cent_i_id}]", status=503)
-            response = Cent_i_response.unwrap().value
-            Cent_i = Utils.bytes_to_pyctxt_list_v2(
-                ckks = ckks, 
-                data=response
-            )
-
-
-            Cent_j_response = STORAGE_CLIENT.get_with_retry(
+            Cent_j = await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT,
                 bucket_id = BUCKET_ID, 
-                key       = cent_j_id
+                key       = cent_j_id,
+                ckks=ckks
             )
-            if Cent_j_response.is_err:
-                return Response(response=f"GET Cent_j error [{cent_j_id}]", status=503)
-            response = Cent_j_response.unwrap().value
-            Cent_j = Utils.bytes_to_pyctxt_list_v2(
-                ckks = ckks, 
-                data = response
-            )
-
-            old_matrix = ckks.decryptMatrix(
+            decrypted_cent_i = ckks.decryptMatrix(
                 ciphertext_matrix = Cent_i, 
                 shape             = [1,k],
             )
             
-            new_matrix = ckks.decryptMatrix(
+            decrypted_cent_j = ckks.decryptMatrix(
                 ciphertext_matrix = Cent_j, 
                 shape             = [1,k],
             )
-
             min_error = 0.15
             isZero = Utils.verify_mean_error(
-                old_matrix = old_matrix, 
-                new_matrix = new_matrix, 
+                old_matrix = decrypted_cent_i, 
+                new_matrix = decrypted_cent_j, 
                 min_error  = min_error
             )
+            print("IS+_ZERO", isZero)
 
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
 
@@ -2397,7 +2321,7 @@ def pqc_skmeans():
                 "K"                      : str(k),
                 "Experiment-Iteration"   : str(experiment_iteration), 
                 "Max-Iterations"         : str(MAX_ITERATIONS),
-                "Is-Zero"                : str(isZero)
+                "Is-Zero"                : str(int(isZero))
             }
 
             worker_run2_response = worker.run(
@@ -2474,14 +2398,14 @@ def pqc_skmeans():
        
 #PCQ-DBSKMEANS
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])
-def pqc_dbskmeans():
+async def pqc_dbskmeans():
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         max_workers                  = int(current_app.config.get("MAX_WORKERS",2))
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
@@ -2521,6 +2445,9 @@ def pqc_dbskmeans():
         ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
         pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
+        backoff_factor = 0.5
+        delay =2 
+        max_retries = 10
         
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
@@ -2553,17 +2480,8 @@ def pqc_dbskmeans():
             "source_path":SOURCE_PATH,
         })
         
-        logger.debug({
-            "event":"LOCAL.READ.DATASET.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "filename":plaintext_matrix_filename,
-        })
-
         local_read_dataset_start_time = time.time()
-        plaintext_matrix_result  = Utils.read_numpy_from(
-            client    = STORAGE_CLIENT,
+        plaintext_matrix_result  = await RoryCommon.read_numpy_from(
             path      = plaintext_matrix_path,
             extension = extension,
         )
@@ -2579,35 +2497,14 @@ def pqc_dbskmeans():
         r = plaintext_matrix.shape[0]
         a = plaintext_matrix.shape[1]
 
-        logger.debug({
-            "event":"LOCAL.READ.DATASET",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "filename":plaintext_matrix_filename,
-            "records":r,
-            "attributes":a,
-            "service_time":local_read_dataset_st
-        })
-
-        cores       = os.cpu_count()
-        max_workers = num_chunks if max_workers > num_chunks else max_workers
-        max_workers = cores if max_workers > cores else max_workers
-
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.CKKS.BEFORE",
-            "key":encrypted_matrix_id,
-            "plaintext_matrix_shape":str(plaintext_matrix.shape),
-            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
+        # cores       = os.cpu_count()
+        # max_workers = num_chunks if max_workers > num_chunks else max_workers
+        # max_workers = cores if max_workers > cores else max_workers
+        max_workers = Utils.get_workers(num_chunks=num_chunks)
 
         encryption_start_time = time.time()
-        n = a*r
-        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+        n                     = a*r
+        encrypted_matrix_chunks =  RoryCommon.segment_and_encrypt_ckks_with_executor( #Encrypt 
             executor           = executor,
             key                = encrypted_matrix_id,
             plaintext_matrix   = plaintext_matrix,
@@ -2637,22 +2534,24 @@ def pqc_dbskmeans():
   
         put_chunks_start_time = time.time()
 
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = encrypted_matrix_chunks
-        )
-        put_chunks_generator_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_matrix_id,
             key            = encrypted_matrix_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_matrix_chunks,
             tags = {
-                "shape": str((r,a)),
-                "dtype":"float64"
+                "full_shape": str((r,a)),
+                "full_dtype":"float64"
             }
         )
-
+        if put_chunks_generator_results.is_err:
+            return Response(status=500, response="Failed to put encrypted matrix")
         put_chunks_st = time.time() - put_chunks_start_time
+        logger.info({
+            "bucket_id":BUCKET_ID, 
+            "key":encrypted_matrix_id,
+            "response_time":put_chunks_st
+        })
 
         logger.debug({
             "event":"UDM.GENERATION.BEFORE",
@@ -2698,15 +2597,15 @@ def pqc_dbskmeans():
             "threshold":threshold
         })
 
-        encrypted_matrix_UDM_chunks = Utils.segment_and_encrypt_fdhope_with_executor( #Encrypt 
-            key              = encrypted_udm_id,
-            plaintext_matrix = udm,
-            dataowner        = do_fdhope,
-            n                = n,
-            num_chunks       = num_chunks,
-            algorithm        = algorithm_fdhope,
-            sens             = sens,
-            executor         = executor
+        encrypted_matrix_UDM_chunks = RoryCommon.segment_and_encrypt_fdhope_with_executor( #Encrypt 
+            executor   = executor,
+            algorithm  = algorithm_fdhope,
+            key        = encrypted_udm_id,
+            dataowner  = do_fdhope,
+            matrix     = udm,
+            n          = n,
+            num_chunks = num_chunks,
+            sens       = sens,
         )
         
         segment_encrypt_fdhope_st = time.time() - segment_encrypt_fdhope_start_time
@@ -2725,64 +2624,43 @@ def pqc_dbskmeans():
             "service_time":segment_encrypt_fdhope_st
         })
         
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_udm_id,
-            "num_chunks":num_chunks,
-        })
+
         put_chunks_start_time = time.time()
         
-        chunks_udm_bytes = Utils.chunks_to_bytes_gen(
-            chs = encrypted_matrix_UDM_chunks
-        )
     
-        put_chunks_generator_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_udm_id,
             key            = encrypted_udm_id,
-            chunks         = chunks_udm_bytes,
+            chunks         = encrypted_matrix_UDM_chunks,
             tags = {
                 # "shape": str(udm_shape),
-                "shape": str((r,r,a)), 
-                "dtype":"float64"
+                "full_shape": str((r,r,a)), 
+                "full_dtype":"float64"
             },
             timeout=MICTLANX_TIMEOUT
         )
 
+        if put_chunks_generator_results.is_err:
+            return Response(status=500, response="Failed to put encrypted udm matrix")
         logger.info({
-            "event":"DELETE.AND.PUT.CHUNKED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
+            "event":"PUT",
+            "bucket_id":BUCKET_ID,
             "key":encrypted_udm_id,
-            "num_chunks":num_chunks,
-            "service_time":time.time() - put_chunks_start_time
+            "response_time":time.time() - put_chunks_start_time
         })
+
         service_time_client = time.time() - arrivalTime
         
-        del chunks_udm_bytes
-        del chunks_bytes
         del udm 
         del encrypted_matrix_UDM_chunks
 
         zero_shiftmatrix = np.zeros((k, a))
         n2 = a*k
         
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.INITSHIFTMATRIX.BEFORE",
-            "key":encrypted_matrix_id,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "init_shift_matrix_id":init_sm_id,
-            "n":n,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
         init_shiftmatrix_start_time = time.time()
         
-        encrypted_matrix_chunks = Utils.segment_and_encrypt_ckks_with_executor( #Encrypt 
+        encrypted_shiftmatrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor( #Encrypt 
             executor           = executor,
             key                = init_sm_id,
             plaintext_matrix   = zero_shiftmatrix,
@@ -2807,35 +2685,27 @@ def pqc_dbskmeans():
             "service_time":time.time() - init_shiftmatrix_start_time
         })
 
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "key":init_sm_id,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks
-        })
+   
         put_chunks_start_time = time.time()
 
-        chunks_bytes = Utils.chunks_to_bytes_gen( chs = encrypted_matrix_chunks)
-        put_chunks_generator_results = Utils.delete_and_put_bytes(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = init_sm_id,
             key            = init_sm_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_shiftmatrix_chunks,
             tags = {
                 "shape": str((k,a)),
                 "dtype":"float64"
             }
         )
+        if put_chunks_generator_results.is_err:
+            return Response(status=500, response="Failed to put encrypted init shift matrix")
         put_chunks_st = time.time() - put_chunks_start_time
         logger.info({
             "event":"DELETE.AND.PUT.CHUNKED",
+            "bucket_id":BUCKET_ID,
             "key":init_sm_id,
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":put_chunks_st,
+            "response_time":put_chunks_st,
         })
 
         get_worker_start_time       = time.time()
@@ -2901,21 +2771,6 @@ def pqc_dbskmeans():
                 "Max-Iterations"         : str(MAX_ITERATIONS) 
             }  
             
-            logger.debug({
-                "event":"WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "step_index":"1",
-                "clustering_status":str(status),
-                "request_id":request_id,
-                "encrypted_matrix_id":encrypted_matrix_id,
-                "encrypted_matrix_dtype":"float64", 
-                "num_chunks":num_chunks,
-                "iterations":iterations,
-                "k":k, 
-                "experiment_iteration":experiment_iteration,
-                "max_iterations":MAX_ITERATIONS
-            })
             worker_run1_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
                 headers = run1_headers
@@ -2928,8 +2783,9 @@ def pqc_dbskmeans():
                 return Response(response="Worker error: {}".format(worker_run1_response.content),status=500)
             
             worker_run1_response.raise_for_status()
-            stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
-            jsonWorkerResponse        = json.loads(stringWorkerResponse) #pass to json
+            # stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
+            jsonWorkerResponse        = worker_run1_response.json()
+            # json.loads(stringWorkerResponse) #pass to json
             encrypted_shift_matrix_id = jsonWorkerResponse["encrypted_shift_matrix_id"]
             run1_service_time         = jsonWorkerResponse["service_time"]
             run1_n_iterations         = jsonWorkerResponse["n_iterations"]
@@ -2958,38 +2814,30 @@ def pqc_dbskmeans():
             
             encrypted_shift_matrix_start_time = time.time()
             
-            encrypted_shift_matrix_result = STORAGE_CLIENT.get_with_retry(
+            encrypted_shift_matrix = await RoryCommon.get_pyctxt(
+                client    = STORAGE_CLIENT,
                 bucket_id = BUCKET_ID, 
-                key       = encrypted_shift_matrix_id
+                key       = encrypted_shift_matrix_id,
+                ckks = ckks,
+                delay=delay,
+                max_retries=max_retries,
+                backoff_factor=backoff_factor,
+                force=True
             )
-            if encrypted_shift_matrix_result.is_err:
-                return Response(response=f"GET Encrypted shift matrix error [{encrypted_shift_matrix_id}]", status=503)
-            response               = encrypted_shift_matrix_result.unwrap().value
-            encrypted_shift_matrix = Utils.bytes_to_pyctxt_list_v2(ckks = ckks, data=response)
             
-            logger.debug({
-                "event":"CKKS.DECRYPT.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-            })
-
             decrypt_start_time = time.time()
             shift_matrix = ckks.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encrypted_shift_matrix,
                 shape = [k,a]
             )
-
-            logger.debug({
-                "event":"ENCRYPT.FDHOPE.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-            })
+            # raise Exception("BOOM!")
 
             encrypted_start_time = time.time()
             shift_matrix_ope_res = Fdhope.encryptMatrix( #Re-encrypt shift matrix with the FDHOPE scheme
-                plaintext_matrix = shift_matrix, 
+                plaintext_matrix = shift_matrix,
                 messagespace     = do_fdhope.messageIntervals,
-                cipherspace      = do_fdhope.cypherIntervals
+                cipherspace      = do_fdhope.cypherIntervals,
+                sens             = sens
             )        
 
             shift_matrix_ope = shift_matrix_ope_res.matrix
@@ -3007,104 +2855,73 @@ def pqc_dbskmeans():
             shift_matrix_ope_id = "{}shiftmatrixope".format(plaintext_matrix_id) # The id of the Shift matrix is formed
             
             put_matrix_start_time = time.time()
-            logger.debug({
-                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":shift_matrix_ope_id,
-                "bucket_id":BUCKET_ID,
-                "shift_matrix_shape":str(shift_matrix_ope_shape),
-                "shift_matrix_dtype":str(shift_matrix_ope_dtype)
-            })
           
-            shift_matrix_chunks = Chunks.from_ndarray(
+            maybe_shift_matrix_chunks = Chunks.from_ndarray(
                 ndarray      = shift_matrix_ope,
                 group_id     = shift_matrix_ope_id,
                 chunk_prefix = Some(shift_matrix_ope_id),
                 num_chunks   = num_chunks,
             )
 
-            if shift_matrix_chunks.is_none:
-                raise "something went wrong creating the chunks"
+            if maybe_shift_matrix_chunks.is_none:
+                return Response(status= 500, response="something went wrong creating the chunks")
 
-            logger.info({
-                "event":"CHUNKS.FROM.NDARRAY",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":shift_matrix_ope_id,
-                "bucket_id":BUCKET_ID,
-                "shift_matrix_shape":str(shift_matrix_ope_shape),
-                "shift_matrix_dtype":str(shift_matrix_ope_dtype)
-            })
 
-            logger.debug({
-                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":shift_matrix_ope_id,
-                "bucket_id":BUCKET_ID,
-                "shift_matrix_shape":str(shift_matrix_ope_shape),
-                "shift_matrix_dtype":str(shift_matrix_ope_dtype)
-            })
-
-            chunks_bytes = Utils.chunks_to_bytes_gen(
-                chs = shift_matrix_chunks.unwrap()
-            )
             
-            t_chunks_generator_results = Utils.delete_and_put_bytes(
-                STORAGE_CLIENT = STORAGE_CLIENT,
+            encrypted_sm_ope_result = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT,
                 bucket_id      = BUCKET_ID,
-                ball_id        = shift_matrix_ope_id,
                 key            = shift_matrix_ope_id,
-                chunks         = chunks_bytes,
+                chunks         = maybe_shift_matrix_chunks.unwrap(),
                 tags = {
-                    "shape": str(shift_matrix_ope_shape),
-                    "dtype": str(shift_matrix_ope_dtype)
+                    "full_shape": str(shift_matrix_ope_shape),
+                    "full_dtype": str(shift_matrix_ope_dtype)
                 },
                 timeout=MICTLANX_TIMEOUT
             )
-            del shift_matrix_chunks
-            del chunks_bytes
+            del maybe_shift_matrix_chunks
             del shift_matrix_ope
+            if encrypted_sm_ope_result.is_err:
+                return Response(status = 500, response="Failed to put encrypted shiftmatrix ope")
             
-            Cent_i_response = STORAGE_CLIENT.get_with_retry(
-                bucket_id = BUCKET_ID, 
-                key       = cent_i_id
+            Cent_i = await RoryCommon.get_pyctxt(
+                client         = STORAGE_CLIENT,
+                bucket_id      = BUCKET_ID,
+                key            = cent_i_id,
+                delay          = delay,
+                backoff_factor = backoff_factor,
+                force          = True,
+                max_retries    = max_retries,
+                ckks           = ckks,
             )
-            if Cent_i_response.is_err:
-                return Response(response=f"GET Cent_i error [{cent_i_id}]", status=503)
-            response = Cent_i_response.unwrap().value
-            Cent_i = Utils.bytes_to_pyctxt_list_v2(
-                ckks = ckks, 
-                data=response
+            # raise Exception("BOOM!")
+     
+            Cent_j = await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT,
+                ckks = ckks,
+                bucket_id = BUCKET_ID, 
+                key       = cent_j_id,
+                delay          = delay,
+                backoff_factor = backoff_factor,
+                force          = True,
+                max_retries    = max_retries,
             )
 
-            Cent_j_response = STORAGE_CLIENT.get_with_retry(
-                bucket_id = BUCKET_ID, 
-                key       = cent_j_id
-            )
-            if Cent_j_response.is_err:
-                return Response(response=f"GET Cent_j error [{cent_j_id}]", status=503)
-            response = Cent_j_response.unwrap().value
-            Cent_j = Utils.bytes_to_pyctxt_list_v2(
-                ckks = ckks, 
-                data = response
-            )
-
-            old_matrix = ckks.decryptMatrix(
+            decrypted_cent_i = ckks.decryptMatrix(
                 ciphertext_matrix = Cent_i, 
                 shape             = [1,k],
             )
             
-            new_matrix = ckks.decryptMatrix(
+            decrypted_cent_j = ckks.decryptMatrix(
                 ciphertext_matrix = Cent_j, 
                 shape             = [1,k],
             )
 
             min_error = 0.15
+            
             isZero = Utils.verify_mean_error(
-                old_matrix = old_matrix, 
-                new_matrix = new_matrix, 
+                old_matrix = decrypted_cent_i, 
+                new_matrix = decrypted_cent_j, 
                 min_error  = min_error
             )
 
@@ -3125,7 +2942,7 @@ def pqc_dbskmeans():
                 "K"                      : str(k),
                 "Experiment-Iteration"   : str(experiment_iteration), 
                 "Max-Iterations"         : str(MAX_ITERATIONS),
-                "Is-Zero"                : str(isZero)
+                "Is-Zero"                : str(int(isZero))
             }
 
             worker_run2_response = worker.run(
