@@ -67,6 +67,39 @@ class Common:
         return xx
 
     @staticmethod
+    def from_pyctxts_to_chunks(key:str,xs:List[PyCtxt],num_chunks:int=2)->Option[Chunks]:
+        try:
+            n = len(xs)
+            chs = Chunks._iter_to_chunks(num_chunks=num_chunks,chunk_prefix=Some(key),group_id=key,n=n,iterable=xs)
+            def __inner():
+                for c in chs:  
+                    # print(c)
+                    chunk_id       = Some(c.get("chunk_id",None)).filter(lambda x: not x == None)
+                    data = [x.to_bytes() for x in c["data"]]
+                    c_tmp = Chunk.from_list(
+                        group_id = c["group_id"],
+                        index    = c["index"],
+                        chunk_id = chunk_id,
+                        metadata = c["metadata"],
+                        xs       = data,
+                    )
+                    yield c_tmp
+            return Some(Chunks(chs= __inner() , n = n ))
+        except Exception as e:
+            print(e)
+            return e
+    @staticmethod
+    def from_chunks_to_pyctxts_list(ckks:Ckks, chunks:Chunks)->List[PyCtxt]:
+        chunks.sort()
+        xs = []
+        for c in chunks:
+            x = c.to_list().unwrap()
+            xx = Common.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
+            xs.extend(xx)
+        return xs
+
+
+    @staticmethod
     def bytes_to_pyctxt_list(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
         scheme  = ckks.he_object
         xx = []
@@ -212,12 +245,16 @@ class Common:
             plaintext_matrix = chunk.to_ndarray().unwrap().copy()
             encyrpted_chunk:List[PyCtxt] = dataowner.ckks_encrypt_matrix_chunk(plaintext_matrix = plaintext_matrix)
             data = Common.pyctxt_list_to_bytes(ciphertext=encyrpted_chunk)
-            return Chunk(
+
+
+            c= Chunk(
                 group_id=key,
                 index= chunk.index,
                 data=data,
                 chunk_id = Some("{}_{}".format(key,chunk.index))
             )
+            # print(key,chunk.index,"CHUNK_HASH",c.checksum)
+            return c
         except Exception as e:
             print("ENCRYPT_CHUNK_ERROR",e)
     
@@ -495,7 +532,8 @@ class Common:
         max_retries:int=10,
         timeout:int = 120, 
         delay: float = 1,
-        backoff_factor: float = 0.5
+        backoff_factor: float = 0.5,
+        force:bool = False
     ):
         try:
             i= 0
@@ -506,7 +544,8 @@ class Common:
                     timeout=timeout,
                     max_retries=max_retries,
                     delay=delay,
-                    backoff_factor=backoff_factor
+                    backoff_factor=backoff_factor,
+                    force=force
 
                 )
                 ms:List[InterfaceX.Metadata] = []
@@ -519,8 +558,6 @@ class Common:
                     shape = eval(m.tags.get("shape"))
                     dtype = m.tags.get("dtype","float64")
                     x = np.frombuffer(data_bytes,dtype= dtype ).reshape(shape)
-                    print(x)
-                    # print("X",dtype)
 
                     index = int(m.tags.get("index","-1"))
                     xs.append((index,x,data_bytes))
@@ -546,3 +583,44 @@ class Common:
             
         except Exception as e:
             raise e
+    @staticmethod
+    async def get_pyctxt(
+            client:AsyncClient,
+            bucket_id:str, 
+            key:str,
+            ckks:Ckks,
+            max_retries:int = 5,
+            delay:float = 1,
+            backoff_factor:float =.5,
+            max_paralell_gets:int = 10, 
+            force:bool = False
+    )-> List[PyCtxt]:
+        get_chunks_generator  =  client.get_chunks(
+            key            = key,
+            bucket_id      = bucket_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            max_paralell_gets=max_paralell_gets,
+            force = force
+        )
+
+        xs:List[Tuple[int, List[PyCtxt]]] = []
+        async for (m,data) in get_chunks_generator:
+            data_bytes = data.tobytes()
+            index = int(m.tags.get("index","-1"))
+            h = H.sha256()
+            h.update(data_bytes)
+            x = pickle.loads(data_bytes)
+            # print("LEN",len(x))
+            xx = Common.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
+            xs.append((index, xx))
+        xs_sorted = sorted(xs, key=lambda t: t[0])  # Sort by index value
+        ordered_xs:List[PyCtxt] = []
+        for i in xs_sorted:
+            ordered_xs.extend(i[1])
+        return ordered_xs
+
+            # h.update(data_bytes)
+            # ms.append(m)
+        # return encryptedMatrix
