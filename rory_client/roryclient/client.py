@@ -614,7 +614,7 @@ class RoryClient(object):
         num_chunks:int=2,
         extension:str="npy",
         encrypted_model_dtype:str ="float64"
-        ):
+        )->Result[KnnPredictResponse, Exception]:
         try:
             headers={
                 "Extension": extension,
@@ -640,11 +640,11 @@ class RoryClient(object):
         model_labels_filename:str, 
         record_test_id:str,
         record_test_filename:str,
-        encrypted_model_shape: str,
+        # encrypted_model_shape: str,
         num_chunks:int=2,
         extension:str="npy",
-        encrypted_model_dtype:str ="float64"
-        ):
+        # encrypted_model_dtype:str ="float64"
+        )->Result[KnnPredictResponse, Exception]:
         try:
             sknn_train_result = self.sknn_pqc_train(
                 model_id              = model_id,
@@ -656,7 +656,6 @@ class RoryClient(object):
             if sknn_train_result.is_err:
                 return sknn_train_result
             train_response = sknn_train_result.unwrap()
-
             predict_result = self.sknn_pqc_predict(
                 model_id              = model_id,
                 model_filename        = model_filename,
@@ -665,10 +664,10 @@ class RoryClient(object):
                 record_test_filename  = record_test_filename,
                 extension             = extension,
                 num_chunks            = num_chunks,
-                encrypted_model_shape = encrypted_model_shape,
-                encrypted_model_dtype = encrypted_model_dtype
+                encrypted_model_shape = train_response.encrypted_model_shape,
+                encrypted_model_dtype = train_response.encrypted_model_dtype
             )
-            return Ok(predict_result)
+            return predict_result
         except Exception as e:
             return Err(e)
 

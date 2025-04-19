@@ -109,6 +109,7 @@ def test_nnc():
     else:
         print(result)
     # print("DBSNNC result", result.label_vector)
+
 @pytest.mark.skip("skmeans pqc algorithm")
 def test_skmeans_pqc():
     k = 2
@@ -118,20 +119,26 @@ def test_skmeans_pqc():
     num_chunks                = 2
     max_iterations            = 5
     experiment_iteration      = 0
-    result = client.skmeans_pqc(
-        k                         = k,
-        plaintext_matrix_filename = plaintext_matrix_filename,
-        plaintext_matrix_id       = plaintext_matrix_id,
-        extension                 = extension,
-        experiment_iteration      = experiment_iteration,
-        num_chunks                = num_chunks,
-        max_iterations            = max_iterations,
-    )
-    if result.is_ok:
-        response = result.unwrap()
-        print("SKMEANS PQC result", response.label_vector)
-    else:
-        print(result)
+    n = 10
+    success_count = 0
+    t1 = T.time()
+    for i in range(n):
+        result = client.skmeans_pqc(
+            k                         = k,
+            plaintext_matrix_filename = plaintext_matrix_filename,
+            plaintext_matrix_id       = plaintext_matrix_id,
+            extension                 = extension,
+            experiment_iteration      = experiment_iteration,
+            num_chunks                = num_chunks,
+            max_iterations            = max_iterations,
+        )
+        if result.is_ok:
+            response = result.unwrap()
+            print("SKMEANS PQC result", response.label_vector)
+            success_count+=1
+        else:
+            print(result)
+    print(f"SUCCESS={success_count} time={T.time() - t1}")
     
 
 @pytest.mark.skip("Dbskmeans pqc algorithm")
@@ -304,8 +311,6 @@ def test_sknn():
         record_test_id        = record_test_id,
         extension             = extension,
         num_chunks            = num_chunks,
-        # encrypted_model_shape = encrypted_model_shape,
-        # encrypted_model_dtype = encrypted_model_dtype
     )
     if result.is_ok:
         response = result.unwrap()
@@ -363,7 +368,7 @@ def test_sknn_pqc_predict():
 
     # print("SKNN PQC PREDICT RESULT",result)
 
-@pytest.mark.skip("SKNN PQC COMPLETED")
+# @pytest.mark.skip("SKNN PQC COMPLETED")
 def test_sknn_pqc():
     model_id              = "sknnpqc1aa"
     model_filename        = "classificationc0r10a5k20model"
@@ -382,13 +387,12 @@ def test_sknn_pqc():
         record_test_id        = record_test_id,
         extension             = extension,
         num_chunks            = num_chunks,
-        encrypted_model_shape = encrypted_model_shape,
-        encrypted_model_dtype = encrypted_model_dtype
+        # encrypted_model_shape = encrypted_model_shape,
+        # encrypted_model_dtype = encrypted_model_dtype
     )
-    if result.is_ok:
-        response = result.unwrap()
-        print("SKNN RESULT",response)
     assert result.is_ok
+    response = result.unwrap()
+    print(response.label_vector)
 
 
 @pytest.mark.skip("")
