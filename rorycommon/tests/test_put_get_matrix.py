@@ -21,6 +21,8 @@ import numpy.typing as npt
 from xolo.utils.utils import Utils as XoloUtils
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.clustering.secure.pqc.skmeans import Skmeans as SkmeansPQC
+from rory.core.classification.secure.pqc.sknn import SecureKNearestNeighbors as SKNNPQC
+
 
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format("rory-common"))
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",3600))
@@ -193,7 +195,7 @@ async def test_get_pqx():
 
 @pytest.mark.skip("")
 @pytest.mark.asyncio
-async def test_shift_matrix():
+async def test_full_skmeans_pqc():
     executor = ProcessPoolExecutor(max_workers=2)
     init_sm_id = "initsmid"
     num_chunks = 2
@@ -403,3 +405,38 @@ async def test_get_encrypted_shift_matrix():
         force=True
     )
     print(zz)
+
+@pytest.mark.asyncio
+async def test_getx():
+    # key = "encryptedsknnpqc1aa"
+    key = "distancessknn1pqc1aa"
+    BUCKET_ID = "rory"
+    
+    ckks = Ckks.from_pyfhel(
+        path="/rory/keys",
+    )
+    encrypted_model = await RoryCommon.get_pyctxt_matrix(client=client, ckks= ckks, bucket_id=BUCKET_ID,key=key)
+    # encrypted_records = await RoryCommon.get_pyctxt_matrix(client=client, ckks = ckks, bucket_id=bucket_id, key="encryptedsknnpqc1aa")
+    print(encrypted_model.shape)
+    # res = RoryCommon.from_pyctxt_matrix_to_chunks(key=key, xs= encrypted_model).unwrap()
+    # res1 = RoryCommon.
+    # for x in res:
+    #     xx = PK.loads(x.data)
+    #     xxx = RoryCommon.from_bytes_to_pyctxt_matrix(ckks= ckks, x = x.data)
+    #     print(xxx)
+    # print(res)
+    # res = SKNNPQC.calculate_distances(
+    #     model= encrypted_model,
+    #     dataset=encrypted_records,
+    #     dataset_shape=encrypted_records.shape, 
+    #     model_shape=encrypted_model.shape
+    # )
+    # print("RESS",res)
+    # print(res.shape)
+    # res = client.get_chunks(bucket_id=BUCKET_ID, key=key)
+    # async for (m,c) in res:
+    #     x = RoryCommon.from_bytes_to_pyctxt_matrix(ckks= ckks, x = c)
+        
+        # print(c)
+ 
+

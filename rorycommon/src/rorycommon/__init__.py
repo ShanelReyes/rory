@@ -47,23 +47,40 @@ class Common:
             return Err(e)
     # Serializer
     @staticmethod
-    def pyctxt_list_to_bytes(ciphertext:List[PyCtxt]):
-        serialized_ciphertexts = [ctxt.to_bytes() for ctxt in ciphertext]
+    def from_pyctxt_list_to_bytes(xs:List[PyCtxt]):
+        serialized_ciphertexts = [ctxt.to_bytes() for ctxt in xs]
         return pickle.dumps(serialized_ciphertexts)
     
-    def pyctxt_matrix_to_bytes(ciphertext:List[PyCtxt]):
+    def from_pyctxt_matrix_to_bytes(xs:List[PyCtxt]):
         serialized_ciphertexts = []
-        for ctxts in ciphertext:
+        for ctxts in xs:
             inner_sctxts = []
             for ctxt in ctxts:
                 inner_sctxts.append(ctxt.to_bytes())
             serialized_ciphertexts.append(inner_sctxts)
         return pickle.dumps(serialized_ciphertexts)
+    def from_bytes_to_pyctxt_matrix(ckks:Ckks,x:bytes):
+        yss = pickle.loads(x)
+        scheme = ckks.he_object
+        result = []
+        for ys in yss: 
+            tmp_row = []
+            for y in ys:
+                _y = PyCtxt(None,scheme,None,y,'FRACTIONAL')
+                tmp_row.append(_y)
+            result.append(tmp_row)
+        _res = np.vstack(result)
+        # print("INSIDE",_res.shape)
+        return _res
+    
+
+
+        # print(y)
 
     @staticmethod
-    def bytes_to_pyctxt_list_v1(ckks:Ckks,serialized_ctxt_bytes:bytes)->List[PyCtxt]:
+    def from_bytes_to_pyctxt_list_v1(ckks:Ckks,x:bytes)->List[PyCtxt]:
         scheme  = ckks.he_object
-        xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), serialized_ctxt_bytes))
+        xx      = list(map(lambda x: PyCtxt(None,scheme,None,x,'FRACTIONAL'), x))
         return xx
 
     @staticmethod
@@ -88,28 +105,51 @@ class Common:
         except Exception as e:
             print(e)
             return e
+    
+    @staticmethod
+    def from_pyctxt_matrix_to_chunks(key:str,xs:List[List[PyCtxt]],num_chunks:int=2)->Option[Chunks]:
+        try:
+            n = len(xs)
+            chs = Chunks._iter_to_chunks(num_chunks=num_chunks,chunk_prefix=Some(key),group_id=key,n=n,iterable=xs)
+            def __inner():
+                for c in chs:  
+                    # print(c)
+                    chunk_id       = Some(c.get("chunk_id",None)).filter(lambda x: not x == None)
+                    ys = c["data"]
+                    data = Common.from_pyctxt_matrix_to_bytes(ys)
+                    c_tmp = Chunk(
+                        group_id = c["group_id"],
+                        index    = c["index"],
+                        chunk_id = chunk_id,
+                        data=data
+                    )
+                    yield c_tmp
+            return Some(Chunks(chs= __inner() , n = n ))
+        except Exception as e:
+            print(e)
+            return e
     @staticmethod
     def from_chunks_to_pyctxts_list(ckks:Ckks, chunks:Chunks)->List[PyCtxt]:
         chunks.sort()
         xs = []
         for c in chunks:
             x = c.to_list().unwrap()
-            xx = Common.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
+            xx = Common.from_bytes_to_pyctxt_list(ckks=ckks, xs=x)
             xs.extend(xx)
         return xs
 
 
     @staticmethod
-    def bytes_to_pyctxt_list(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
+    def from_bytes_to_pyctxt_list(ckks:Ckks,xs:List[bytes])->List[PyCtxt]:
         scheme  = ckks.he_object
         xx = []
-        for x in serialized_ctxt_bytes:
+        for x in xs:
             y = PyCtxt(None, scheme, None,x, "FRACTIONAL")
             xx.append(y)
         return xx
     @staticmethod
-    def bytes_to_pyctxt_list_v2(ckks:Ckks, data:bytes):
-        xs = pickle.loads(data)
+    def from_bytes_to_pyctxt_list_v2(ckks:Ckks, x:bytes):
+        xs = pickle.loads(x)
         scheme = ckks.he_object
         xx = [PyCtxt(None, scheme, None, x, "FRACTIONAL") for x in xs ]
         return xx
@@ -244,7 +284,7 @@ class Common:
             )
             plaintext_matrix = chunk.to_ndarray().unwrap().copy()
             encyrpted_chunk:List[PyCtxt] = dataowner.ckks_encrypt_matrix_chunk(plaintext_matrix = plaintext_matrix)
-            data = Common.pyctxt_list_to_bytes(ciphertext=encyrpted_chunk)
+            data = Common.from_pyctxt_list_to_bytes(xs=encyrpted_chunk)
 
 
             c= Chunk(
@@ -287,6 +327,9 @@ class Common:
             awaitable_chunks.append(future)
         return Chunks(chs= Common.to_chunks_generator(awaitable_chunks=awaitable_chunks),n =n)
     
+    
+
+
     @staticmethod
     def encrypt_chunk_ckks_v2(key:str, chunk:Chunk, _round:bool, decimals:int, path:str, ctx_filename:str, 
                            pubkey_filename:str, secretkey_filename:str)-> Chunk:
@@ -302,8 +345,8 @@ class Common:
                 ) 
             )
             plaintext_matrix = chunk.to_ndarray().unwrap().copy()
-            encyrpted_chunk:List[PyCtxt] = dataowner.ckks_encrypt_matrix_list_chunk(plaintext_chunk = plaintext_matrix)
-            data = Common.pyctxt_matrix_to_bytes(ciphertext=encyrpted_chunk)
+            encyrpted_chunk:List[List[PyCtxt]] = dataowner.ckks_encrypt_matrix_list_chunk(plaintext_chunk = plaintext_matrix)
+            data = Common.from_pyctxt_matrix_to_bytes(xs=encyrpted_chunk)
             return Chunk(
                 group_id=key,
                 index= chunk.index,
@@ -316,11 +359,11 @@ class Common:
 
     
     @staticmethod
-    def chunks_to_pyctxt_list(chunks:Chunks, ckks:Ckks)->List[List[PyCtxt]]:
+    def from_chunks_to_pyctxt_list(chunks:Chunks, ckks:Ckks)->List[List[PyCtxt]]:
         xs = []
         for ch in chunks.iter():
             x  = pickle.loads(ch.data)
-            xx = Common.bytes_to_pyctxt_list(ckks=ckks,serialized_ctxt_bytes=x)
+            xx = Common.from_bytes_to_pyctxt_list(ckks=ckks,xs=x)
             xs.append(xx)
         return xs
     
@@ -330,20 +373,20 @@ class Common:
 
 
     @staticmethod
-    def chunks_to_pyctxt_matrix(chunks:Chunks, ckks:Ckks)->List[PyCtxt]:
+    def from_chunks_to_pyctxt_matrix(chunks:Chunks, ckks:Ckks)->List[PyCtxt]:
         xs = []
         for ch in chunks.iter():
             x = ch.data
             x  = pickle.loads(x)
-            xx = Common.bytes_to_pyctxt_matrix(ckks=ckks,serialized_ctxt_bytes=x)
+            xx = Common.from_list_bytes_to_pyctxt_matrix(ckks=ckks,xs=x)
             xs.extend(xx)
         return xs
     
     @staticmethod
-    def bytes_to_pyctxt_matrix(ckks:Ckks,serialized_ctxt_bytes:List[bytes], logger= None)->List[PyCtxt]:
+    def from_list_bytes_to_pyctxt_matrix(ckks:Ckks,xs:List[bytes])->List[PyCtxt]:
         scheme  = ckks.he_object
         matrix = []
-        for xs in serialized_ctxt_bytes:
+        for xs in xs:
             tmp_row = []
             for x in xs:
                 element = PyCtxt(None, scheme, None,x, "FRACTIONAL")
@@ -501,12 +544,19 @@ class Common:
         client:AsyncClient,
         key:str, 
         bucket_id:str,
-        max_retries:int =5,
-        delay:int = 1
+        max_retries:int = 5,
+        delay:float = 1,
+        backoff_factor:float =.5,
+        max_paralell_gets:int = 10, 
+        force:bool = False,
+        timeout:int = 120,
+        chunk_size:str="256kb",
+        headers:Dict[str,str] ={},
+        http2:bool = False
     )->npt.NDArray:
         i =0
         while i <= max_retries :
-            x = await client.get(bucket_id=bucket_id,key=key)
+            x = await client.get(bucket_id=bucket_id,key=key,backoff_factor=backoff_factor,max_paralell_gets=max_paralell_gets,chunk_size=chunk_size,delay=delay,force=force,headers=headers,http2=http2,max_retries=max_retries)
             # x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"}).result()
             if x.is_err:
                 e = x.unwrap_err()
@@ -529,11 +579,15 @@ class Common:
         client:AsyncClient,
         key:str,
         bucket_id:str="rory",
-        max_retries:int=10,
-        timeout:int = 120, 
-        delay: float = 1,
-        backoff_factor: float = 0.5,
-        force:bool = False
+        max_retries:int = 5,
+        delay:float = 1,
+        backoff_factor:float =.5,
+        max_paralell_gets:int = 10, 
+        force:bool = False,
+        timeout:int = 120,
+        chunk_size:str="256kb",
+        headers:Dict[str,str] ={},
+        http2:bool = False
     ):
         try:
             i= 0
@@ -545,7 +599,11 @@ class Common:
                     max_retries=max_retries,
                     delay=delay,
                     backoff_factor=backoff_factor,
-                    force=force
+                    force=force,
+                    max_paralell_gets=max_paralell_gets,
+                    chunk_size=chunk_size,
+                    headers=headers,
+                    http2=http2
 
                 )
                 ms:List[InterfaceX.Metadata] = []
@@ -593,7 +651,11 @@ class Common:
             delay:float = 1,
             backoff_factor:float =.5,
             max_paralell_gets:int = 10, 
-            force:bool = False
+            force:bool = False,
+            timeout:int = 120,
+            chunk_size:str="256kb",
+            headers:Dict[str,str] ={},
+            http2:bool = False
     )-> List[PyCtxt]:
         get_chunks_generator  =  client.get_chunks(
             key            = key,
@@ -602,7 +664,11 @@ class Common:
             delay          = delay,
             backoff_factor = backoff_factor,
             max_paralell_gets=max_paralell_gets,
-            force = force
+            force = force,
+            timeout=timeout, 
+            chunk_size=chunk_size,
+            headers=headers,
+            http2=http2
         )
 
         xs:List[Tuple[int, List[PyCtxt]]] = []
@@ -613,7 +679,7 @@ class Common:
             h.update(data_bytes)
             x = pickle.loads(data_bytes)
             # print("LEN",len(x))
-            xx = Common.bytes_to_pyctxt_list(ckks=ckks, serialized_ctxt_bytes=x)
+            xx = Common.from_bytes_to_pyctxt_list(ckks=ckks, xs=x)
             xs.append((index, xx))
         xs_sorted = sorted(xs, key=lambda t: t[0])  # Sort by index value
         ordered_xs:List[PyCtxt] = []
@@ -621,6 +687,44 @@ class Common:
             ordered_xs.extend(i[1])
         return ordered_xs
 
+    @staticmethod
+    async def get_pyctxt_matrix(
+        client:AsyncClient,
+        bucket_id:str,
+        key:str,
+        ckks:Ckks,
+        max_retries:int = 5,
+        delay:float = 1,
+        backoff_factor:float =.5,
+        max_paralell_gets:int = 10, 
+        force:bool = False,
+        timeout:int = 120,
+        chunk_size:str="256kb",
+        headers:Dict[str,str] ={},
+        http2:bool = False
+    ):
+        res = client.get_chunks(
+            bucket_id=bucket_id,
+            key=key,
+            timeout=timeout,
+            backoff_factor=backoff_factor,
+            chunk_size=chunk_size,
+            delay=delay,
+            force=force,
+            headers=headers,
+            max_retries=max_retries,
+            http2=http2,
+            max_paralell_gets=max_paralell_gets
+        )
+        xs = []
+        async for (m,c) in res:
+            x = Common.from_bytes_to_pyctxt_matrix(ckks= ckks, x = c)
+            # print(x,type(x),x.shape)
+            xs.append(x)
+        res = np.vstack(xs)
+        # print(res.shape)
+        return res
+        
             # h.update(data_bytes)
             # ms.append(m)
         # return encryptedMatrix
