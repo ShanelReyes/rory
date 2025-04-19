@@ -487,7 +487,7 @@ class RoryClient(object):
                 extension=extension,
                 model_labels_shape=str(tuple(train_response.model_labels_shape))
             )
-            return Ok(predict_result)
+            return predict_result
         except Exception as e:
             return Err(e)
 
