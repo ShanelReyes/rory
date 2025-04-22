@@ -3,7 +3,7 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.classification import classification
-from mictlanx.v4.client import Client
+from mictlanx import Client,AsyncClient
 from mictlanx.utils.index import Utils
 from dotenv import load_dotenv
 from retry.api import retry_call
@@ -51,6 +51,15 @@ MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
 
+ASYNC_STORAGE_CLIENT = AsyncClient(
+    client_id=MICTLANX_CLIENT_ID,
+    capacity_storage="200mb",
+    debug=False,
+    eviction_policy="LRU",
+    max_workers= MICTLANX_MAX_WORKERS,
+    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="https")),
+    verify=False
+)
 STORAGE_CLIENT  = Client(
     client_id       = MICTLANX_CLIENT_ID,
     routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
@@ -95,6 +104,7 @@ def create_app():
         current_app.config["events"]           = {}
         current_app.config["LOG_PATH"]         = LOG_PATH
         current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
+        current_app.config["ASYNC_STORAGE_CLIENT"] = ASYNC_STORAGE_CLIENT
         current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
         current_app.config["DISTANCE"]         = DISTANCE
 

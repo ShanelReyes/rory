@@ -3,7 +3,6 @@ from flask import Flask,current_app
 from option import Some
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
-from mictlanx.v4.client import Client
 from mictlanx.utils.index import Utils
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
@@ -12,6 +11,7 @@ from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
 from mictlanx.logger.log import Log
+from mictlanx import Client,AsyncClient
 
 app = Flask(__name__)
 
@@ -33,11 +33,16 @@ NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for dataset
 MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",2)) #Total of process for encryption
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
 MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
-LIU_SECURITY_LEVEL   = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
+
+LIU_SECURITY_LEVEL = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
+LIU_SECURE_RANDOM  = bool(int(os.environ.get("LIU_SECURE_RANDOM","0")))
+LIU_SEED           = int(os.environ.get("LIU_SEED","123"))
+LIU_USE_NP_RANDOM  = bool(int(os.environ.get("LIU_USE_NP_RANDOM","1")))
+LIU_ROUND          = bool(int(os.environ.get("LIU_ROUND","0")))
+LIU_DECIMALS       = int(os.environ.get("LIU_DECIMALS",6))
+
 RELOAD               = bool(int(os.environ.get("RELOAD",0)))
-LIU_ROUND            = bool(int(os.environ.get("LIU_ROUND","0")))
 NP_RANDOM            = bool(int(os.environ.get("NP_RANDOM","1")))
-LIU_DECIMALS         = int(os.environ.get("LIU_DECIMALS",6))
 TESTING_ENV          = os.environ.get("TESTING","1")
 LOGGER_NAME          = os.environ.get("LOGGER_NAME","rory-client-0")
 SOURCE_PATH          = os.environ.get("SOURCE_PATH","/rory/source")
@@ -71,12 +76,21 @@ MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mict
 STORAGE_CLIENT = Client(
     client_id       = MICTLANX_CLIENT_ID,
     bucket_id       = MICTLANX_BUCKET_ID,
-    routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
+    routers         = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="http")),
     max_workers     = MICTLANX_MAX_WORKERS,
     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
     debug           = MICTLANX_DISABLED_LOG,
     log_output_path = MICTLANX_OUTPUT_PATH, 
  
+)
+ASYNC_STORAGE_CLIENT = AsyncClient(
+    client_id=MICTLANX_CLIENT_ID,
+    capacity_storage="200mb",
+    debug=False,
+    eviction_policy="LRU",
+    max_workers= MICTLANX_MAX_WORKERS,
+    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="https")),
+    verify=False
 )
 
 MANAGER = RoryManager(
@@ -102,7 +116,11 @@ LOGGER = Log(
 
 LIU  = Liu(
     _round = LIU_ROUND,
-    decimals = LIU_DECIMALS
+    decimals = LIU_DECIMALS,
+    secure_random= LIU_SECURE_RANDOM,
+    security_level=LIU_SECURITY_LEVEL,
+    seed= LIU_SEED,
+    use_np_random=LIU_USE_NP_RANDOM
 )
 DATAOWNER = DataOwner(
     # m             = M,
@@ -136,7 +154,8 @@ def create_app(*args):
         current_app.config["NODE_ID"]            = NODE_ID
         current_app.config["LOG_PATH"]           = LOG_PATH
         current_app.config["MAX_ITERATIONS"]     = MAX_ITERATIONS
-        current_app.config["STORAGE_CLIENT"]     = STORAGE_CLIENT
+        current_app.config["STORAGE_CLIENT"]       = STORAGE_CLIENT
+        current_app.config["ASYNC_STORAGE_CLIENT"] = ASYNC_STORAGE_CLIENT
         current_app.config["TESTING"]            = TESTING
         current_app.config["NUM_CHUNKS"]         = NUM_CHUNKS
         current_app.config["MAX_WORKES"]         = max_workers

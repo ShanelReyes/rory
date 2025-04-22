@@ -13,6 +13,8 @@ from mictlanx.v4.interfaces.responses import GetNDArrayResponse
 from mictlanx.utils.segmentation import Chunks
 import numpy.typing as npt
 from option import Result, Some
+from rorycommon import Common as RoryCommon
+
 
 import numpy as np
 classification = Blueprint("classification",__name__,url_prefix = "/classification")
@@ -30,12 +32,12 @@ def test():
     )
 
 
-def sknn_pedict_1(requestHeaders):
+async def sknn_pedict_1(requestHeaders):
     local_start_time         = time.time() #Worker start time
     headers                  = request.headers
     logger                   = current_app.config["logger"]
     worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT           = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
     model_id                 = requestHeaders.get("Model-Id","model0") #iris
     encrypted_model_id       = "encrypted{}".format(model_id) #encrypted-iris_model
@@ -47,8 +49,11 @@ def sknn_pedict_1(requestHeaders):
     _encrypted_model_dtype   = requestHeaders.get("Encrypted-Model-Dtype",-1)
     _encrypted_records_shape = requestHeaders.get("Encrypted-Records-Shape",-1)
     _encrypted_records_dtype = requestHeaders.get("Encrypted-Records-Dtype",-1)
-    distance                 = current_app.config["DISTANCE"]
-
+    distance:str             = current_app.config.get("DISTANCE","MANHATHAN")
+    MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10 
     
     if _encrypted_model_dtype == -1:
         return Response("Encrypted-Model-Dtype", status=500)
@@ -65,118 +70,65 @@ def sknn_pedict_1(requestHeaders):
     num_chunks                    = int(requestHeaders.get("Num-Chunks",-1))
     response_headers              = {}
 
-    logger.debug({
-        "event":"SKNN.PREDICT.1.STARTED",
-        "worker_id":worker_id,
-        "model_id":model_id,
-        "encrypted_model_id":encrypted_model_id,
-        "models_labels_id":model_labels_id,
-        "algorithm":algorithm,
-        "encrypted_records_id":encrypted_records_id,
-        "encrypted_model_shape":_encrypted_model_shape,
-        "encrypted_model_dtype":_encrypted_model_dtype,
-        "encrypted_records_shape":_encrypted_records_shape,
-        "encrypted_records_dtype":_encrypted_records_dtype,
-        "num_chunks":num_chunks
-    })
     if num_chunks == -1:
         return Response("Num-Chunks header is required", status=503)
     try:
         response_headers["Start-Time"] = str(local_start_time)
-        logger.debug({
-            "event":"GET.MERGE.NDARRAY.BEFORE",
-            "bucket_id":BUCKET_ID,
-            "encrypted_model_id":encrypted_model_id,
-            "shape":_encrypted_model_shape,
-            "dtype":_encrypted_model_dtype,
-            "num_chunks":num_chunks,
-            "model_id":model_id,
-            "algorithm":algorithm,
-        })
+   
         get_merge_encrypted_model_start_time = time.time()
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_model_id,
+        encrypted_model = await RoryCommon.get_and_merge(
+            client= STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
+            key       = encrypted_model_id,
             max_retries = 20,
             delay = 2
-        ).result()
+        )
         # res = Utils.get_and_merge_ndarray()
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_model_id))
-        response = x.unwrap()
-        encrypted_model = response.value
-        encrypted_model_metadata = response.metadata 
 
         get_merge_encrypted_model_st = time.time()- get_merge_encrypted_model_start_time
         logger.info({
             "event":"GET.MERGE.NDARRAY",
             "bucket_id":BUCKET_ID,
-            "model_id":model_id,
+            "key":encrypted_model_id,
             "algorithm":algorithm,
-            "encrypted_model_id":encrypted_model_id,
             "num_chunks":num_chunks,
             "shape":_encrypted_model_shape,
             "dtype":_encrypted_model_dtype,
             "service_time":get_merge_encrypted_model_st
         })
 
-        response_headers["Encrypted-Model-Dtype"] = encrypted_model_metadata.tags.get("dtype",encrypted_model.dtype) #["tags"]["dtype"] #Save the data type
-        response_headers["Encrypted-Model-Shape"] = encrypted_model_metadata.tags.get("shape",encrypted_model.shape) #Save the shape
+        response_headers["Encrypted-Model-Dtype"] = encrypted_model.dtype #["tags"]["dtype"] #Save the data type
+        response_headers["Encrypted-Model-Shape"] = encrypted_model.shape #Save the shape
         
-        logger.debug({
-            "event":"GET.MERGE.NDARRAY.BEFORE",
-            "bucket_id":BUCKET_ID,
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "shape":_encrypted_records_shape,
-            "dtype":_encrypted_records_dtype,
-            "num_chunks":num_chunks
-        })
         get_merge_encrypted_records_start_time = time.time()
         
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = encrypted_records_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
+        encrypted_records = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = encrypted_records_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT,
+        )
         
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_records_id))
-        response = x.unwrap()
-        encrypted_records = response.value
-        encrypted_records_metadata = response.metadata 
 
-        response_headers["Encrypted-Records-Test-Dtype"] = encrypted_records_metadata.tags.get("dtype",encrypted_records.dtype) #["tags"]["dtype"] #Save the data type
-        response_headers["Encrypted-Records-Test-Shape"] = encrypted_records_metadata.tags.get("shape",encrypted_records.shape) #Save the shape
+        response_headers["Encrypted-Records-Test-Dtype"] = encrypted_records.dtype #["tags"]["dtype"] #Save the data type
+        response_headers["Encrypted-Records-Test-Shape"] = encrypted_records.shape #Save the shape
         get_merge_encrypted_records_st = time.time()- get_merge_encrypted_records_start_time
 
         logger.info({
             "event":"GET.MERGE.NDARRAY",
             "bucket_id":BUCKET_ID,
-            "model_id":model_id,
-            "algorithm":algorithm,
             "key":encrypted_records_id,
+            "algorithm":algorithm,
             "num_chunks":num_chunks,
             "shape":_encrypted_model_shape,
             "dtype":_encrypted_model_dtype,
             "service_time":get_merge_encrypted_records_st
         })
 
-        logger.debug({
-            "event":"CALCULATE.DISTANCES.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_records_shape":str(encrypted_records.shape),
-            "encrypted_records_dtype":str(encrypted_records.dtype),
-            "encrypted_model_id":encrypted_model_id,
-            "encrypted_model_shape":str(encrypted_model.shape),
-            "encrypted_model_dtype":str(encrypted_model.dtype),
-            "distance":distance
-        })
 
         all_distances = SKNN.calculate_distances(
 			dataset  = encrypted_records,
@@ -201,53 +153,30 @@ def sknn_pedict_1(requestHeaders):
         distances_shape = all_distances.shape
         distances_dtype = all_distances.dtype
 
-        logger.debug({
-            "event":"PUT.CHUNKED",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_model_id":encrypted_model_id,
-            "distances_shape":str(distances_shape),
-            "distances_dtype":str(distances_dtype)
-        })
+  
                 
-        maybe_chunks = Chunks.from_ndarray(
+        maybe_all_distances_chunks = Chunks.from_ndarray(
             ndarray = all_distances,
             group_id = distances_id,
             chunk_prefix = Some(distances_id),
             num_chunks = num_chunks
         )
 
-        if maybe_chunks.is_none:
+        if maybe_all_distances_chunks.is_none:
             raise "something went wrong creating the chunks"
         print("SHAPE", all_distances.shape)
-        chs = maybe_chunks.unwrap()
-        for c in chs.iter():
-            print(c.data)
-        raise Exception("BOOM!")
-        chunks_distances_bytes = Utils.chunks_to_bytes_gen(
-            chs = chs
-        )
 
-        put_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = distances_id,
             key            = distances_id,
-            chunks         = chunks_distances_bytes,
+            chunks         = maybe_all_distances_chunks.unwrap(),
             tags = {
-                "shape":str(distances_shape),
-                "dtype":"float64"
+                "full_shape":str(distances_shape),
+                "full_dtype":"float64"
             }
         )
         
-        logger.debug({
-            "event":"PUT.CHUNKED",
-            "distances_id":distances_id,
-            "algorithm":algorithm,
-            "distances_shape":str(distances_shape),
-            "distances_dtype":str(distances_dtype)
-        })
 
         end_time     = time.time()
         service_time = end_time - local_start_time
@@ -279,43 +208,39 @@ def sknn_pedict_1(requestHeaders):
         )
 
 
-def sknn_predict_2(requestHeaders):
+async def sknn_predict_2(requestHeaders):
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     model_id                = requestHeaders.get("Model-Id","model0") #iris
     model_labels_id         = "{}labels".format(model_id) #iris_model_labels
     records_test_id         = requestHeaders.get("Records-Test-Id","matrix0")
+    _model_labels_shape     = requestHeaders.get("Model-Labels-Shape",-1)
+    if _model_labels_shape == -1:
+        return Response("Model-Labels-Shape header is required", status=500)
+    model_labels_shape = eval(_model_labels_shape)
     min_distances_index_id  = "distancesindex{}".format(records_test_id)
     algorithm               = Constants.ClassificationAlgorithms.SKNN_PREDICT
-
+    MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10 
     try:
-        logger.debug({
-            "event":"SKNN.PREDICT.2.STARTED",
-            "worker_id":worker_id,
-            "model_id":model_id,
-            "models_labels_id":model_labels_id,
-            "records_test_id":records_test_id,
-            "min_distances_index_id":min_distances_index_id,
-            "algorithm":algorithm,
-        })
 
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_labels_id,
-            "bucket_id":BUCKET_ID,
-        })
         model_labels_get_start_time = time.time()
-        model_labels = Utils.get_matrix_or_error(
-            client    = STORAGE_CLIENT,
-            key       = model_labels_id,
-            bucket_id = BUCKET_ID
-        ).value
+        model_labels = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = model_labels_id,
+            bucket_id      = BUCKET_ID,
+            backoff_factor = backoff_factor,
+            delay          = delay,
+            max_retries    = max_retries,
+            timeout        = MICTLANX_TIMEOUT
+
+        )
 
         model_labels_get_st = time.time() - model_labels_get_start_time
 
@@ -330,20 +255,16 @@ def sknn_predict_2(requestHeaders):
             "service_time":model_labels_get_st
         })
 
-        logger.debug({
-            "event":"GET.MATRIX.BEFORE",
-            "bucket_id":BUCKET_ID,
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "models_labels_id":model_labels_id,
-            "min_distances_index_id":min_distances_index_id
-        })
 
-        min_distances_index = Utils.get_matrix_or_error(
-            client    = STORAGE_CLIENT,
-            key       = min_distances_index_id,
-            bucket_id = BUCKET_ID
-        ).value
+        min_distances_index = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = min_distances_index_id,
+            bucket_id      = BUCKET_ID,
+            backoff_factor = backoff_factor,
+            delay          = delay,
+            max_retries    = max_retries,
+            timeout        = MICTLANX_TIMEOUT
+        )
 
         logger.info({
             "event":"GET.MATRIX",
@@ -352,11 +273,11 @@ def sknn_predict_2(requestHeaders):
             "models_labels_id":model_labels_id,
             "min_distances_index_id":min_distances_index_id
         })
-
         label_vector = SKNN.get_label_vector(
-            model_labels = model_labels,
+            model_labels = model_labels.reshape((model_labels_shape[1],)),
             min_indexes = min_distances_index
         )
+        label_vector = label_vector.reshape((label_vector.shape[0],))
         end_time                       = time.time()
         service_time                   = end_time - local_start_time
         requestHeaders["Service-Time"] = str(service_time)
@@ -387,21 +308,21 @@ def sknn_predict_2(requestHeaders):
 
 
 @classification.route("/sknn/predict",methods = ["POST"])
-def sknn_predict():
+async def sknn_predict():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
     step_index      = int(filteredHeaders.get("Step-Index",1))
     response        = Response()
     if step_index == 1:
-        return sknn_pedict_1(filteredHeaders)
+        return await sknn_pedict_1(filteredHeaders)
     elif step_index == 2:
-        return sknn_predict_2(filteredHeaders)
+        return await sknn_predict_2(filteredHeaders)
     else:
         return response
 
 @classification.route("/knn/predict",methods = ["POST"])
-def knn_predict():
+async def knn_predict():
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     headers                 = request.headers
@@ -410,107 +331,90 @@ def knn_predict():
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     model_id                = filtered_headers.get("Model-Id","model0") #iris
     model_labels_id         = "{}labels".format(model_id) #iris_model_labels
     records_test_id         = filtered_headers.get("Records-Test-Id","matrix0")
     algorithm               = Constants.ClassificationAlgorithms.KNN_PREDICT
     response_headers        = {}
     distance                = current_app.config["DISTANCE"]
-    
-    logger.debug({
-        "event":"KNN.PREDICT.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "model_id":model_id,
-        "model_labels_id":model_labels_id,
-        "records_test_id":records_test_id,
-    })
+    MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10     
+    _model_labels_shape     = filtered_headers.get("Model-Labels-Shape",-1)
+    if _model_labels_shape == -1:
+        error ="Model-Labels-Shape header is required"
+        logger.error(error)
+        return Response(error, status=500)
+    model_labels_shape = eval(_model_labels_shape)
     try:
         response_headers["Start-Time"] = str(local_start_time)
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_id,
-        })
+     
         get_model_start_time = time.time()
-        model_result = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = model_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
-        model        = model_result.unwrap().value
+        model = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = model_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
+        
         get_model_st = time.time() - get_model_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":model_id,
+            "algorithm":algorithm,
             "service_time":get_model_st
         })
-        
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_labels_id,
-        })
+
         get_model_labels_start_time = time.time()
-        model_labels_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key = model_labels_id,
-            bucket_id=BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        model_labels:npt.NDArray  = model_labels_result.unwrap().value
+        model_labels = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = model_labels_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT,
+        )
         get_model_labels_st = time.time() - get_model_labels_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":model_labels_id,
+            "algorithm":algorithm,
             "service_time":get_model_labels_st
         })
 
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":records_test_id,
-        })
+     
         get_records_start_time = time.time()
-        record_result:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = records_test_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
-        records:npt.NDArray  = record_result.unwrap().value
+        records = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = records_test_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
         get_records_st = time.time() - get_records_start_time
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "algorithm":algorithm,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
             "key":records_test_id,
+            "algorithm":algorithm,
             "service_time":get_records_st
         })
 
-        logger.debug({
-            "event":"KNN.PREDICT.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "records_shape":str(records.shape),
-            "records_dtype":str(records.dtype),
-            "models_labels_shape":str(model_labels.shape),
-            "models_labels_shape":str(model_labels.dtype)
-        })
         knn_predict_start_time = time.time()
         label_vector:npt.NDArray = KNN.predict(
             dataset      = records,
             model        = model,
-            model_labels = model_labels,
+            model_labels = model_labels.reshape((model_labels_shape[1],)),
             distance     = distance
         )
         knn_predict_st = time.time() - knn_predict_start_time
@@ -553,12 +457,12 @@ def knn_predict():
             headers  = {"Error-Message":str(e)}
         )
     
-def sknn_pqc_pedict_1(requestHeaders):
+async def sknn_pqc_pedict_1(requestHeaders):
     local_start_time         = time.time() #Worker start time
     headers                  = request.headers
     logger                   = current_app.config["logger"]
     worker_id                = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client  = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client  = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str            = current_app.config.get("BUCKET_ID","rory")
     model_id                 = requestHeaders.get("Model-Id","model0") #iris
     encrypted_model_id       = "encrypted{}".format(model_id) #encrypted-iris_model
@@ -572,6 +476,12 @@ def sknn_pqc_pedict_1(requestHeaders):
     _encrypted_records_dtype = requestHeaders.get("Encrypted-Records-Dtype",-1)
     _round   = False
     decimals = 2
+    backoff_factor    = 0.5
+    chunk_size        = "256kb"
+    delay             = 1
+    max_paralell_gets = 2
+    max_retries       = 10
+    timeout           = 120
     
     if _encrypted_model_dtype == -1:
         return Response("Encrypted-Model-Dtype", status=500)
@@ -604,148 +514,103 @@ def sknn_pqc_pedict_1(requestHeaders):
     )
     # _______________________________________________________________________________
 
-    logger.debug({
-        "event":"SKNN.PQC.PREDICT.1.STARTED",
-        "worker_id":worker_id,
-        "model_id":model_id,
-        "encrypted_model_id":encrypted_model_id,
-        "models_labels_id":model_labels_id,
-        "algorithm":algorithm,
-        "encrypted_records_id":encrypted_records_id,
-        "encrypted_model_shape":_encrypted_model_shape,
-        "encrypted_model_dtype":_encrypted_model_dtype,
-        "encrypted_records_shape":_encrypted_records_shape,
-        "encrypted_records_dtype":_encrypted_records_dtype,
-        "num_chunks":num_chunks
-    })
     if num_chunks == -1:
         return Response("Num-Chunks header is required", status=503)
     try:
         response_headers["Start-Time"] = str(local_start_time)
-        logger.debug({
-            "event":"GET.PYCTXT.MODEL.BEFORE",
-            "bucket_id":BUCKET_ID,
-            "encrypted_model_id":encrypted_model_id,
-            "shape":_encrypted_model_shape,
-            "dtype":_encrypted_model_dtype,
-            "num_chunks":num_chunks,
-            "model_id":model_id,
-            "algorithm":algorithm,
-        })
-        get_merge_encrypted_model_start_time = time.time()
 
-        encrypted_model = Utils.get_pyctxt_matrix_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
-            bucket_id      = BUCKET_ID, 
-            num_chunks     = num_chunks,
-            key            = encrypted_model_id, 
-            ckks           = ckks,
-            chunk_size     = "10MB"
+        get_merge_encrypted_model_start_time = time.time()
+        encrypted_model = await RoryCommon.get_pyctxt_matrix(
+            client            = STORAGE_CLIENT,
+            bucket_id         = BUCKET_ID,
+            key               = encrypted_model_id,
+            ckks              = ckks,
+            backoff_factor    = backoff_factor,
+            chunk_size        = chunk_size,
+            delay             = delay,
+            headers           = {},
+            max_paralell_gets = max_paralell_gets,
+            max_retries       = max_retries,
+            timeout           = timeout
         )
+    
         get_merge_encrypted_model_st = time.time()- get_merge_encrypted_model_start_time
         logger.info({
-            "event":"GET.PYCTXT.MODEL",
+            "event":"GET",
             "bucket_id":BUCKET_ID,
-            "model_id":model_id,
+            "key":encrypted_model_id,
             "algorithm":algorithm,
-            "encrypted_model_id":encrypted_model_id,
-            "num_chunks":num_chunks,
-            "shape":_encrypted_model_shape,
-            "dtype":_encrypted_model_dtype,
-            "service_time":get_merge_encrypted_model_st
+            "worker_id":worker_id,
+            "model_id":model_id,
+            "response_time":get_merge_encrypted_model_st
         })
         
-        logger.debug({
-            "event":"GET.PYCTXT.DATA.BEFORE",
-            "bucket_id":BUCKET_ID,
-            "encrypted_records_id":encrypted_records_id,
-            "shape":_encrypted_records_shape,
-            "dtype":_encrypted_records_dtype,
-            "num_chunks":num_chunks,
-            "model_id":model_id,
-            "algorithm":algorithm,
-        })
-
-        encrypted_records = Utils.get_pyctxt_matrix_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
-            bucket_id      = BUCKET_ID, 
-            num_chunks     = num_chunks,
-            key            = encrypted_records_id, 
-            ckks           = ckks
+        t1 = time.time()
+        encrypted_records = await RoryCommon.get_pyctxt_matrix(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_records_id,
+            ckks      = ckks,
+            backoff_factor    = backoff_factor,
+            chunk_size        = chunk_size,
+            delay             = delay,
+            headers           = {},
+            max_paralell_gets = max_paralell_gets,
+            max_retries       = max_retries,
+            timeout           = timeout
         )
+        encrypted_records_get_rt = time.time() - t1
         logger.info({
-            "event":"GET.PYCTXT.DATA",
+            "event":"GET",
             "bucket_id":BUCKET_ID,
-            "model_id":model_id,
+            "key":encrypted_records_id,
             "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "shape":_encrypted_records_shape,
-            "dtype":_encrypted_records_dtype,
-            "num_chunks":num_chunks,
+            "worker_id":worker_id,
             "model_id":model_id,
-            "algorithm":algorithm,
+            "service_time":encrypted_records_get_rt
         })
+        print(encrypted_model_id, encrypted_records_id)
 
-        logger.debug({
-            "event":"CALCULATE.DISTANCES.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_model_id":encrypted_model_id,
-            "encrypted_model_shape":str(encrypted_model_shape),
-            "encrypted_model_dtype":str(encrypted_records_shape)
-        })
+        t1 = time.time()
         all_distances = SKNNPQC.calculate_distances(
 			dataset = encrypted_records,
 			model   = encrypted_model,
             model_shape   = encrypted_model_shape,
             dataset_shape = encrypted_records_shape
 		)
-        
+        calculate_distance_st = time.time() - t1 
         logger.info({
             "event":"CALCULATE.DISTANCES",
             "model_id":model_id,
             "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_records_shape":str(encrypted_records_shape),
-            "encrypted_model_id":encrypted_model_id,
-            "encrypted_model_shape":str(encrypted_model_shape),
+            "service_time":calculate_distance_st
         })
-        
+        # print(all_distances)
+        # raise Exception("BOOM")
         distances_id = "distances{}".format(records_test_id) 
         distances_shape = all_distances.shape
         distances_dtype = all_distances.dtype
-
-        logger.debug({
-            "event":"PUT.CHUNKED",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_model_id":encrypted_model_id,
-            "distances_shape":str(distances_shape),
-            "distances_dtype":str(distances_dtype)
-        })    
-
-        distances_chunks = MictlanXUtils.to_gen_bytes(data=Utils.pyctxt_matrix_to_bytes(ciphertext=all_distances))
-
-        z = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        maybe_distances_chunks = RoryCommon.from_pyctxt_matrix_to_chunks(key=distances_id,num_chunks=num_chunks,xs=all_distances)
+        if maybe_distances_chunks.is_none:
+            return Response(status =500,response = "Failed to create distances chunks")
+        
+        t1 = time.time()
+        z = await RoryCommon.put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = distances_id,
             key            = distances_id,
-            chunks         = distances_chunks,
+            chunks         = maybe_distances_chunks.unwrap()
         )
 
-        logger.debug({
-            "event":"PUT.CHUNKED",
-            "model_id":model_id,
+        logger.info({
+            "event":"PUT",
+            "bucket_id":BUCKET_ID,
+            "key":distances_id,
             "algorithm":algorithm,
-            "encrypted_records_id":encrypted_records_id,
-            "encrypted_model_id":encrypted_model_id,
-            "distances_shape":str(distances_shape),
-            "distances_dtype":str(distances_dtype)
+            "model_id":model_id,
+            "response_time": time.time() - t1
         })
-
+        
         end_time     = time.time()
         service_time = end_time - local_start_time
 
@@ -775,12 +640,12 @@ def sknn_pqc_pedict_1(requestHeaders):
             headers  = {"Error-Message":str(e)}
         )
 
-def sknn_pqc_predict_2(requestHeaders):
+async def sknn_pqc_predict_2(requestHeaders):
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     model_id                = requestHeaders.get("Model-Id","model0") #iris
     model_labels_id         = "{}labels".format(model_id) #iris_model_labels
@@ -789,69 +654,42 @@ def sknn_pqc_predict_2(requestHeaders):
     algorithm               = Constants.ClassificationAlgorithms.SKNN_PQC_PREDICT
 
     try:
-        logger.debug({
-            "event":"SKNN.PQC.PREDICT.2.STARTED",
-            "worker_id":worker_id,
-            "model_id":model_id,
-            "models_labels_id":model_labels_id,
-            "records_test_id":records_test_id,
-            "min_distances_index_id":min_distances_index_id,
-            "algorithm":algorithm,
-        })
 
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "key":model_labels_id,
-            "bucket_id":BUCKET_ID,
-        })
         model_labels_get_start_time = time.time()
-        model_labels = Utils.get_matrix_or_error(
+        model_labels = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = model_labels_id,
             bucket_id = BUCKET_ID
-        ).value
+        )
 
         model_labels_get_st = time.time() - model_labels_get_start_time
 
         logger.info({
-            "event":"GET.NDARRAY",
+            "event":"GET",
             "bucket_id":BUCKET_ID,
-            "model_id":model_id,
-            "algorithm":algorithm,
             "key":model_labels_id,
-            "shape":str(model_labels.shape), 
-            "dtype":str(model_labels.dtype),
-            "service_time":model_labels_get_st
-        })
-
-        logger.debug({
-            "event":"GET.MATRIX.BEFORE",
-            "bucket_id":BUCKET_ID,
             "model_id":model_id,
             "algorithm":algorithm,
-            "models_labels_id":model_labels_id,
-            "min_distances_index_id":min_distances_index_id
+            "response_time":model_labels_get_st
         })
 
-        min_distances_index = Utils.get_matrix_or_error(
+ 
+        min_distances_index = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = min_distances_index_id,
             bucket_id = BUCKET_ID
-        ).value
+        )
 
         logger.info({
-            "event":"GET.MATRIX",
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
+            "key":min_distances_index_id,
             "model_id":model_id,
             "algorithm":algorithm,
-            "models_labels_id":model_labels_id,
-            "min_distances_index_id":min_distances_index_id
         })
-
         label_vector = SKNNPQC.get_label_vector(
-            model_labels = model_labels,
-            min_indexes = min_distances_index
+            model_labels = model_labels.flatten(),
+            min_indexes = min_distances_index.flatten()
         )
         end_time                       = time.time()
         service_time                   = end_time - local_start_time
@@ -882,15 +720,15 @@ def sknn_pqc_predict_2(requestHeaders):
         )
 
 @classification.route("/pqc/sknn/predict",methods = ["POST"])
-def sknn_pqc_predict():
+async def sknn_pqc_predict():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
     step_index      = int(filteredHeaders.get("Step-Index",1))
     response        = Response()
     if step_index == 1:
-        return sknn_pqc_pedict_1(filteredHeaders)
+        return await sknn_pqc_pedict_1(filteredHeaders)
     elif step_index == 2:
-        return sknn_pqc_predict_2(filteredHeaders)
+        return await sknn_pqc_predict_2(filteredHeaders)
     else:
         return response

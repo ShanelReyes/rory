@@ -1,4 +1,6 @@
+import asyncio
 from mictlanx.v4.client import Client as V4Client
+from mictlanx import AsyncClient
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse,GetBytesResponse,Metadata,PutResponse,PutChunkedResponse
 from mictlanx.utils.segmentation import Chunks,Chunk
 from option import Option,NONE,Result,Ok,Err
@@ -160,14 +162,28 @@ class Utils:
 
 
     @staticmethod
-    @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
-    def get_matrix_or_error(client:V4Client,key:str, bucket_id:str)->GetNDArrayResponse:
-        x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"}).result()
-        if x.is_err:
-            e = x.unwrap_err()
-            # print("GET_ERROR",str(e))
-            raise e
-        return x.unwrap()
+    # @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
+    async def get_matrix_or_error(client:AsyncClient,key:str, bucket_id:str)->npt.NDArray:
+        i =0
+        while i <= MAX_RETRIES :
+            x = await client.get(bucket_id=bucket_id,key=key)
+            # x:Result[GetNDArrayResponse, Exception] = client.get_ndarray( key = key, bucket_id=bucket_id,headers={"Accept-Encoding":"identity"}).result()
+            if x.is_err:
+                e = x.unwrap_err()
+                print(f"Retrying in {MAX_DELAY} seconds... (Attemp {i}/{MAX_RETRIES})")
+                i+=i
+                await asyncio.sleep(MAX_DELAY)
+                continue
+                
+                # print("GET_ERROR",str(e))
+                
+            get_response = x.unwrap()
+
+            dtype = get_response.metadatas[0].tags.get("dtype","float32")
+            raw_ndarray = np.frombuffer(buffer=get_response.data.tobytes(),dtype=dtype)
+            shape = eval(get_response.metadatas[0].tags.get("shape",str(raw_ndarray.shape)))
+            return raw_ndarray.reshape(shape)
+        raise Exception(f"Get {bucket_id}@{key} failed: Max tries reached")
     
     @staticmethod
     @retry(tries=MAX_RETRIES,delay=MAX_DELAY,jitter=JITTER)
@@ -325,6 +341,7 @@ class Utils:
             condition = put_res.is_err and not (_delete_result == 0)
         return put_res
     
+    @staticmethod
     def pyctxt_matrix_to_bytes(ciphertext:List[PyCtxt]):
         serialized_ciphertexts = []
         for ctxts in ciphertext:

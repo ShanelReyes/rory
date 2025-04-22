@@ -1,4 +1,5 @@
 import os
+import pickle as PK
 import time, json
 import numpy as np
 import numpy.typing as npt
@@ -10,13 +11,12 @@ from rory.core.security.dataowner import DataOwner
 from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.utils.constants import Constants
-from rory.core.interfaces.logger_metrics import LoggerMetrics
+from rorycommon import Common as RoryCommon
 from mictlanx.v4.client import Client  as V4Client
 from mictlanx.utils.segmentation import Chunks
-from mictlanx.v4.interfaces.responses import PutResponse, GetNDArrayResponse
 from concurrent.futures import ProcessPoolExecutor
 from utils.utils import Utils
-from option import Result, Some
+from option import Some
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 
 classification = Blueprint("classification",__name__,url_prefix = "/classification")
@@ -34,7 +34,7 @@ def test():
     )
 
 @classification.route("/sknn/train",methods = ["POST"])
-def sknn_train():
+async def sknn_train():
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -42,7 +42,7 @@ def sknn_train():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
@@ -88,38 +88,25 @@ def sknn_train():
             return Response(response="Either model or label vector not found", status=500)
         else:
             
-            logger.debug({
-                "event":"READ.LOCAL.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "model_path":model_path,
-                "model_filename":model_filename,
-            })
-            read_local_model_start_time = time.time()
-            with open(model_path, "rb") as f:
-                model:npt.NDArray = np.load(f)
-            read_local_model_st = time.time() - read_local_model_start_time
-            
-            logger.info({
-                "event":"READ.LOCAL",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "model_path":model_path,
-                "service_time":read_local_model_st
-            })
-                
-            logger.debug({
-                "event":"READ.LOCAL.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "model_labels_path":model_labels_path,
-                "model_labels_filename":model_labels_filename,
-            })
+            model_result = await RoryCommon.read_numpy_from(
+                path      =model_path,
+                extension = "npy"
+            )
+            if model_result.is_err:
+                return Response(status=500,response="Something went wrong reading the model")
+            model = model_result.unwrap()
             read_local_model_labels_start_time = time.time()
-
-            with open(model_labels_path, "rb") as f:
-                model_labels:npt.NDArray = np.load(f)
-                model_labels = model_labels.astype(np.int16)
+            model_labels_result = await RoryCommon.read_numpy_from(
+                extension="npy",
+                path=model_labels_path
+            )
+            if model_labels_result.is_err:
+                return Response(status=500,response="Something went wrong reading the model labels")
+            model_labels = model_labels_result.unwrap()
+            model_labels = model_labels.reshape((1,model_labels.shape[0]))
+            # with open(model_labels_path, "rb") as f:
+            #     model_labels:npt.NDArray = np.load(f)
+            #     model_labels = model_labels.astype(np.int16)
             
             read_local_model_labels_st = time.time() - read_local_model_labels_start_time
             logger.info({
@@ -131,36 +118,30 @@ def sknn_train():
                 "service_time":read_local_model_labels_st
             })
             
-            logger.debug({
-                "event":"PUT.NDARRAY.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "key":model_labels_id,
-                "bucket_id":BUCKET_ID,
-                "shape":str(model_labels.shape),
-                "dtype":str(model_labels.dtype)
-            })
 
             put_model_labels_start_time = time.time()
-            
-            ptm_result = Utils.delete_and_put_ndarray(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
-            bucket_id      = BUCKET_ID, 
-            ball_id        = model_labels_id, 
-            key            = model_labels_id,
-            ndarray        = model_labels, 
-            tags           = {}
-        )
-            
+            maybe_models_labels_chunks = Chunks.from_ndarray(ndarray=model_labels, group_id=model_labels_id,num_chunks=1,chunk_prefix=Some(model_labels_id))
+            if maybe_models_labels_chunks.is_none:
+                return Response(status=500, response="Something went wrong generating the chunks of model labels")
+            put_model_labels_result = await RoryCommon.delete_and_put_chunks(
+                client         = STORAGE_CLIENT, 
+                bucket_id      = BUCKET_ID, 
+                key            = model_labels_id,
+                chunks        = maybe_models_labels_chunks.unwrap(), 
+                tags           = {
+                    "full_dtype":str(model_labels.dtype),
+                    "full_shape":str(model_labels.shape)
+                }
+            )
             put_model_labels_st = time.time() - put_model_labels_start_time
-
             logger.info({
-                "event":"PUT.NDARRAY",
+                "event":"PUT.CHUNKS",
+                "bucket_id":BUCKET_ID,
                 "key":model_labels_id,
                 "algorithm":algorithm,
-                "bucket_id":BUCKET_ID,
                 "shape":str(model_labels.shape),
                 "dtype":str(model_labels.dtype),
+                'ok':put_model_labels_result.is_ok,
                 "service_time":put_model_labels_st
             })
 
@@ -169,22 +150,8 @@ def sknn_train():
             encrypted_model_shape = "({},{},{})".format(r,a,m)
             n = a*r*int(m)
 
-            logger.debug({
-                "event":"SEGMENT.ENCRYPT.LIU.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "encrypted_model_id":encrypted_model_id,
-                "model_shape":str(model.shape),
-                "model_dtype":str(model.dtype),
-                "n":n,
-                "num_chunks":num_chunks,
-            })
             segment_encrypt_model_start_time = time.time()
-            # print(f">> {model.shape}")
-            logger.info({
-                "msg":f'{model.shape}'
-            })
-            encrypted_model_chunks:Chunks = Utils.segment_and_encrypt_liu_with_executor( #Encrypt 
+            encrypted_model_chunks = RoryCommon.segment_and_encrypt_liu_with_executor( #Encrypt 
                 executor         = executor,
                 key              = encrypted_model_id,
                 plaintext_matrix = model,
@@ -206,27 +173,18 @@ def sknn_train():
                 "service_time":segment_encrypt_model_st
             })
 
-            logger.debug({
-                "event":"PUT.CHUNKED.BEFORE",
-                "key":encrypted_model_id,
-                "num_chunks":num_chunks,
-                "shape":encrypted_model_shape
-            })
             put_chunked_start_time = time.time()
             
-            chunks_bytes = Utils.chunks_to_bytes_gen(
-                chs = encrypted_model_chunks
-            )
+         
             
-            put_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+            encrypted_model_put_chunks = await RoryCommon.delete_and_put_chunks(
+            client        = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_model_id,
             key            = encrypted_model_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_model_chunks,
             tags = {
-                "shape": str(encrypted_model_shape),
-                "dtype":"float64"
+                "full_shape": str(encrypted_model_shape),
+                "full_dtype":"float64"
             }
         )
 
@@ -237,6 +195,7 @@ def sknn_train():
                 "num_chunks":num_chunks,
                 "algorithm":algorithm,
                 "shape":encrypted_model_shape,
+                "ok":encrypted_model_put_chunks.is_ok,
                 "service_time":put_chunked_st
             })
 
@@ -255,6 +214,7 @@ def sknn_train():
                     "encrypted_model_shape":str(encrypted_model_shape),
                     "encrypted_model_dtype":"float64",
                     "algorithm":algorithm,
+                    "model_labels_shape":list(model_labels.shape)
                 }),
                 status  = 200,
             )
@@ -262,11 +222,11 @@ def sknn_train():
         logger.error({
             "msg":str(e)
         })
-        return Response(response = None, status = 500, headers={"Error-Message":str(e)})
+        return Response(response = str(e), status = 500, headers={"Error-Message":str(e)})
 
 
 @classification.route("/sknn/predict",methods = ["POST"])
-def sknn_predict():
+async def sknn_predict():
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -275,10 +235,10 @@ def sknn_predict():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
-        np_random                    = current_app.config.get("np_random")
+        np_random:bool               = current_app.config.get("np_random",False)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
         securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -298,13 +258,20 @@ def sknn_predict():
         model_labels_id           = "{}labels".format(model_id)
         _encrypted_model_shape    = request_headers.get("Encrypted-Model-Shape",-1)
         _encrypted_model_dtype    = request_headers.get("Encrypted-Model-Dtype",-1)
+        _model_labels_shape       = request_headers.get("Model-Labels-Shape",-1)
+
         records_test_path         = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
-        
+        max_workers = Utils.get_workers(num_chunks=num_chunks)
+        MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+        backoff_factor = 1.5
+        delay          = 1
+        max_retries    = 10  
         if _encrypted_model_dtype == -1:
             return Response("Encrypted-Model-Dtype", status=500)
         if _encrypted_model_shape == -1 :
             return Response("Encrypted-Model-Shape header is required", status=500)
-    
+        if _model_labels_shape == -1:
+            return Response("Model-Labels-Shape header is required", status=500)
         logger.debug({
             "event":"SKNN.1.PREDICT.STARTED",
             "bucket_id":BUCKET_ID,
@@ -326,17 +293,14 @@ def sknn_predict():
             "security_level":securitylevel
         })        
 
-        logger.debug({
-            "event":"READ.LOCAL.BEFORE",
-            "model_id":model_id,
-            "records_path":records_test_path,
-            "records_filename":model_id,
-            "algorithm":algorithm,
-        })
         read_local_start_time = time.time()
-        with open(records_test_path, "rb") as f:
-            records_test:npt.NDArray = np.load(f)    
+        # Hay que parametrizar por envs
+        records_test_ext = "npy"
+        records_test_result = await RoryCommon.read_numpy_from(path=records_test_path, extension=records_test_ext)
         read_local_st = time.time() - read_local_start_time
+        if records_test_result.is_err:
+            return Response(status=500, response=f"Failed to read {records_test_path}")
+        records_test = records_test_result.unwrap()
 
         logger.info({
             "event":"READ.LOCAL",
@@ -349,29 +313,16 @@ def sknn_predict():
 
         r:int = records_test.shape[0]
         a:int = records_test.shape[1]
-        cores = os.cpu_count()
-        max_workers = num_chunks if max_workers > num_chunks else max_workers
-        max_workers = cores if max_workers > cores else max_workers
+        # Esto siempre se utiliza seria bueno colocarlo en una funcion de UTILS, unicamente del cliente por que es donde se utiliza(Ya lo hice). 
+       
         n = a*r*int(m)
 
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.LIU.BEFORE",
-            "model_id":model_id,
-            "key":encrypted_records_test_id,
-            "records_shape":str(records_test.shape),
-            "records_dtype":str(records_test.dtype),
-            "algorithm":algorithm,
-            "n":n,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
-
         segment_encrypt_start_time = time.time()
-        encrypted_records_chunks:Chunks = Utils.segment_and_encrypt_liu_with_executor( #Encrypt 
+        encrypted_records_chunks =  RoryCommon.segment_and_encrypt_liu_with_executor( #Encrypt 
             executor         = executor,
             key              = encrypted_records_test_id,
-            plaintext_matrix = records_test,
             dataowner        = dataowner,
+            plaintext_matrix = records_test,
             n                = n,
             num_chunks       = num_chunks,
             np_random        = np_random
@@ -390,31 +341,21 @@ def sknn_predict():
             "service_time":encryption_service_time
         })
 
-        logger.debug({
-            "event":"PUT.CHUNKED.BEFORE",
-            "model_id":model_id,
-            "encrypted_records_text_id":encrypted_records_test_id,
-            "algorithm":algorithm,
-            "num_chunks":num_chunks
-        })
         put_chunks_start_time = time.time()
         encrypted_records_shape = (r,a,int(m))
-
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = encrypted_records_chunks
-        )
         
-        put_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_records_test_id,
             key            = encrypted_records_test_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_records_chunks,
             tags = {
-                "shape": str(encrypted_records_shape),
-                "dtype":"float64"
+                "full_shape": str(encrypted_records_shape),
+                "full_dtype":"float64"
             }
         )
+        if put_chunks_generator_results.is_err:
+            return Response(status=500, response="Failed to put encrypted records test in the storage")
 
         put_chunks_st = time.time() - put_chunks_start_time
         service_time_client = time.time() - local_start_time
@@ -424,6 +365,7 @@ def sknn_predict():
             "key":encrypted_records_test_id,
             "num_chunks":num_chunks,
             "algorithm":algorithm,
+            "ok":put_chunks_generator_results.is_ok,
             "service_time":put_chunks_st
         })
         
@@ -476,27 +418,18 @@ def sknn_predict():
             "Encrypted-Records-Shape" : str(encrypted_records_shape),
             "Encrypted-Records-Dtype" : str(encrypted_records_dtype),
             "Num-Chunks"              : str(num_chunks),
+            "Model-Labels-Shape"      : _model_labels_shape
         }
 
-        logger.debug({
-            "event":"WORKER.RUN.1.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "encrypted_model_shape":_encrypted_model_shape,
-            "encrypted_model_dtype":_encrypted_model_dtype,
-            "encrypted_records_shape":str(encrypted_records_shape),
-            "encrypted_records_dtype":str(encrypted_records_dtype),
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-        })
         worker_run1_response = worker.run(
             headers = run1_headers,
             timeout = WORKER_TIMEOUT
         )
         worker_run1_response.raise_for_status()
 
-        stringWorkerResponse = worker_run1_response.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
+        # stringWorkerResponse = worker_run1_response.content.decode("utf-8") #Response from worker
+        jsonWorkerResponse   = worker_run1_response.json()
+        # json.loads(stringWorkerResponse) #pass to json
         endTime              = time.time() # Get the time when it ends
         distances_id         = jsonWorkerResponse["distances_id"]
         distances_shape      = jsonWorkerResponse["distances_shape"]
@@ -516,29 +449,17 @@ def sknn_predict():
         })
 
         get_all_distances_start_time = time.time()
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "distances_id":distances_id,
-            "distances_shape":distances_shape,
-            "distances_dtype":distances_dtype,
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-        }) 
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = distances_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-        ).result()
+        all_distances = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = distances_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
         
-        if x.is_err:
-            raise Exception("{} not found".format(distances_id))
-        response = x.unwrap()
-        all_distances                  = response.value
-        all_distances_metadata         = response.metadata 
         get_all_distances_end_time     = time.time()
         get_all_distances_service_time = get_all_distances_end_time - get_all_distances_start_time
         logger.info({
@@ -554,19 +475,9 @@ def sknn_predict():
         }) 
         
         decrypt_matrix_start_time = time.time()
-        logger.debug({
-            "event":"DECRYPT.MIN.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "algorithm":algorithm,
-            "security_level":securitylevel,
-            "m":m,
-        })
-
         matrix_distances_plain = liu.decryptMatrix(
             ciphertext_matrix = all_distances,
             secret_key        = dataowner.sk,
-            securitylevel     = securitylevel,
         )
 
         min_distances_index         = np.argmin(matrix_distances_plain.matrix,axis=1)
@@ -582,48 +493,29 @@ def sknn_predict():
             "algorithm":algorithm,
         })
         
-        logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "distances_id":min_distances_index_id,
-            "algorithm":algorithm,
-            "num_chunks":num_chunks
-        })
 
-        min_distances_chunks = Chunks.from_ndarray(
+        maybe_min_distances_chunks = Chunks.from_ndarray(
             ndarray      = min_distances_index.reshape(-1,1),
             group_id     = min_distances_index_id,
             chunk_prefix = Some(min_distances_index_id),
             num_chunks   = num_chunks,
         )
 
-        if min_distances_chunks.is_none:
+        if maybe_min_distances_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = min_distances_chunks.unwrap()
-        )
 
-        t_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        t_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = min_distances_index_id,
             key            = min_distances_index_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_min_distances_chunks.unwrap(),
             tags = {
-                "shape": str(min_distances_index.shape),
-                "dtype": str(min_distances_index.dtype)
+                "full_shape": str(min_distances_index.shape),
+                "full_dtype": str(min_distances_index.dtype)
             }
         )
 
-        
-        logger.info({
-            "event":"PUT.NDARRAY",
-            "model_id":model_id,
-            "distances_id":min_distances_index_id,
-            "algorithm":algorithm,
-            "num_chunks":num_chunks
-        })
 
         run2_headers = {
             "Step-Index"              : "2",
@@ -634,29 +526,16 @@ def sknn_predict():
             "Encrypted-Records-Shape" : str(encrypted_records_shape),
             "Encrypted-Records-Dtype" : str(encrypted_records_dtype),
             "Num-Chunks"              : str(num_chunks),
-            "Min_Distances_Index_Id"  : min_distances_index_id
+            "Min_Distances_Index_Id"  : min_distances_index_id,
+            "Model-Labels-Shape"      : _model_labels_shape
         }
-        
-        logger.debug({
-            "event":"WORKER.RUN.2.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "encrypted_model_shape":_encrypted_model_shape,
-            "encrypted_model_dtype":_encrypted_model_dtype,
-            "encrypted_records_shape":str(encrypted_records_shape),
-            "encrypted_records_dtype":str(encrypted_records_dtype),
-            "num_chunks":num_chunks,
-            "min_distances_index_id":min_distances_index_id,
-            "algorithm":algorithm,
-        })
 
         worker_run2_response = worker.run(
             headers = run2_headers,
             timeout = WORKER_TIMEOUT
         )
         worker_run2_response.raise_for_status()
-        stringWorkerResponse2 = worker_run2_response.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse2   = json.loads(stringWorkerResponse2) #pass to json
+        jsonWorkerResponse2   = worker_run2_response.json()
         service_time_worker   = worker_run2_response.headers.get("Service-Time",0)
         worker_end_time       = time.time()
         worker_response_time  = worker_end_time - worker_start_time
@@ -707,19 +586,20 @@ def sknn_predict():
 
 
 @classification.route("/knn/train", methods = ["POST"])
-def knn_train():
+async def knn_train():
     local_start_time             = time.time()
     logger                       = current_app.config["logger"]
     BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
     SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-    STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+    STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
     executor:ProcessPoolExecutor = current_app.config.get("executor")
     if executor == None:
         raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
+    
     algorithm             = Constants.ClassificationAlgorithms.KNN_TRAIN
     s                     = Session()
     request_headers       = request.headers #Headers for the request
-    num_chunks                = int(request_headers.get("Num-Chunks",1))
+    num_chunks            = int(request_headers.get("Num-Chunks",1))
     model_id              = request_headers.get("Model-Id","matrix0model")        
     model_filename        = request_headers.get("Model-Filename",model_id)        
     model_labels_id       = "{}labels".format(model_id)
@@ -740,38 +620,41 @@ def knn_train():
         "model_labels_path":model_labels_path,
     })
 
-    logger.debug({
-        "event":"GET.MODEL.BEFORE",
-        "path":model_path,
-        "algorithm":algorithm,
-        "model_id":model_id,
-    })
-    
     get_model_start_time = time.time()
-    with open(model_path, "rb") as f:
-        model:npt.NDArray = np.load(f)
+    model_ext            = "npy"
+    model_result         = await RoryCommon.read_numpy_from(
+        path= model_path,
+        extension=model_ext
+    )
+
+    if model_result.is_err:
+        return Response(status=500, response="Failed to read model")
+
+    model        = model_result.unwrap()
     get_model_st = time.time()- get_model_start_time
 
     logger.info({
-        "event":"GET.MODEL",
+        "event":"GET.MODEL.LOCAL",
         "path":model_path,
-        "service_time":get_model_st,
         "algorithm":algorithm,
         "model_id":model_id,
+        "service_time":get_model_st,
     })
     
-    logger.debug({
-        "event":"GET.MODEL.LABELS.BEFORE",
-        "path":model_labels_path,
-        "algorithm":algorithm,
-        "model_id":model_id,
-    })
+ 
     get_model_labels_start_time = time.time()
-    with open(model_labels_path, "rb") as f:
-        model_labels:npt.NDArray = np.load(f)
-        model_labels             = model_labels.astype(np.int16)
+    model_labels_ext            = "npy"
 
-    model_labels = model_labels.reshape(-1,1)
+    model_labels_result         = await RoryCommon.read_numpy_from(
+        path      = model_labels_path,
+        extension = model_labels_ext
+    )
+
+    if model_labels_result.is_err:
+        return Response(status=500, response="Failed to read model labels")
+    
+    model_labels        = model_labels_result.unwrap()
+    model_labels        = model_labels.reshape(1,-1)
     get_model_labels_st = time.time()- get_model_labels_start_time
 
     logger.info({
@@ -785,59 +668,29 @@ def knn_train():
         "model_labels_dtype":str(model_labels.dtype)
     })
 
-    logger.debug({
-        "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-        "key":model_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model.shape),
-        "dtype":str(model.dtype),
-    })
+
     put_model_start_time = time.time()
-    model_chunks = Chunks.from_ndarray(
+    maybe_model_chunks   = Chunks.from_ndarray(
         ndarray      = model,
         group_id     = model_id,
         chunk_prefix = Some(model_id),
         num_chunks   = num_chunks,
     )
 
-    if model_chunks.is_none:
-        raise "something went wrong creating the chunks"
+    if maybe_model_chunks.is_none:
+        return Response(status=500, response="something went wrong creating the chunks")
     
-    logger.info({
-        "event":"CHUNKS.FROM.NDARRAY",
-        "key":model_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model.shape),
-        "dtype":str(model.dtype),
-    })
 
-    logger.debug({
-        "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-        "key":model_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model.shape),
-        "dtype":str(model.dtype)
-    })
 
-    chunks_bytes = Utils.chunks_to_bytes_gen(
-        chs = model_chunks.unwrap()
-    )
 
-    t_chunks_generator_results = Utils.delete_and_put_chunked(
-        STORAGE_CLIENT = STORAGE_CLIENT,
+    put_model_result = await RoryCommon.delete_and_put_chunks(
+        client         = STORAGE_CLIENT,
         bucket_id      = BUCKET_ID,
-        ball_id        = model_id,
         key            = model_id,
-        chunks         = chunks_bytes,
+        chunks         = maybe_model_chunks.unwrap(),
         tags = {
-            "shape": str(model.shape),
-            "dtype": str(model.dtype)
+            "full_shape": str(model.shape),
+            "full_dtype": str(model.dtype)
         }
     )
 
@@ -850,29 +703,18 @@ def knn_train():
         "bucket_id":BUCKET_ID,
         "shape":str(model.shape),
         "dtype":str(model.dtype),
+        "ok":put_model_result.is_ok,
         "service_time":put_model_st
     })
 
-    logger.debug({
-        "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-        "key":model_labels_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "model_label_id":model_labels_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model_labels.shape),
-        "dtype":str(model_labels.dtype),
-    })
-    put_model_labels_start_time = time.time()
-
-    model_labels_chunks = Chunks.from_ndarray(
+    maybe_model_labels_chunks = Chunks.from_ndarray(
         ndarray      = model_labels,
         group_id     = model_labels_id,
         chunk_prefix = Some(model_labels_id),
         num_chunks   = num_chunks,
     )
 
-    if model_labels_chunks.is_none:
+    if maybe_model_labels_chunks.is_none:
         raise "something went wrong creating the chunks"
 
     logger.info({
@@ -885,30 +727,16 @@ def knn_train():
         "dtype":str(model_labels.dtype),
     })
 
-    logger.debug({
-        "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-        "key":model_labels_id,
-        "algorithm":algorithm,
-        "model_id":model_id,
-        "bucket_id":BUCKET_ID,
-        "shape":str(model_labels.shape),
-        "dtype":str(model_labels.dtype)
-    })
 
-    chunks_bytes = Utils.chunks_to_bytes_gen(
-        chs = model_labels_chunks.unwrap()
-    
-    )
 
-    model_labels_results = Utils.delete_and_put_chunked(
-        STORAGE_CLIENT = STORAGE_CLIENT,
+    model_labels_results = await RoryCommon.delete_and_put_chunks(
+        client         = STORAGE_CLIENT,
         bucket_id      = BUCKET_ID,
-        ball_id        = model_labels_id,
         key            = model_labels_id,
-        chunks         = chunks_bytes,
+        chunks         = maybe_model_labels_chunks.unwrap(),
         tags = {
-            "shape": str(model_labels.shape),
-            "dtype": str(model_labels.dtype)
+            "full_shape": str(model_labels.shape),
+            "full_dtype": str(model_labels.dtype)
         }
     )
 
@@ -938,6 +766,7 @@ def knn_train():
         response = json.dumps({
             "response_time": response_time,
             "algorithm"   : algorithm,
+            "model_labels_shape":list(model_labels.shape)
         }),
         status   = 200,
         headers  = {}
@@ -945,14 +774,14 @@ def knn_train():
 
 
 @classification.route("/knn/predict",methods = ["POST"])
-def knn_predict():
+async def knn_predict():
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
         if executor == None:
@@ -966,6 +795,11 @@ def knn_predict():
         records_test_filename = request_headers.get("Records-Test-Filename",records_test_id)
         extension             = request_headers.get("Extension","npy")
         records_test_path     = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
+        _model_labels_shape     = request_headers.get("Model-Labels-Shape",-1)
+        if _model_labels_shape == -1:
+            error ="Model-Labels-Shape header is required"
+            logger.error(error)
+            return Response(error, status=500) 
         
         logger.debug({
             "event":"KNN.PREDICT.STARTED",
@@ -977,17 +811,14 @@ def knn_predict():
             "extension":extension,
         })
 
-        logger.debug({
-            "event":"GET.RECORDS.BEFORE",
-            "path":records_test_path,
-            "algorithm":algorithm,
-            "model_id":model_id,
-        })
-        get_records_test_start_time = time.time()
-        with open(records_test_path, "rb") as f:
-            records_test = np.load(f)   
-        get_recors_test_st = time.time() -get_records_test_start_time
 
+        get_records_test_start_time = time.time()
+        records_test_ext            = "npy"
+        records_test_result         = await RoryCommon.read_numpy_from(path=records_test_path, extension=records_test_ext)
+        get_recors_test_st          = time.time() -get_records_test_start_time
+        if records_test_result.is_err:
+            return Response(status=500, response="Failed to local read the records")
+        records_test = records_test_result.unwrap()
         logger.info({
             "event":"GET.RECORDS",
             "path":records_test_path,
@@ -996,61 +827,50 @@ def knn_predict():
             "model_id":model_id,
         })
 
-        logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
-            "key":records_test_id,
-            "algorithm":algorithm,
-            "model_id":model_id,
-            "bucket_id":BUCKET_ID,
-            "shape":str(records_test.shape),
-            "dtype":str(records_test.dtype),
-        })
-        put_records_start_time = time.time()
-
-        records_test_chunks = Chunks.from_ndarray(
+     
+        put_records_start_time    = time.time()
+        maybe_records_test_chunks = Chunks.from_ndarray(
             ndarray      = records_test,
             group_id     = records_test_id,
             chunk_prefix = Some(records_test_id),
             num_chunks   = num_chunks,
         )
 
-        if records_test_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_records_test_chunks.is_none:
+            return Response(status=500,response="something went wrong creating the chunks")
         
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = records_test_chunks.unwrap()
-        )
-
-        records_test_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_records_test_result = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = records_test_id,
             key            = records_test_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_records_test_chunks.unwrap(),
             tags = {
-                "shape": str(records_test.shape),
-                "dtype": str(records_test.dtype)
+                "full_shape": str(records_test.shape),
+                "full_dtype": str(records_test.dtype)
             }
         )
+
+        if put_records_test_result.is_err:
+            return Response(status=500, response="Failed to put the records test")
 
         service_time_client_end = time.time()
         service_time_client = service_time_client_end - local_start_time
         put_records_st = time.time() - put_records_start_time
         logger.info({
             "event":"PUT.NDARRAY",
+            "bucket_id":BUCKET_ID,
             "key":records_test_id,
             "algorithm":algorithm,
             "model_id":model_id,
-            "bucket_id":BUCKET_ID,
             "shape":str(records_test.shape),
             "dtype":str(records_test.dtype),
+            "ok":put_records_test_result.is_ok,
             "service_time":put_records_st
         })
 
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-
-        get_worker_start_time = time.time()
-        get_worker_result     = managerResponse.getWorker( #Gets the worker from the manager
+        get_worker_start_time       = time.time()
+        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
                 "Start-Request-Time"    : str(local_start_time),
@@ -1062,7 +882,8 @@ def knn_predict():
         if get_worker_result.is_err:
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
-            return Response(str(error), status=500)
+            return Response(response=str(error), status=500)
+        
         (_worker_id,port) = get_worker_result.unwrap()
 
         get_worker_end_time     = time.time() 
@@ -1079,24 +900,19 @@ def knn_predict():
         })
 
         worker_start_time = time.time()
-        worker        = RoryWorker( #Allows to establish the connection with the worker
+        worker            = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = port,
             session   = s,
             algorithm = algorithm,
         )
         
-        logger.debug({
-            "event":"WORKER.PREDICT.BEFORE",
-            "algorithm":algorithm,
-            "model_id":model_id,
-            "records_test_id":records_test_id
-        })
 
         workerResponse = worker.run(
             headers    = {
                 "Records-Test-Id": records_test_id,
-                "Model-Id": model_id
+                "Model-Id": model_id,
+                "Model-Labels-Shape":request_headers["Model-Labels-Shape"]
             },
             timeout = WORKER_TIMEOUT
         )
@@ -1104,8 +920,7 @@ def knn_predict():
         
         worker_end_time      = time.time()
         worker_response_time = worker_end_time - worker_start_time 
-        stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
+        jsonWorkerResponse   = workerResponse.json()
         endTime              = time.time() # Get the time when it ends
         worker_service_time  = jsonWorkerResponse["service_time"]
         label_vector         = jsonWorkerResponse["label_vector"]
@@ -1146,13 +961,13 @@ def knn_predict():
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
     
 @classification.route("/pqc/sknn/train", methods = ["POST"])
-def sknn_pqc_train():
+async def sknn_pqc_train():
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
@@ -1191,38 +1006,18 @@ def sknn_pqc_train():
         # _______________________________________________________________________________
         dataowner = DataOwnerPQC(scheme = ckks)  ##
 
-
-        logger.debug({
-            "event":"SKNN.PQC.TRAIN.STARTED",
-            "algorithm":algorithm,
-            "bucket_id":BUCKET_ID,
-            "source_path":SOURCE_PATH,
-            "num_chunks":num_chunks,
-            "model_id":model_id,
-            "model_labels_id":model_labels_id,
-            "encrypted_model_id":encrypted_model_id,
-            "model_filename":model_filename,
-            "model_path":model_path,
-            "model_labels_filename":model_labels_filename,
-            "model_labels_path":model_labels_path,
-            "extension":extension,
-        })
-
         model_path_exists        = os.path.exists(model_path) 
         model_path_labels_exists = os.path.exists(model_labels_path)
         if not model_path_exists or not model_path_labels_exists:
             return Response(response="Either model or label vector not found", status=500)
         else:
-            logger.debug({
-                "event":"READ.LOCAL.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "model_path":model_path,
-                "model_filename":model_filename,
-            })
+
             read_local_model_start_time = time.time()
-            with open(model_path, "rb") as f:
-                model:npt.NDArray = np.load(f)
+            #     model:npt.NDArray = np.load(f)
+            model_result = await RoryCommon.read_numpy_from(path=model_path,extension="npy")
+            if model_result.is_err:
+                return Response(status=500, response = "Failed to read the model")
+            model = model_result.unwrap()
             read_local_model_st = time.time() - read_local_model_start_time
             
             logger.info({
@@ -1233,19 +1028,17 @@ def sknn_pqc_train():
                 "service_time":read_local_model_st
             })
                 
-            logger.debug({
-                "event":"READ.LOCAL.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "model_labels_path":model_labels_path,
-                "model_labels_filename":model_labels_filename,
-            })
+          
             read_local_model_labels_start_time = time.time()
 
-            with open(model_labels_path, "rb") as f:
-                model_labels:npt.NDArray = np.load(f)
-                model_labels = model_labels.astype(np.int16)
-            
+            # with open(model_labels_path, "rb") as f:
+            #     model_labels:npt.NDArray = np.load(f)
+            #     model_labels = model_labels.astype(np.int16)
+            model_labels_result = await RoryCommon.read_numpy_from(path = model_labels_path,extension="npy")
+            if model_labels_result.is_err:
+                return Response(status= 500, response="Failed to read model labels")
+            model_labels = model_labels_result.unwrap()
+            model_labels = model_labels.reshape((1,model_labels.shape[0]))
             read_local_model_labels_st = time.time() - read_local_model_labels_start_time
             logger.info({
                 "event":"READ.LOCAL",
@@ -1255,47 +1048,28 @@ def sknn_pqc_train():
                 "model_labels_filename":model_labels_filename,
                 "service_time":read_local_model_labels_st
             })
+            maybe_model_labels_chunks = Chunks.from_ndarray(ndarray=model_labels, group_id=model_labels_id, chunk_prefix=Some(model_labels_id),num_chunks=num_chunks)
+            if maybe_model_labels_chunks.is_none:
+                return Response(status=500, response="Failed to convert into chunks the model labels")
             
-            logger.debug({
-                "event":"PUT.NDARRAY.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "key":model_labels_id,
-                "bucket_id":BUCKET_ID,
-                "shape":str(model_labels.shape),
-                "dtype":str(model_labels.dtype)
-            })
-
             put_model_labels_start_time = time.time()
-            logger.info({
-                "result":"BEFORE.PUT",
-                "key":model_labels_id,
-                "bucket_id":BUCKET_ID,
-                "begore":True
-            })
-            ptm_result = Utils.delete_and_put_ndarray(
-                STORAGE_CLIENT = STORAGE_CLIENT, 
+            ptm_result = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT, 
                 bucket_id      = BUCKET_ID, 
-                ball_id        = model_labels_id, 
                 key            = model_labels_id,
-                ndarray        = model_labels, 
-                tags           = {}
+                chunks       = maybe_model_labels_chunks.unwrap(), 
+                tags           = {
+                    "full_shape":str(model_labels.shape), 
+                    "full_dtype":str(model_labels.dtype)
+                }
             )
-            logger.info({
-                "result":str(ptm_result)
-            })
-
             put_model_labels_st = time.time() - put_model_labels_start_time
 
             logger.info({
-                "event":"PUT.NDARRAY",
-                "model_id":model_id,
-                "key":model_labels_id,
-                "algorithm":algorithm,
+                "event":"PUT",
                 "bucket_id":BUCKET_ID,
-                "shape":str(model_labels.shape),
-                "dtype":str(model_labels.dtype),
-                "service_time":put_model_labels_st
+                "key":model_labels_id,
+                "response_time":put_model_labels_st
             })
 
             
@@ -1304,19 +1078,8 @@ def sknn_pqc_train():
             encrypted_model_shape = "({},{})".format(r,a)
             n = a*r
 
-            logger.debug({
-                "event":"SEGMENT.ENCRYPT.CKKS.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "encrypted_model_id":encrypted_model_id,
-                "model_shape":str(model.shape),
-                "model_dtype":str(model.dtype),
-                "n":n,
-                "num_chunks":num_chunks,
-            })
             segment_encrypt_model_start_time = time.time()
-            
-            encrypted_model_chunks = Utils.segment_and_encrypt_ckks_with_executor_v2( #Encrypt 
+            encrypted_model_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor_v2( #Encrypt 
                 executor           = executor,
                 key                = encrypted_model_id,
                 plaintext_matrix   = model,
@@ -1344,34 +1107,22 @@ def sknn_pqc_train():
                 "service_time":segment_encrypt_model_st
             })
 
-            logger.debug({
-                "event":"PUT.CHUNKED.BEFORE",
-                "model_id":model_id,
-                "algorithm":algorithm,
-                "key":encrypted_model_id,
-                "num_chunks":num_chunks
-            })
 
             put_chunked_start_time = time.time()
 
-            chunks_bytes = Utils.chunks_to_bytes_gen(
-                chs = encrypted_model_chunks
-            )
             
-            put_chunks_generator_results = Utils.delete_and_put_chunked(
-                STORAGE_CLIENT = STORAGE_CLIENT,
+            put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT,
                 bucket_id      = BUCKET_ID,
-                ball_id        = encrypted_model_id,
                 key            = encrypted_model_id,
-                chunks         = chunks_bytes,
+                chunks         = encrypted_model_chunks,
                 tags = {
-                    "shape": str(encrypted_model_shape),
-                    "dtype":"float64"
+                    "full_shape": str(encrypted_model_shape),
+                    "full_dtype":"float64"
                 }
             )
-            logger.info({
-                "result": str(put_chunks_generator_results)
-            })
+            if put_chunks_generator_results.is_err:
+                return Response(status = 500, response="Failed to put encrypted model")
 
             put_chunked_st = time.time() - put_chunked_start_time
             logger.info({
@@ -1398,6 +1149,7 @@ def sknn_pqc_train():
                     "encrypted_model_shape":str(encrypted_model_shape),
                     "encrypted_model_dtype":"float64",
                     "algorithm":algorithm,
+                    "model_labels_shape":list(model_labels.shape)
                 }),
                 status  = 200,
             )
@@ -1409,14 +1161,14 @@ def sknn_pqc_train():
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
 
 @classification.route("/pqc/sknn/predict", methods = ["POST"])
-def sknn_pqc_predict():
+async def sknn_pqc_predict():
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("STORAGE_CLIENT")
+        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         np_random                    = current_app.config.get("np_random")
@@ -1432,13 +1184,17 @@ def sknn_pqc_predict():
         model_filename            = request_headers.get("Model-Filename",model_id) #fertility_model
         records_test_id           = request_headers.get("Records-Test-Id","matrix0data") #fertility_data
         records_test_filename     = request_headers.get("Records-Test-Filename",records_test_id)
+        records_test_extension = request_headers.get("Records-Test-Extension","npy")
         encrypted_records_test_id = "encrypted{}".format(records_test_id) # The id of the encrypted matrix is built
         extension                 = request_headers.get("Extension","npy")
         model_labels_id           = "{}labels".format(model_id)
         _encrypted_model_shape    = request_headers.get("Encrypted-Model-Shape",-1)
         _encrypted_model_dtype    = request_headers.get("Encrypted-Model-Dtype",-1)
         records_test_path         = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
-        
+        backoff_factor=0.5
+        delay=1
+        max_retries=10
+        timeout=120
         if _encrypted_model_dtype == -1:
             return Response("Encrypted-Model-Dtype", status=500)
         if _encrypted_model_shape == -1 :
@@ -1464,66 +1220,33 @@ def sknn_pqc_predict():
         # _______________________________________________________________________________
         dataowner = DataOwnerPQC(scheme = ckks)  ##
 
-        logger.debug({
-            "event":"SKNN.PQC.1.PREDICT.STARTED",
-            "bucket_id":BUCKET_ID,
-            "testing":TESTING,
-            "source_path":SOURCE_PATH, 
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-            "algorithm":algorithm,
-            "model_id":model_id,
-            "model_filename":model_filename,
-            "records_test_id":records_test_id,
-            "records_test_filename":records_test_filename,
-            "extension":extension,
-            "encrypted_model_shape":_encrypted_model_shape,
-            "encrypted_model_dtype":_encrypted_model_dtype,
-            "records_test_path":records_test_path,
-        })        
-
-        logger.debug({
-            "event":"READ.LOCAL.BEFORE",
-            "model_id":model_id,
-            "records_path":records_test_path,
-            "records_filename":model_id,
-            "algorithm":algorithm,
-        })
         read_local_start_time = time.time()
-        with open(records_test_path, "rb") as f:
-            records_test:npt.NDArray = np.load(f)    
+        # with open(records_test_path, "rb") as f:
+        #     records_test:npt.NDArray = np.load(f)    
+        records_test_result = await RoryCommon.read_numpy_from(path=records_test_path, extension=records_test_extension)
+        if records_test_result.is_err:
+            return Response(status =500, response ="Failed to read local records")
+        records_test = records_test_result.unwrap()
         read_local_st = time.time() - read_local_start_time
 
         logger.info({
             "event":"READ.LOCAL",
-            "model_id":model_id,
-            "records_path":records_test_path,
-            "records_filename":model_id,
+            "recrods_test_id":records_test_id,
+            "path":records_test_path,
+            "extension":records_test_extension,
             "service_time":read_local_st,
-            "algorithm":algorithm,
         })
 
         r:int = records_test.shape[0]
         a:int = records_test.shape[1]
-        cores = os.cpu_count()
-        max_workers = num_chunks if max_workers > num_chunks else max_workers
-        max_workers = cores if max_workers > cores else max_workers
+        # cores = os.cpu_count()
+        # max_workers = num_chunks if max_workers > num_chunks else max_workers
+        # max_workers = cores if max_workers > cores else max_workers
+        max_workers = Utils.get_workers(num_chunks=num_chunks)
         n = a*r
 
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.CKKS.BEFORE",
-            "model_id":model_id,
-            "key":encrypted_records_test_id,
-            "records_shape":str(records_test.shape),
-            "records_dtype":str(records_test.dtype),
-            "algorithm":algorithm,
-            "n":n,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
-
         segment_encrypt_start_time = time.time()
-        encrypted_records_chunks = Utils.segment_and_encrypt_ckks_with_executor_v2( #Encrypt 
+        encrypted_records_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor_v2( #Encrypt 
                 executor           = executor,
                 key                = encrypted_records_test_id,
                 plaintext_matrix   = records_test,
@@ -1535,7 +1258,12 @@ def sknn_pqc_predict():
                 ctx_filename       = ctx_filename,
                 pubkey_filename    = pubkey_filename,
                 secretkey_filename = secretkey_filename
-            )
+        )
+        # for c in encrypted_records_chunks:
+            # print(c)
+        # raise Exception("BOOM!")
+        # print("SHAPE", records_test.shape)
+        # raise Exception("BoOOM!")
         
         encryption_service_time = time.time() - segment_encrypt_start_time
         logger.info({
@@ -1551,31 +1279,22 @@ def sknn_pqc_predict():
             "service_time":encryption_service_time
         })
 
-        logger.debug({
-            "event":"PUT.CHUNKED.BEFORE",
-            "model_id":model_id,
-            "encrypted_records_text_id":encrypted_records_test_id,
-            "algorithm":algorithm,
-            "num_chunks":num_chunks
-        })
         put_chunks_start_time = time.time()
-        encrypted_records_shape = (r,a)
+        encrypted_records_shape = records_test.shape
 
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = encrypted_records_chunks
-        )
         
-        put_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        put_chunks_generator_results = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_records_test_id,
             key            = encrypted_records_test_id,
-            chunks         = chunks_bytes,
+            chunks         = encrypted_records_chunks,
             tags = {
-                "shape": str(encrypted_records_shape),
-                "dtype":"float64"
+                "full_shape": str(encrypted_records_shape),
+                "full_dtype":"float64"
             }
         )
+        if put_chunks_generator_results.is_err:
+            return Response(status =500, response="Failed to put encrypted records")
 
         put_chunks_st = time.time() - put_chunks_start_time
         service_time_client = time.time() - local_start_time
@@ -1587,7 +1306,6 @@ def sknn_pqc_predict():
             "algorithm":algorithm,
             "service_time":put_chunks_st
         })
-        
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
 
         get_worker_start_time = time.time()
@@ -1612,10 +1330,7 @@ def sknn_pqc_predict():
 
         logger.info({
             "event":"MANAGER.GET.WORKER",
-            "model_id":model_id,
             "worker_id":_worker_id,
-            "port":port,
-            "algorithm":algorithm,
             "service_time":get_worker_service_time,
         })
         worker_start_time = time.time()
@@ -1638,25 +1353,15 @@ def sknn_pqc_predict():
             "Num-Chunks"              : str(num_chunks),
         }
 
-        logger.debug({
-            "event":"WORKER.RUN.1.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "encrypted_model_shape":_encrypted_model_shape,
-            "encrypted_model_dtype":_encrypted_model_dtype,
-            "encrypted_records_shape":str(encrypted_records_shape),
-            "encrypted_records_dtype":str(encrypted_records_dtype),
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-        })
         worker_run1_response = worker.run(
             headers = run1_headers,
             timeout = WORKER_TIMEOUT
         )
         worker_run1_response.raise_for_status()
 
-        stringWorkerResponse = worker_run1_response.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
+        # stringWorkerResponse = worker_run1_response.content.decode("utf-8") #Response from worker
+        jsonWorkerResponse   = worker_run1_response.json()
+        # json.loads(stringWorkerResponse) #pass to json
         endTime              = time.time() # Get the time when it ends
         distances_id         = jsonWorkerResponse["distances_id"]
         distances_shape      = jsonWorkerResponse["distances_shape"]
@@ -1674,54 +1379,45 @@ def sknn_pqc_predict():
             "num_chunks":num_chunks,
             "algorithm":algorithm,
         })
+        # raise Exception("BOOM!")
         get_all_distances_start_time = time.time()
-        logger.debug({
-            "event":"GET.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "distances_id":distances_id,
-            "distances_shape":distances_shape,
-            "distances_dtype":distances_dtype,
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-        })
 
-        all_distances = Utils.get_pyctxt_matrix_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
+        print("BEGFORE")
+        all_distances = await RoryCommon.get_pyctxt_matrix(
+            client = STORAGE_CLIENT, 
             bucket_id      = BUCKET_ID, 
-            num_chunks     = 1, # Siempre debe de ser 1, porque no se utiliza el metodo segment_and_encrypt 
             key            = distances_id, 
             ckks           = ckks,
+            backoff_factor=backoff_factor,
+            delay=delay,
+            force=True,
+            max_retries=max_retries,
+            timeout=timeout
+            # backoff_factor=back
         )
-        
+        print("ALL_DISTANCES", all_distances.shape)
         get_all_distances_end_time     = time.time()
         get_all_distances_service_time = get_all_distances_end_time - get_all_distances_start_time
         
         logger.info({
-            "event":"GET.NDARRAY",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "distances_id":distances_id,
-            "distances_shape":distances_shape,
-            "distances_dtype":distances_dtype,
-            "num_chunks":num_chunks,
-            "service_time":get_all_distances_service_time,
+            "event":"GET",
+            "bucket_id":BUCKET_ID,
+            "key":distances_id,
             "algorithm":algorithm,
+            "model_id":model_id,
+            "response_time":get_all_distances_service_time,
         }) 
-        
         decrypt_matrix_start_time = time.time()
-        logger.debug({
-            "event":"DECRYPT.MIN.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "algorithm":algorithm,
-        })
-
         matrix_distances_plain = ckks.decrypt_matrix_list(
             xs   = all_distances, 
-            take = int(_encrypted_model_shape[1])
-            )
-        min_distances_index         = np.argmin(matrix_distances_plain,axis=1)
+            take = 1
+        )
+        _x = np.array(matrix_distances_plain).reshape(all_distances.shape)
+        print(_x)
+        print(_x.shape)
+        # _x = list(map(lambda x: x, matrix_distances_plain))
+
+        min_distances_index         = np.argmin(matrix_distances_plain,axis=1).reshape(1,-1)
         min_distances_index_id      = "distancesindex{}".format(records_test_id)
         decrypt_matrix_end_time     = time.time()
         decrypt_matrix_service_time = decrypt_matrix_start_time - decrypt_matrix_end_time
@@ -1729,51 +1425,44 @@ def sknn_pqc_predict():
         logger.info({
             "event":"DECRYPT.MIN",
             "model_id":model_id,
-            "records_test_id":records_test_id,
+            "algorithm":algorithm,
             "service_time":decrypt_matrix_service_time,
-            "algorithm":algorithm,
         })
-        
-        logger.debug({
-            "event":"PUT.NDARRAY.BEFORE",
-            "model_id":model_id,
-            "distances_id":min_distances_index_id,
-            "algorithm":algorithm,
-            "num_chunks":num_chunks
-        })
+        # print("MIN_DISTANCE",min_distances_index, min_distances_index.shape)
+        # raise Exception("BOOM!")
+        # raise Exception("BOOM!")
 
-        min_distances_chunks = Chunks.from_ndarray(
-            ndarray      = min_distances_index.reshape(-1,1),
+        maybe_min_distances_chunks = Chunks.from_ndarray(
+            ndarray      = min_distances_index,
             group_id     = min_distances_index_id,
             chunk_prefix = Some(min_distances_index_id),
             num_chunks   = num_chunks,
         )
 
-        if min_distances_chunks.is_none:
+        if maybe_min_distances_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-        chunks_bytes = Utils.chunks_to_bytes_gen(
-            chs = min_distances_chunks.unwrap()
-        )
-
-        t_chunks_generator_results = Utils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        t1 = time.time()
+        min_distances_put_result = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = min_distances_index_id,
             key            = min_distances_index_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_min_distances_chunks.unwrap(),
             tags = {
-                "shape": str(min_distances_index.shape),
-                "dtype": str(min_distances_index.dtype)
+                "full_shape": str(min_distances_index.shape),
+                "full_dtype": str(min_distances_index.dtype)
             }
         )
+        if min_distances_put_result.is_err:
+            return Response(status=500, response="Failed to put min distances")
 
         logger.info({
             "event":"PUT.NDARRAY",
+            "bucket_id":BUCKET_ID,
+            "key":min_distances_index_id,
             "model_id":model_id,
-            "distances_id":min_distances_index_id,
             "algorithm":algorithm,
-            "num_chunks":num_chunks
+            "response_time": time.time() - t1
         })
 
         run2_headers = {
@@ -1787,27 +1476,16 @@ def sknn_pqc_predict():
             "Num-Chunks"              : str(num_chunks),
             "Min_Distances_Index_Id"  : min_distances_index_id
         }
-        
-        logger.debug({
-            "event":"WORKER.RUN.2.BEFORE",
-            "model_id":model_id,
-            "records_test_id":records_test_id,
-            "encrypted_model_shape":_encrypted_model_shape,
-            "encrypted_model_dtype":_encrypted_model_dtype,
-            "encrypted_records_shape":str(encrypted_records_shape),
-            "encrypted_records_dtype":str(encrypted_records_dtype),
-            "num_chunks":num_chunks,
-            "min_distances_index_id":min_distances_index_id,
-            "algorithm":algorithm,
-        })
 
         worker_run2_response = worker.run(
             headers = run2_headers,
             timeout = WORKER_TIMEOUT
         )
         worker_run2_response.raise_for_status()
-        stringWorkerResponse2 = worker_run2_response.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse2   = json.loads(stringWorkerResponse2) #pass to json
+        # stringWorkerResponse2 = 
+        # worker_run2_response.content.decode("utf-8") #Response from worker
+        jsonWorkerResponse2   = worker_run2_response.json()
+        # json.loads(stringWorkerResponse2) #pass to json
         service_time_worker   = worker_run2_response.headers.get("Service-Time",0)
         worker_end_time       = time.time()
         worker_response_time  = worker_end_time - worker_start_time

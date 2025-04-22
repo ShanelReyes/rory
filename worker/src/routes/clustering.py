@@ -2,28 +2,30 @@ import time, json
 import numpy as np
 import numpy.typing as npt
 import os
-from typing import Awaitable,List,Tuple,Generator,Dict
+from typing import Awaitable,List,Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.clustering.kmeans import kmeans as kMeans
-from rory.core.clustering.secure.local.dbsnnc import Dbsnnc
+from rory.core.clustering.secure.conventional.dbsnnc import Dbsnnc
 from rory.core.clustering.nnc import Nnc
 from rory.core.utils.utils import Utils
 from rory.core.utils.constants import Constants
-from rory.core.clustering.secure.distributed.skmeans import SKMeans
-from rory.core.clustering.secure.distributed.dbskmeans import DBSKMeans
+from rory.core.clustering.secure.conventional.skmeans import SKMeans
+from rory.core.clustering.secure.conventional.dbskmeans import DBSKMeans
 from rory.core.clustering.secure.pqc.skmeans import Skmeans as SkmeansPQC
 from rory.core.clustering.secure.pqc.dbskmeans import DBSKMeans as DbskmeansPQC
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 # from mictlanx.v3.client import Client 
 from mictlanx.v4.client import Client as V4Client
+from mictlanx import AsyncClient
 from mictlanx.utils.index import Utils as MictlanXUtils
 from option import Result, Some
 from mictlanx.utils.segmentation import Chunks
 from mictlanx.v4.interfaces.responses import GetNDArrayResponse,PutResponse
 from option import Option,Some,NONE
 from utils.utils import Utils as LocalUtils
+from rorycommon import Common as RoryCommon
 from Pyfhel import PyCtxt,Pyfhel
-
+from models import ExperimentLogEntry
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
 @clustering.route("/test",methods=["GET","POST"])
@@ -43,11 +45,11 @@ Description:
     First part of the skmeans process. 
     It stops where client interaction is required and writes the centroids and matrix S to disk.
 """
-def skmeans_1(requestHeaders) -> Response:
+async def skmeans_1(requestHeaders) -> Response:
     arrival_time            = time.time() #Worker start time
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
     is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
@@ -59,7 +61,12 @@ def skmeans_1(requestHeaders) -> Response:
     udm_id                  = "{}udm".format(plaintext_matrix_id) 
     _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
     _encrypted_matrix_dtype = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
-
+    experiment_id           = requestHeaders.get("Experiment-Id","")
+    ######## PONER EN VARIABLES DE ENTORNO!
+    delay          = 1
+    max_retries    = 20
+    timeout        = 120
+    backoff_factor = 0.5
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
     if _encrypted_matrix_shape == -1 :
@@ -74,23 +81,8 @@ def skmeans_1(requestHeaders) -> Response:
     skmeans                   = SKMeans()
     responseHeaders           = {}
     
-    logger.debug({
-        "event":"SKMEANS1.STARTED",
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "encrypted_matrix_id":encrypted_matrix_id,
-        "UDM_id":udm_id,
-        "encrypted_matrix_shape":_encrypted_matrix_shape,
-        "encrypted_matrix_dtype":_encrypted_matrix_dtype,
-        "status":status,
-        "is_start_status":is_start_status,
-        "k":k,
-        "m":m,
-        "algorithm":algorithm,
-        "num_chunks":num_chunks,
-        "encrypted_shift_matrix_id":encrypted_shift_matrix_id,
-        "Cent_i_id":cent_i_id,
-        "Cent_j_id":cent_j_id,
-    })
+   
+    # raise Exception("BOOOM!")
     if num_chunks == -1:
         logger.error({
             "msg":"Num-Chunks header is required"
@@ -99,135 +91,96 @@ def skmeans_1(requestHeaders) -> Response:
     try:
         responseHeaders["Start-Time"] = str(arrival_time)
 
-        logger.debug({
-            "event":"GET.MERGE.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_matrix_id,
-            "shape": str(encrypted_matrix_shape),
-            "dtype":_encrypted_matrix_dtype
-        })
         get_merge_encrypted_matrix_start_time  = time.time()
-
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
+        encryptedMatrix:npt.NDArray = await RoryCommon.get_and_merge(
+            client    = STORAGE_CLIENT,
             key       = encrypted_matrix_id,
             bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
+            delay          = delay,
+            max_retries    = max_retries,
+            timeout        = timeout,
+            backoff_factor =backoff_factor
+        )
+        responseHeaders["Encrypted-Matrix-Dtype"] = str(encryptedMatrix.dtype)
+        responseHeaders["Encrypted-Matrix-Shape"] = str(encryptedMatrix.shape)
+        # encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        # get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
+        get_encrypted_ptm_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = get_merge_encrypted_matrix_start_time,
+                end_time       = time.time(),
+                id             = encrypted_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        )
+        logger.info(get_encrypted_ptm_entry.model_dump())
+ 
         
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_matrix_id))
-        
-        response                  = x.unwrap()
-        encryptedMatrix           = response.value
-        encrypted_matrix_metadata = response.metadata 
-
-        responseHeaders["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
-        responseHeaders["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
-        get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
-
-        logger.info({
-            "event":"GET.MERGE.NDARRAY.WITH.RETRY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_matrix_id,
-            "num_chunks":num_chunks,
-            "shape": str(encrypted_matrix_shape),
-            "dtype":_encrypted_matrix_dtype,
-            "service_time":get_merge_encrypted_matrix_st
-        })
-        
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":udm_id,
-        })
         udm_get_start_time  = time.time()
-        udm_matrix_response = LocalUtils.get_matrix_or_error(
+        udm = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
             key       = udm_id,
         )
-        udm_get_st = time.time() - udm_get_start_time
-        udm        = udm_matrix_response.value
-        logger.info({
-            "event":"GET.MATRIX.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":udm_id,
-            "shape":str(udm.shape), 
-            "dtype":str(udm.dtype),
-            "service_time":udm_get_st
-        })
-        responseHeaders["Udm-Matrix-Dtype"] = udm_matrix_response.metadata.tags.get("dtype",udm.dtype) # Extract the type
-        responseHeaders["Udm-Matrix-Shape"] = udm_matrix_response.metadata.tags.get("shape",udm.shape) # Extract the shape
-        
+        # udm_get_st = time.time() - udm_get_start_time
+        get_udm_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = udm_get_start_time,
+                end_time       = time.time(),
+                id             = udm_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        )
+        logger.info(get_udm_entry.model_dump())
+ 
+        responseHeaders["Udm-Matrix-Dtype"] = str(udm.dtype) # Extract the type
+        responseHeaders["Udm-Matrix-Shape"] = str(udm.shape) # Extract the shape
         if is_start_status: #if the status is start
-            logger.debug({
-                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "m":m,
-                "enctypted_matrix_shape":str(encryptedMatrix.shape),
-                "enctypted_matrix_dtype":str(encryptedMatrix.dtype),
-                "UDM_shape":str(udm.shape),
-                "UDM_dtype":str(udm.dtype),
-            })
             __Cent_j = NONE #There is no Cent_j
 
         else: 
-            logger.debug({
-                "event":"GET.MATRIX.OR.ERROR.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_j_id,
-            })
             cent_j_start_time = time.time()
-            Cent_j_response   = LocalUtils.get_matrix_or_error(
+            cent_j   = await RoryCommon.get_and_merge(
                 client    = STORAGE_CLIENT,
                 key       = cent_i_id,
                 bucket_id = BUCKET_ID
             )
-            cent_j    = Cent_j_response.value
+            # cent_j    = Cent_j_response.value
             __Cent_j  = Some(cent_j)
             status    = Constants.ClusteringStatus.WORK_IN_PROGRESS
-            cent_j_st = time.time() - cent_j_start_time
+            # cent_j_st = time.time() - cent_j_start_time
+            get_cent_i_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = cent_j_start_time,
+                end_time       = time.time(),
+                id             = cent_i_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+            ) 
+            logger.info(get_cent_i_entry.model_dump())
 
-            logger.info({
-                "event":"GET.MATRIX.OR.ERROR",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
-                "shape":str(cent_j.shape), 
-                "dtype":str(cent_j.dtype),
-                "service_time":cent_j_st
-            })
-
-            logger.debug({
-                "event":"WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "m":m,
-                "encrypted_matrix_shape":str(encryptedMatrix.shape),
-                "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
-                "UDM_shape":str(udm.shape),
-                "UDM_dtype":str(udm.dtype),
-                "cent_j_shape":str(cent_j.shape),
-                "cent_j_dtype":str(cent_j.dtype),
-            })
-
+        run1_start_time = time.time()
         run1_result:Result[
             Tuple[npt.NDArray, List[List[float]], List[List[float]], List[int]],
             Exception
@@ -238,231 +191,200 @@ def skmeans_1(requestHeaders) -> Response:
             encryptedMatrix = encryptedMatrix, 
             UDM             = udm,
             Cent_j          = __Cent_j,
-            num_attributes  = encryptedMatrix.shape[1]
         )
         
         if run1_result.is_err:
             error = run1_result.unwrap_err()
-            logger.error(str(error))
+            logger.error({
+                "event":"SKMEANS.RUN1.FAILED",
+                "raw_error":str(error)
+            })
             return Response(str(error), status=500 )
         S1,Cent_i,Cent_j,label_vector = run1_result.unwrap()
+
+        run1_entry = ExperimentLogEntry(
+                event          = "RUN1",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = run1_start_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        ) 
+        logger.info(run1_entry.model_dump())
 
         Cent_i = np.array(Cent_i)
         Cent_j = np.array(Cent_j)
 
-        logger.debug({
-                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
-                "shape":str(Cent_i.shape), 
-                "dtype":str(Cent_i.dtype)
-            })
         
-        cent_i_chunks = Chunks.from_ndarray(
+        maybe_cent_i_chunks = Chunks.from_ndarray(
             ndarray      = Cent_i,
             group_id     = cent_i_id,
             chunk_prefix = Some(cent_i_id),
             num_chunks   = k,
         )
 
-        if cent_i_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_cent_i_chunks.is_none:
+            raise Exception("something went wrong creating the chunks")
         
-        logger.info({
-                "event":"CHUNKS.FROM.NDARRAY",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
-                "shape":str(Cent_i.shape), 
-                "dtype":str(Cent_i.dtype)
-            })
-        
-        logger.debug({
-                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
-                "shape":str(Cent_i.shape), 
-                "dtype":str(Cent_i.dtype)
-            })
-        
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = cent_i_chunks.unwrap()
-        )
+    
 
-        x = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        t1 = time.time()
+        x = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_i_id,
             key            = cent_i_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_cent_i_chunks.unwrap(),
             tags = {
-                "shape": str(Cent_i.shape),
-                "dtype": str(Cent_i.dtype)
+                "full_shape": str(Cent_i.shape),
+                "full_dtype": str(Cent_i.dtype)
             }
         )
+        if x.is_err:
+            return Response(status=500, response="Put cent_i failed.")
 
-        logger.info({
-                "event":"DELETE.AND.PUT.CHUNKED",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_i_id,
-                "shape":str(Cent_i.shape), 
-                "dtype":str(Cent_i.dtype)
-            })
-
-        logger.debug({
-            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_j_id,
-            "shape":str(Cent_j.shape), 
-            "dtype":str(Cent_j.dtype)
-        })
+        put_cent_i_entry = ExperimentLogEntry(
+                event          = "PUT",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = t1,
+                end_time       = time.time(),
+                id             = cent_i_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        ) 
+        logger.info(put_cent_i_entry.model_dump())
+        #     "event":"DELETE.AND.PUT.CHUNKED",
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "bucket_id":BUCKET_ID,
+        #     "key":cent_i_id,
+        #     "shape":str(Cent_i.shape), 
+        #     "dtype":str(Cent_i.dtype),
+        #     "ok":x.is_ok, 
+        #     "response_time":time.time() -t1
+        # })
         
-        cent_j_chunks = Chunks.from_ndarray(
+        maybe_cent_j_chunks = Chunks.from_ndarray(
             ndarray      = Cent_j,
             group_id     = cent_j_id,
             chunk_prefix = Some(cent_j_id),
             num_chunks   = k,
         )
 
-        if cent_j_chunks.is_none:
+        if maybe_cent_j_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-        logger.info({
-            "event":"CHUNKS.FROM.NDARRAY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_j_id,
-            "shape":str(Cent_j.shape), 
-            "dtype":str(Cent_j.dtype)
-        })
-
-        logger.debug({
-            "event": "DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_j_id,
-            "shape":str(Cent_j.shape), 
-            "dtype":str(Cent_j.dtype)
-        })
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = cent_j_chunks.unwrap()
-        )
-
-        y = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+  
+       
+        t1 = time.time()
+        y = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_j_id,
             key            = cent_j_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_cent_j_chunks.unwrap(),
             tags = {
-                "shape": str(Cent_j.shape),
-                "dtype": str(Cent_j.dtype)
+                "full_shape": str(Cent_j.shape),
+                "full_dtype": str(Cent_j.dtype)
             }
         )
+        if y.is_err:
+            return Response(status=500, response="Put cent_j failed.")
+        put_cent_j_entry = ExperimentLogEntry(
+                event          = "PUT",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = t1,
+                end_time       = time.time(),
+                id             = cent_j_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        ) 
+        logger.info(put_cent_j_entry.model_dump())
 
-        logger.info({
-            "event": "DELETE.AND.PUT.CHUNKED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_j_id,
-            "shape":str(Cent_j.shape), 
-            "dtype":str(Cent_j.dtype)
-        })
 
-        logger.debug({
-            "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_shift_matrix_id,
-            "shape":str(S1.shape), 
-            "dtype":str(S1.dtype)
-        })
+
         
-        s1_chunks = Chunks.from_ndarray(
+        maybe_s1_chunks = Chunks.from_ndarray(
             ndarray      = S1,
             group_id     = encrypted_shift_matrix_id,
             chunk_prefix = Some(encrypted_shift_matrix_id),
             num_chunks   = num_chunks,
         )
 
-        if s1_chunks.is_none:
+        if maybe_s1_chunks.is_none:
             raise "something went wrong creating the chunks"
         
-        logger.info({
-            "event":"CHUNKS.FROM.NDARRAY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_shift_matrix_id,
-            "shape":str(S1.shape), 
-            "dtype":str(S1.dtype)
-        })
+     
 
-        logger.debug({
-            "event": "DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_shift_matrix_id,
-            "shape":str(S1.shape), 
-            "dtype":str(S1.dtype)
-        })
+    
 
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = s1_chunks.unwrap()
-        )
-
-        z = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        t1 = time.time()
+        z = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_shift_matrix_id,
             key            = encrypted_shift_matrix_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_s1_chunks.unwrap(),
             tags = {
-                "shape": str(S1.shape),
-                "dtype": str(S1.dtype)
+                "full_shape": str(S1.shape),
+                "full_dtype": str(S1.dtype)
             }
         )
 
-        logger.info({
-            "event": "DELETE.AND.PUT.CHUNKED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_shift_matrix_id,
-            "shape":str(S1.shape), 
-            "dtype":str(S1.dtype)
-        })
+        put_encrypted_sm_entry = ExperimentLogEntry(
+                event          = "PUT",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = t1,
+                end_time       = time.time(),
+                id             = encrypted_shift_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = 0
+        ) 
+        logger.info(put_encrypted_sm_entry.model_dump())
+ 
 
         end_time     = time.time()
         service_time = end_time - arrival_time
         n_iterations = int(requestHeaders.get("Iterations",0)) + 1
-        logger.info({
-            "event":"SKMEANS.1.COMPLETED",
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrix_id":encrypted_matrix_id,
-            "encrypted_shift_matrix_id":encrypted_shift_matrix_id,
-            "worker_id":worker_id,
-            "algorithm":algorithm,
-            "k":k,
-            "m":m,
-            "n_iterations":n_iterations,
-            "service_time": service_time
-        })
-      
+        clustering_entry = ExperimentLogEntry(
+                event          = "CLUSTERING",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = arrival_time,
+                end_time       = time.time(),
+                id             = encrypted_shift_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = n_iterations
+        )
+        logger.info(clustering_entry.model_dump())
+
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({
                 "label_vector":label_vector,
@@ -487,12 +409,12 @@ Description:
     It starts when it receives S (decrypted matrix) from the client.
     If S is zero process ends
 """
-def skmeans_2(requestHeaders):
+async def skmeans_2(requestHeaders):
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.SKMEANS
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
@@ -501,6 +423,7 @@ def skmeans_2(requestHeaders):
     k                       = int(requestHeaders.get("K",3))
     m                       = int(requestHeaders.get("M",3))
     iterations              = int(requestHeaders.get("Iterations",0))
+    experiment_id           = requestHeaders.get("Experiment-Id","")
     
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
@@ -510,136 +433,118 @@ def skmeans_2(requestHeaders):
     cent_j_id        = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     response_headers = {}
 
-    logger.debug({
-        "event":"SKMEANS.2.STARTED",
-        "status":status,
-        "shift_matrix_id":shift_matrix_id,
-        "algorithm":algorithm,
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "encrypted_matrix_id":encrypted_matrix_id,
-        "k":k,
-        "m":m,
-        "iterations":iterations
-    })
 
     try:
         get_UDM_start_time = time.time()
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":udm_id, 
-            "bucket_id":BUCKET_ID
-        })
+  
 
-        UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = udm_id,
+        UDM =  await RoryCommon.get_and_merge(
+            client=STORAGE_CLIENT, 
             bucket_id   = BUCKET_ID,
+            key         = udm_id,
             max_retries = 20,
             delay       = 2
         )
-        UDM_result:Result[GetNDArrayResponse,Exception] = UDM_put_future.result()
-        if UDM_result.is_err:
-            return Response(None, status=500, headers={"Error-Message":str(UDM_result.unwrap_err())})
-        get_UDM_st = time.time() - get_UDM_start_time
         
-        UDM_response:GetNDArrayResponse = UDM_result.unwrap()
-        UDM = UDM_response.value
+        # UDM = UDM_response.value
 
-        logger.info({
-            "event":"GET.NDARRAY.WITH.RETRY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":udm_id, 
-            "bucket_id":BUCKET_ID,
-            "shape":str(UDM.shape),
-            "dtype":str(UDM.dtype),
-            "service_time":get_UDM_st
-        })
-        
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id, 
-            "bucket_id":BUCKET_ID,
-        })
+        get_udm_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = get_UDM_start_time,
+                end_time       = time.time(),
+                id             = udm_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = iterations
+        )
+        logger.info(get_udm_entry.model_dump())
+
+     
 
         get_cent_i_start_time = time.time()
-        Cent_i_response = LocalUtils.get_matrix_or_error(
+        Cent_i = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = cent_i_id,
             bucket_id = BUCKET_ID
         )
-        Cent_i        = Cent_i_response.value
-        get_cent_i_st = time.time() - get_cent_i_start_time
+        # get_cent_i_st = time.time() - get_cent_i_start_time
 
-        logger.info({
-            "event":"GET.MATRIX.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id, 
-            "bucket_id":BUCKET_ID,
-            "shape":str(Cent_i.shape),
-            "dtype":str(Cent_i.dtype),
-            "service_time":get_cent_i_st
-        })
+        get_cent_i_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = get_cent_i_start_time,
+                end_time       = time.time(),
+                id             = cent_i_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = iterations
+        )
+        logger.info(get_cent_i_entry.model_dump())
+ 
 
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id, 
-            "bucket_id":BUCKET_ID,
-        })
         get_cent_j_start_time = time.time()
 
-        Cent_j_response = LocalUtils.get_matrix_or_error(
+        Cent_j = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = cent_j_id,
             bucket_id = BUCKET_ID
         )
-        Cent_j = Cent_j_response.value
-
-        get_cent_j_st = time.time() - get_cent_j_start_time
-        logger.info({
-            "event":"GET.MATRIX.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id, 
-            "bucket_id":BUCKET_ID,
-            "shape":str(Cent_j.shape),
-            "dtype":str(Cent_j.dtype),
-            "service_time":get_cent_j_st
-        })
-        
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":shift_matrix_id, 
-            "bucket_id":BUCKET_ID,
-        })
+        get_cent_j_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = get_cent_j_start_time,
+                end_time       = time.time(),
+                id             = cent_j_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = iterations
+        )
+        logger.info(get_cent_j_entry.model_dump())
+ 
+      
+      
         get_shift_matrix_start_time = time.time()
 
-        shiftMatrix_get_response = LocalUtils.get_matrix_or_error(
+        shiftMatrix = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = shift_matrix_id,
             bucket_id = BUCKET_ID
         )
-        shiftMatrix = shiftMatrix_get_response.value
-        get_shift_matrix_st = time.time() - get_shift_matrix_start_time
+        get_sm_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = get_shift_matrix_start_time,
+                end_time       = time.time(),
+                id             = shift_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = 0,
+                security_level = 0,
+                m              = m,
+                iterations     = iterations
+        )
+        logger.info(get_sm_entry.model_dump())
+ 
 
-        logger.info({
-            "event":"GET.MATRIX.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":shift_matrix_id, 
-            "bucket_id":BUCKET_ID,
-            "shape":str(shiftMatrix.shape),
-            "dtype":str(shiftMatrix.dtype),
-            "service_time":get_shift_matrix_st
-        })
+   
 
         min_error = 0.15
         isZero = Utils.verify_mean_error(
@@ -647,13 +552,7 @@ def skmeans_2(requestHeaders):
             new_matrix = Cent_j, 
             min_error  = min_error
         )
-        logger.debug({
-            "event":"VERIFY.MEAN.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "min_error":min_error,
-            "is_zero":int(isZero)
-        })
+   
         
         if(isZero): #If Shift matrix is zero
             response_headers["Clustering-Status"]  = Constants.ClusteringStatus.COMPLETED #Change the status to COMPLETED
@@ -661,33 +560,34 @@ def skmeans_2(requestHeaders):
             service_time                           = end_time - local_start_time #The service time is calculated
             response_headers["Total-Service-Time"] = str(service_time) #Save the service time
 
-            logger.info({
-                "event":"SKMEANS.2.COMPLETED",
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "algorithm":algorithm,
-                "worker_id":worker_id,
-                "service_time":service_time,
-                "n_iterations":iterations
-            })
+            clustering_completed_entry = ExperimentLogEntry(
+                    event          = "CLUSTERING.COMPLETED",
+                    experiment_id  = experiment_id,
+                    algorithm      = algorithm,
+                    start_time     = local_start_time,
+                    end_time       = time.time(),
+                    id             = plaintext_matrix_id,
+                    worker_id      = worker_id,
+                    num_chunks     = num_chunks,
+                    k              = k,
+                    workers        = 0,
+                    security_level = 0,
+                    m              = m,
+                    iterations     = iterations
+            )
+            logger.info(clustering_completed_entry.model_dump())
+        
             return Response( #Return none and headers
                 response = None, 
                 status   = 204, 
                 headers  = response_headers
             )
         else: #If Shift matrix is not zero
+            run2_start_time = time.time()
             skmeans = SKMeans() 
             status  = Constants.ClusteringStatus.WORK_IN_PROGRESS
             response_headers["Clustering-Status"] = status #The status is changed to WORK IN PROGRESS
             encrypted_matrix_shape = eval(requestHeaders["Encrypted-Matrix-Shape"]) # extract the attributes of shape
-            logger.debug({
-                "event":"NO.ZERO.RUN2",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "encrypted_matrix_shape":str(encrypted_matrix_shape),
-                "shift_matrix_shape":str(shiftMatrix.shape),
-                "shift_matrix_dtype":str(shiftMatrix.dtype)
-            })
             _UDM = skmeans.run_2( # The second part of the skmeans starts
                 k           = k,
                 UDM         = UDM,
@@ -695,24 +595,23 @@ def skmeans_2(requestHeaders):
                 shiftMatrix = shiftMatrix,
             )
             UDM_array = np.array(_UDM)
-            logger.debug({
-                "event":"SKMEANS.RUN2",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "k":k,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
-            
-            logger.debug({
-                "event":"PUT.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
+            run_2_entry = ExperimentLogEntry(
+                    event          = "RUN2",
+                    experiment_id  = experiment_id,
+                    algorithm      = algorithm,
+                    start_time     = run2_start_time,
+                    end_time       = time.time(),
+                    id             = plaintext_matrix_id,
+                    worker_id      = worker_id,
+                    num_chunks     = num_chunks,
+                    k              = k,
+                    workers        = 0,
+                    security_level = 0,
+                    m              = m,
+                    iterations     = iterations
+            )
+            logger.info(run_2_entry.model_dump())
+
             put_udm_start_time = time.time()
 
             udm_chunks = Chunks.from_ndarray(
@@ -723,77 +622,67 @@ def skmeans_2(requestHeaders):
             )
 
             if udm_chunks.is_none:
-                raise "something went wrong creating the chunks"
+                return Response(status= 500, response = "Failed to put udm chunks")
+                # raise "something went wrong creating the chunks"
             
-            logger.info({
-                "event":"PUT.NDARRAY",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
 
-            logger.debug({
-                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
-
-            chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-                chs = udm_chunks.unwrap()
-            )
-
-            x = LocalUtils.delete_and_put_chunked(
-                STORAGE_CLIENT = STORAGE_CLIENT,
-                bucket_id      = BUCKET_ID,
-                ball_id        = udm_id,
-                key            = udm_id,
-                chunks         = chunks_bytes,
-                tags = {
-                    "shape": str(UDM_array.shape),
-                    "dtype": str(UDM_array.dtype)
+            put_udm_result = await RoryCommon.delete_and_put_chunks(
+                client= STORAGE_CLIENT,
+                bucket_id=BUCKET_ID,
+                key=udm_id,
+                chunks=udm_chunks.unwrap(),
+                tags={
+                    "full_shape":str(UDM_array.shape),
+                    "full_dtype":str(UDM_array.dtype)
                 }
             )
+    
             
-            if x.is_err:
-                error = str(x.unwrap_err())
+            if put_udm_result.is_err:
+                error = str(put_udm_result.unwrap_err())
                 logger.error({
                     "msg":error
                 })
                 return Response(error,status=500)
             
-            endTime2   = time.time()
-            put_udm_st = endTime2 - put_udm_start_time
+            put_udm_entry = ExperimentLogEntry(
+                    event          = "PUT",
+                    experiment_id  = experiment_id,
+                    algorithm      = algorithm,
+                    start_time     = put_udm_start_time,
+                    end_time       = time.time(),
+                    id             = udm_id,
+                    worker_id      = worker_id,
+                    num_chunks     = num_chunks,
+                    k              = k,
+                    workers        = 0,
+                    security_level = 0,
+                    m              = m,
+                    iterations     = iterations
+            )
+            logger.info(put_udm_entry.model_dump())
+            # endTime2   = time.time()
+       
 
-            logger.info({
-                "event":"DELETE.AND.PUT.CHUNKED",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-                "service_time": put_udm_st
-            })
+            clutering_uncompleted_entry = ExperimentLogEntry(
+                    event          = "CLUSTERING.UNCOMPLETED",
+                    experiment_id  = experiment_id,
+                    algorithm      = algorithm,
+                    start_time     = local_start_time,
+                    end_time       = time.time(),
+                    id             = udm_id,
+                    worker_id      = worker_id,
+                    num_chunks     = num_chunks,
+                    k              = k,
+                    workers        = 0,
+                    security_level = 0,
+                    m              = m,
+                    iterations     = iterations
+            )
+            logger.info(clutering_uncompleted_entry.model_dump())
+            response_headers["End-Time"]     = str(clutering_uncompleted_entry.end_time)
+            response_headers["Service-Time"] = str(clutering_uncompleted_entry.time)
 
-            serviceTime2                     = endTime2 - local_start_time  #Service time is calculated
-            response_headers["End-Time"]     = str(endTime2)
-            response_headers["Service-Time"] = str(serviceTime2)
-            
-            logger.info({
-                "event":"SKMEANS.2.UNCOMPLETED",
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "algorithm":algorithm,
-                "worker_id":worker_id,
-                "service_time":serviceTime2,
-                "n_iterations":iterations
-            })
             return Response( #Return none and headers
                 response = None,
                 status   = 204, 
@@ -804,103 +693,108 @@ def skmeans_2(requestHeaders):
         return Response(str(e),status = 503)
 
 @clustering.route("/skmeans",methods = ["POST"])
-def skmeans():
+async def skmeans():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
     step_index      = int(filteredHeaders.get("Step-Index",1))
     response        = Response()
     if step_index == 1:
-        return skmeans_1(filteredHeaders)
+        return await skmeans_1(filteredHeaders)
     elif step_index == 2:
-        return skmeans_2(filteredHeaders)
+        return await skmeans_2(filteredHeaders)
     else:
         return response
 
 @clustering.route("/kmeans",methods = ["POST"])
-def kmeans():
+async def kmeans():
     local_start_time        = time.time() #System startup time
     headers                 = request.headers
     to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
     filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    experiment_id           = headers.get("Experiment-Id","")
     algorithm               = Constants.ClusteringAlgorithms.KMEANS
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
     k                       = int(filtered_headers.get("K",3))
     response_headers        = {}
 
-    logger.debug({
-        "event":"KMEANS.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "bucket_id":BUCKET_ID,
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "k":k
-    })
+
     try:
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":plaintext_matrix_id
-        })
-        plaintext_matrix_response = LocalUtils.get_matrix_or_error(
+        t1 = time.time()
+        plaintext_matrix = await RoryCommon.get_matrix_or_error(
             client    = STORAGE_CLIENT,
             key       = plaintext_matrix_id,
             bucket_id = BUCKET_ID
         ) 
 
-        plaintext_matrix = plaintext_matrix_response.value
 
-        logger.info({
-            "event":"GET.MATRIX.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":plaintext_matrix_id,
-        })
+        # plaintext_matrix = plaintext_matrix_response.value
 
-        logger.debug({
-            "event":"KMEANS.PROCESS.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":plaintext_matrix_id,
-        })
+        get_ptm_entry = ExperimentLogEntry(
+            event="GET",
+            experiment_id=experiment_id,
+            start_time=t1,
+            end_time=time.time(),
+            algorithm=algorithm,
+            id=plaintext_matrix_id,
+            k=k,
+            iterations=0,
+            num_chunks=0,
+            worker_id=worker_id,
+            workers=0
+        )
+        logger.info(get_ptm_entry.model_dump())
+
+        t1 = time.time()
         result = kMeans(
             k                = k, 
             plaintext_matrix = plaintext_matrix
         )
 
-        logger.info({
-            "event":"KMEANS.PROCESS",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":plaintext_matrix_id,
-        })
 
-        end_time     = time.time()
-        service_time = end_time - local_start_time
+        # end_time     = time.time()
+        # service_time = end_time - local_start_time
 
-        response_headers["Service-Time"] = str(service_time)
-        response_headers["Iterations"]   = int(result.n_iterations)
+        kmeans_entry = ExperimentLogEntry(
+            event="KMEANS",
+            experiment_id=experiment_id,
+            start_time=t1,
+            end_time=time.time(),
+            algorithm=algorithm,
+            id=plaintext_matrix_id,
+            k=k,
+            iterations=result.n_iterations,
+            num_chunks=0,
+            worker_id=worker_id,
+            workers=0
+        )
+        logger.info(kmeans_entry.model_dump())
+        clustering_entry = ExperimentLogEntry(
+            event="CLUSTERING",
+            experiment_id=experiment_id,
+            start_time=local_start_time,
+            end_time=time.time(),
+            algorithm=algorithm,
+            id=plaintext_matrix_id,
+            k=k,
+            iterations=result.n_iterations,
+            num_chunks=0,
+            worker_id=worker_id,
+            workers=0
+        )
+        logger.info(clustering_entry.model_dump())
         
-        logger.info({
-            "event":"CLUSTERING",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "worker_id":worker_id,
-            "k":k,
-            "n_iterations":result.n_iterations,
-            "service_time":service_time
-        })
-
+        response_headers["Service-Time"] = str(clustering_entry.time)
+        response_headers["Iterations"]   = int(result.n_iterations)
         return Response( #Returns the final response as a label vector + the headers
             response = json.dumps({
                 "label_vector":result.label_vector.tolist(),
                 "iterations": result.n_iterations,
-                "service_time": service_time
+                "service_time": clustering_entry.time
             }),
             status   = 200,
             headers  = {**response_headers}
@@ -920,11 +814,11 @@ Description:
     First part of the dbskmeans process. 
     It stops where client interaction is required and writes the centroids and matrix S to disk.
 """
-def dbskmeans_1(requestHeaders) -> Response:
+async def dbskmeans_1(requestHeaders) -> Response:
     arrival_time            = time.time() #System startup time
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
     status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
     is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
@@ -938,7 +832,7 @@ def dbskmeans_1(requestHeaders) -> Response:
     _encrypted_udm_shape    = requestHeaders.get("Encrypted-Udm-Shape",-1)
     _encrypted_udm_dtype    = requestHeaders.get("Encrypted-Udm-Dtype",-1)
     iterations              = int(requestHeaders.get("Iterations",0))
-
+    max_iterations          = int(requestHeaders.get("Max-Iterations",0))
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=400)
     if _encrypted_matrix_shape == -1 :
@@ -961,90 +855,57 @@ def dbskmeans_1(requestHeaders) -> Response:
     encrypted_shift_matrix_id  = "{}encryptedshiftmatrix".format(plaintext_matrix_id) #Build the id of Encrypted Shift Matrix
     dbskmeans                  = DBSKMeans()
     response_headers           = {}
-
-    logger.debug({
-        "event":"DBSKMEANS.1.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "status":status,
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "encrypted_matrix_id":encrypted_matrix_id,
-        "encrypted_matrix_shape":_encrypted_matrix_shape,
-        "encrypted_udm_shape":_encrypted_udm_shape,
-        "encrypted_shift_matrix_id":encrypted_shift_matrix_id,
-        "num_chunks":num_chunks,
-        "iterations":iterations,
-        "k":k, 
-        "m":m, 
-    })
+    # Estos tienes que traerlos desde variables de entorno (assigned to = SHANEL)
+    max_retries    = 10
+    timeout        = 120
+    backoff_factor = 1.5
+    delay          = 1
 
     try:
         response_headers["Start-Time"] = str(arrival_time)
 
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID ,
-            "key":encrypted_matrix_id,
-            "num_chunks":num_chunks,
-        })
         get_merge_start_time = time.time()
-        
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_matrix_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_matrix_id))
-        response = x.unwrap()
-        encryptedMatrix = response.value
-        encrypted_matrix_metadata = response.metadata 
+   
+        encryptedMatrix = await RoryCommon.get_and_merge(
+            client=STORAGE_CLIENT, 
+            key = encrypted_matrix_id,
+            bucket_id=BUCKET_ID,
+            max_retries=max_retries,
+            timeout = timeout,
+            backoff_factor=backoff_factor,
+            delay=delay, 
+        )
         
         get_merge_st = time.time() - get_merge_start_time
         
-        response_headers["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
-        response_headers["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        response_headers["Encrypted-Matrix-Dtype"] =  str(encryptedMatrix.dtype)
+        # encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #Save the data type
+        response_headers["Encrypted-Matrix-Shape"] = str(encryptedMatrix.shape)
+        # encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
         
         logger.info({
             "event":"GET.NDARRAY.WITH.RETRY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID ,
+            "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
+            "algorithm":algorithm,
             "num_chunks":num_chunks,
             "shape":str(encryptedMatrix.shape),
             "dtype":str(encryptedMatrix.dtype),
             "service_time":get_merge_st
         })
 
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID ,
-            "key":encrypted_udm_id,
-            "num_chunks":num_chunks,
-            "encrypted_udm_shape":str(encrypted_udm_shape),
-        })
+
         get_merge_start_time = time.time()
         
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_udm_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
+        encrypted_udm = await RoryCommon.get_and_merge(
+            bucket_id      = BUCKET_ID,
+            key            = encrypted_udm_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            client         = STORAGE_CLIENT,
+        )
         
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_udm_id))
-        
-        response      = x.unwrap()
-        encrypted_udm = response.value
-        udm_metadata  = response.metadata 
 
         get_merge_st = time.time() - get_merge_start_time
         logger.info({
@@ -1059,37 +920,21 @@ def dbskmeans_1(requestHeaders) -> Response:
             "service_time":get_merge_st
         })
 
-        response_headers["Encrypted-Udm-Dtype"] = str(udm_metadata.tags.get("dtype",encrypted_udm.dtype)) # Extract the type
-        response_headers["Encrypted-Udm-Shape"] = str(udm_metadata.tags.get("shape",encrypted_udm.shape)) # Extract the shape
+        response_headers["Encrypted-Udm-Dtype"] = str(encrypted_udm.dtype) # Extract the type
+        response_headers["Encrypted-Udm-Shape"] = str(encrypted_udm.shape) # Extract the shape
         
         if is_start_status: #if the status is start
             __Cent_j = NONE #There is no Cent_j
-            logger.debug({
-                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "m":m,
-                "enctypted_matrix_shape":str(encryptedMatrix.shape),
-                "enctypted_matrix_dtype":str(encryptedMatrix.dtype),
-                "encrypted_udm_shape":str(encrypted_udm.shape),
-                "encrypted_udm_dtype":str(encrypted_udm.dtype),
-            })
-
         else: 
-            logger.debug({
-                "event":"GET.MATRIX.OR.ERROR.BEFORE",
-                "key":cent_i_id,
-                "bucket_id":BUCKET_ID
-            })
             get_matrix_cent_i_start_time = time.time()
-            Cent_j_response = LocalUtils.get_matrix_or_error(
-                bucket_id = BUCKET_ID,
-                client    = STORAGE_CLIENT,
-                key       = cent_i_id
+            cent_j_value= await RoryCommon.get_and_merge(
+                bucket_id      = BUCKET_ID,
+                key            = cent_i_id,
+                client         = STORAGE_CLIENT,
+                max_retries    = max_retries,
+                backoff_factor = backoff_factor,
+                delay          = delay,
             )
-            cent_j_value = Cent_j_response.value
             __Cent_j     = Some(cent_j_value)
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS
 
@@ -1101,23 +946,9 @@ def dbskmeans_1(requestHeaders) -> Response:
                 "dtype":str(cent_j_value.dtype),
                 "service_time":time.time() - get_matrix_cent_i_start_time
             })
-        
-            logger.debug({
-                "event":"DBSKMEANS.RUN.1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "encrypted_matrix_shape":str(encryptedMatrix.shape),
-                "encrypted_matrix_dtype":str(encryptedMatrix.dtype),
-                "encrypted_udm_shape":str(encrypted_udm.shape),
-                "encrypted_udm_dtype":str(encrypted_udm.dtype),
-                "cent_j_shape":str(cent_j_value.shape),
-                "cent_j_dtype":str(cent_j_value.dtype),
-                "k":k,
-                "m":m
-            })
 
         run1_start_time = time.time()
-        run1_result = dbskmeans.run1(
+        run1_result     = dbskmeans.run1(
             encrypted_matrix = encryptedMatrix,
             UDM              = encrypted_udm,
             status           = status,
@@ -1131,7 +962,7 @@ def dbskmeans_1(requestHeaders) -> Response:
             logger.error({
                 "msg":str(error)
             })
-            return Response(str(error),status=500)
+            return Response(f"Failed dbskmeans.run1(): {error}",status=500)
         
         S1, Cent_i, Cent_j, label_vector = run1_result.unwrap()
 
@@ -1156,28 +987,19 @@ def dbskmeans_1(requestHeaders) -> Response:
             "service_time":run1_st
         })
 
-        logger.debug({
-            "event":"FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id,
-            "bucket_id":BUCKET_ID,
-            "cent_i_shape":str(Cent_i.shape),
-            "k":k
-        })
+    
         put_ndarray_start_time = time.time()
 
-        cent_i_chunks = Chunks.from_ndarray(
+        maybe_cent_i_chunks = Chunks.from_ndarray(
             ndarray      = Cent_i,
             group_id     = cent_i_id,
             chunk_prefix = Some(cent_i_id),
             num_chunks   = k,
         )
-        logger.debug({"msg":"AFTER NDARRAY CHUNKS","obj":str(cent_i_chunks)})
 
 
-        if cent_i_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_cent_i_chunks.is_none:
+            raise "Something went wrong creating the chunks: Cent_i"
         
         logger.info({
             "event":"FROM.NDARRAY",
@@ -1187,29 +1009,16 @@ def dbskmeans_1(requestHeaders) -> Response:
             "bucket_id":BUCKET_ID
         })
         
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = cent_i_chunks.unwrap()
-        )
+     
 
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id,
-            "bucket_id":BUCKET_ID,
-            "cent_i_shape":str(Cent_i.shape),
-            "cent_i_dtype":str(Cent_i.dtype),
-        })
-
-        del_put_result_cent_i = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        del_put_result_cent_i = await RoryCommon.delete_and_put_chunks(
+            client  = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_i_id,
             key            = cent_i_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_cent_i_chunks.unwrap(),
             tags = {
-                "shape": str(Cent_i.shape),
-                "dtype": str(Cent_i.dtype)
+                "full_shape": str(Cent_i.shape),
+                "full_dtype": str(Cent_i.dtype)
             }
         )
         
@@ -1233,28 +1042,20 @@ def dbskmeans_1(requestHeaders) -> Response:
             "service_time":put_ndarray_st
         })
 
-        del chunks_bytes
-        del cent_i_chunks
+        del maybe_cent_i_chunks
         del Cent_i
 
-        logger.debug({
-            "event":"FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id,
-            "bucket_id":BUCKET_ID
-        })
         put_ndarray_start_time = time.time()
 
-        cent_j_chunks = Chunks.from_ndarray(
+        maybe_cent_j_chunks = Chunks.from_ndarray(
             ndarray      = Cent_j,
             group_id     = cent_j_id,
             chunk_prefix = Some(cent_j_id),
             num_chunks   = k,
         )
 
-        if cent_j_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_cent_j_chunks.is_none:
+            raise "Something went wrong creating the chunks: Cent_j"
         
         logger.info({
             "event":"FROM.NDARRAY",
@@ -1264,38 +1065,19 @@ def dbskmeans_1(requestHeaders) -> Response:
             "bucket_id":BUCKET_ID
         })
 
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = cent_j_chunks.unwrap()
-        )
-
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id,
-            "bucket_id":BUCKET_ID,
-            "cent_i_shape":str(Cent_j.shape),
-            "cent_i_dtype":str(Cent_j.dtype)
-        })
-
-        y = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        y = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_j_id,
             key            = cent_j_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_cent_j_chunks.unwrap(),
             tags = {
-                "shape": str(Cent_j.shape),
-                "dtype": str(Cent_j.dtype)
+                "full_shape": str(Cent_j.shape),
+                "full_dtype": str(Cent_j.dtype)
             }
         )
 
         if y.is_err:
-            error = str(x.unwrap_err())
-            logger.error({
-                "msg":error
-            })
-            return Response(error,status=500)
+            return Response("Failed put cent_j",status=500)
         
         put_ndarray_st = time.time() - put_ndarray_start_time
 
@@ -1309,29 +1091,20 @@ def dbskmeans_1(requestHeaders) -> Response:
             "cent_i_dtype":str(Cent_j.dtype)
         })
 
-        del chunks_bytes
-        del cent_j_chunks
+        del maybe_cent_j_chunks
         del Cent_j
 
-        logger.debug({
-            "event":"FROM.NDARRAY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_shift_matrix_id,
-            "encrypted_shift_matrix":str(S1.shape),
-            "bucket_id":BUCKET_ID
-        })
         put_ndarray_start_time = time.time()
 
-        s1_chunks = Chunks.from_ndarray(
+        maybe_s1_chunks = Chunks.from_ndarray(
             ndarray      = S1,
             group_id     = encrypted_shift_matrix_id,
             chunk_prefix = Some(encrypted_shift_matrix_id),
             num_chunks   = k,
         )
 
-        if s1_chunks.is_none:
-            raise "something went wrong creating the chunks"
+        if maybe_s1_chunks.is_none:
+            raise "Something went wrong creating the chunks: S1"
         
         logger.info({
             "event":"FROM.NDARRAY",
@@ -1341,38 +1114,23 @@ def dbskmeans_1(requestHeaders) -> Response:
             "bucket_id":BUCKET_ID
         })
 
-        logger.debug({
-            "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_shift_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "shape": str(S1.shape),
-            "dtype": str(S1.dtype)
-        })
 
-        chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-            chs = s1_chunks.unwrap()
-        )
-
-        z = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        z = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_shift_matrix_id,
             key            = encrypted_shift_matrix_id,
-            chunks         = chunks_bytes,
+            chunks         = maybe_s1_chunks.unwrap(),
             tags = {
-                "shape": str(S1.shape),
-                "dtype": str(S1.dtype)
+                "full_shape": str(S1.shape),
+                "full_dtype": str(S1.dtype)
             }
         )
 
         if z.is_err:
-            error = str(x.unwrap_err())
             logger.error({
-                "msg":error
+                "msg":str(z.unwrap_err())
             })
-            return Response(error,status=500)
+            return Response("Failed to put: Encryted shift matrix",status=500)
 
         put_ndarray_st = time.time() - put_ndarray_start_time
 
@@ -1383,11 +1141,11 @@ def dbskmeans_1(requestHeaders) -> Response:
             "key":encrypted_shift_matrix_id,
             "bucket_id":BUCKET_ID,
             "shape": str(S1.shape),
-            "dtype": str(S1.dtype)
+            "dtype": str(S1.dtype),
+            'ok':z.is_ok
         })
         
-        del chunks_bytes
-        del s1_chunks
+        del maybe_s1_chunks
         del S1
 
         end_time                                      = time.time()
@@ -1426,12 +1184,12 @@ Description:
     It starts when it receives S (decrypted matrix) from the client.
     If S is zero process ends
 """
-def dbskmeans_2(requestHeaders):
+async def dbskmeans_2(requestHeaders):
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.DBSKMEANS
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     k                       = int(requestHeaders.get("K",3))
@@ -1468,7 +1226,11 @@ def dbskmeans_2(requestHeaders):
     cent_i_id                    = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
     cent_j_id                    = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     response_headers             = {}
-    
+    # Estos tienes que traerlos desde variables de entorno (assigned to = SHANEL)
+    max_retries    = 10
+    timeout        = 120
+    backoff_factor = 1.5
+    delay          = 1
     logger.debug({
         "event":"DBSKMEANS.2.STARTED",
         "algorithm":algorithm,
@@ -1492,29 +1254,18 @@ def dbskmeans_2(requestHeaders):
     })
     
     try:
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_udm_id,
-            "bucket_id":BUCKET_ID,
-            "num_chunks":num_chunks,
-            "shape":_encrypted_udm_shape,
-            "dtype":_encrypted_udm_dtype
-        })
         get_merge_start_time = time.time()
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_udm_id,
+        prev_encrypted_udm = await RoryCommon.get_and_merge(
+            client = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_udm_id))
-        udm_ = x.unwrap()
-        prev_encrypted_udm = udm_.value
-        encrypted_udm_metadata = udm_.metadata 
+            key       = encrypted_udm_id,
+            max_retries = max_retries,
+            delay = delay,
+            timeout=timeout, 
+            backoff_factor=backoff_factor,
+            )
+ 
 
         logger.info({
             "event":"GET.NDARRAY.WITH.RETRY",
@@ -1528,20 +1279,17 @@ def dbskmeans_2(requestHeaders):
             "service_time":time.time() - get_merge_start_time
         })
         
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id,
-            "bucket_id":BUCKET_ID,
-        })
+      
         get_matrix_start_time = time.time()
-        Cent_i_response = LocalUtils.get_matrix_or_error(
+        cent_i= await RoryCommon.get_and_merge(
+            client= STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
-            client    = STORAGE_CLIENT,
-            key       = cent_i_id
+            key       = cent_i_id,
+            max_retries = max_retries,
+            delay = delay,
+            timeout=timeout, 
+            backoff_factor=backoff_factor,     
         )
-        cent_i = Cent_i_response.value
         logger.info({
             "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
@@ -1551,20 +1299,17 @@ def dbskmeans_2(requestHeaders):
             "service_time":time.time() - get_matrix_start_time
         })
 
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_j_id,
-            "bucket_id":BUCKET_ID,
-        })
         get_matrix_start_time = time.time()
-        Cent_j_response = LocalUtils.get_matrix_or_error(
-            bucket_id = BUCKET_ID,
-            client    = STORAGE_CLIENT,
-            key       = cent_j_id
+        cent_j = await RoryCommon.get_and_merge(
+            bucket_id      = BUCKET_ID,
+            key            = cent_j_id,
+            client         = STORAGE_CLIENT,
+            backoff_factor = backoff_factor,
+            delay          = delay,
+            max_retries    = max_retries,
+            timeout        = timeout
         ) 
-        cent_j = Cent_j_response.value
+        # cent_j = Cent_j_response.value
         logger.info({
             "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
@@ -1580,13 +1325,7 @@ def dbskmeans_2(requestHeaders):
             new_matrix = cent_j,
             min_error  = min_error
         )
-        logger.debug({
-            "event":"VERIFY.MEAN.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "min_error":min_error,
-            "is_zero":int(isZero)
-        })
+      
         
         if(isZero): #If Shift matrix is zero
             response_headers["Clustering-Status"]  = Constants.ClusteringStatus.COMPLETED #Change the status to COMPLETED
@@ -1630,18 +1369,16 @@ def dbskmeans_2(requestHeaders):
             dbskmeans = DBSKMeans() 
             status    = Constants.ClusteringStatus.WORK_IN_PROGRESS #The status is changed to WORK IN PROGRESS
             response_headers["Clustering-Status"] = status
-            logger.debug({
-                "event":"GET.MATRIX.OR.ERROR.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":shift_matrix_ope_id,
-                "bucket_id":BUCKET_ID
-            })
+
             get_matrix_start_time = time.time()
-            shift_matrix_ope_response = LocalUtils.get_matrix_or_error(
-                bucket_id = BUCKET_ID,
-                client    = STORAGE_CLIENT,
-                key       = shift_matrix_ope_id
+            shift_matrix_ope_response = await RoryCommon.get_and_merge(
+                bucket_id      = BUCKET_ID,
+                key            = shift_matrix_ope_id,
+                client         = STORAGE_CLIENT,
+                timeout        = timeout,
+                backoff_factor = backoff_factor,
+                delay          = delay,
+                max_retries    = max_retries,
             )
             shift_matrix_ope:npt.NDArray = shift_matrix_ope_response.value
 
@@ -1655,16 +1392,7 @@ def dbskmeans_2(requestHeaders):
             })
             
             udm_start_time = time.time()
-            logger.debug({
-                "event":"DBSKMEANS.RUN.2.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "k":k,
-                "shift_matrix_op_shape":str(shift_matrix_ope.shape),
-                "shift_matrix_op_dtype":str(shift_matrix_ope.dtype),
-                "prev_udm_shape":str(prev_encrypted_udm.shape),
-                "prev_udm_dtype":str(prev_encrypted_udm.dtype),
-            })
+
             # 
             current_udm = dbskmeans.run_2( # The second part of the skmeans starts
                 k           = k,
@@ -1689,14 +1417,7 @@ def dbskmeans_2(requestHeaders):
                 "service_time":time.time()- udm_start_time
             })
             
-            logger.debug({
-                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":encrypted_udm_id,
-                "bucket_id":BUCKET_ID,
-                "num_chunks":num_chunks
-            }) 
+
 
             maybe_udm_chunks:Option[Chunks] = Chunks.from_ndarray(
                 ndarray    = current_udm,
@@ -1720,40 +1441,19 @@ def dbskmeans_2(requestHeaders):
             cm_dtype = str(current_udm.dtype)
             del current_udm
             
-            logger.debug({
-                "event":"CHUNKS.FROM.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":encrypted_udm_id,
-                "bucket_id":BUCKET_ID,
-                "num_chunks":num_chunks
-            }) 
-            
-            logger.debug({
-                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":encrypted_udm_id,
-                "bucket_id":BUCKET_ID,
-                "num_chunks":num_chunks,
-                "shape":cm_shape,
-                "dtype":cm_dtype,
-            })
+    
+         
             put_chunks_start_time = time.time()
             
-            chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
-                chs = udm_chunks # PUNISTE UN STR EN LUGAR DE UN CHUNKS
-            )
-            
-            put_chunks_udm_generator_results = LocalUtils.delete_and_put_chunked(
-                STORAGE_CLIENT = STORAGE_CLIENT,
-                bucket_id      = BUCKET_ID,
-                ball_id        = encrypted_udm_id,
-                key            = encrypted_udm_id, 
-                chunks         = chunks_udm_bytes, 
-                tags = {
-                    "shape":cm_shape,
-                    "dtype":cm_dtype,
+  
+            put_chunks_udm_generator_results = await RoryCommon.delete_and_put_chunks(
+                client    = STORAGE_CLIENT,
+                bucket_id = BUCKET_ID,
+                key       = encrypted_udm_id, 
+                chunks    = udm_chunks, 
+                tags      = {
+                    "full_shape":cm_shape,
+                    "full_dtype":cm_dtype,
                 }
             )
             
@@ -1769,7 +1469,6 @@ def dbskmeans_2(requestHeaders):
                 "service_time":time.time() - put_chunks_start_time
             })
             del udm_chunks
-            del chunks_udm_bytes
             
             end_time                         = time.time()
             service_time                     = end_time - local_start_time  #Service time is calculated
@@ -1823,43 +1522,46 @@ Description:
     DBSKMEANS algorithm
 """
 @clustering.route("/dbskmeans", methods = ["POST"])
-def dbskmeans():
+async def dbskmeans():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     logger          = current_app.config["logger"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
     step_index      = int(filteredHeaders.get("Step-Index",1))
-    response        = Response()
-    
+    response        = Response("Failed invalid step_index", status=400)
     if step_index == 1:
-        return dbskmeans_1(filteredHeaders)
+        return await dbskmeans_1(filteredHeaders)
     elif step_index == 2:
-        return dbskmeans_2(filteredHeaders)
+        return await dbskmeans_2(filteredHeaders)
     else:
         return response
 
 
 @clustering.route("/dbsnnc", methods = ["POST"])
-def dbsnnc():
-    local_start_time        = time.time() #System startup time
-    headers                 = request.headers
-    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
-    filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
-    algorithm               = Constants.ClusteringAlgorithms.DBSNNC
-    logger                  = current_app.config["logger"]
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
-    encrypted_matrix_id     = filtered_headers.get("Encrypted-Matrix-Id",-1)
-    encrypted_dm_id         = filtered_headers.get("Encrypted-Dm-Id")
-    encrypted_threshold     = float(filtered_headers.get("Encrypted-Threshold"))
-    _encrypted_matrix_shape = filtered_headers.get("Encrypted-Matrix-Shape",-1)
-    _encrypted_matrix_dtype = filtered_headers.get("Encrypted-Matrix-Dtype",-1)
-    _encrypted_dm_shape     = filtered_headers.get("Encrypted-Dm-Shape",-1)
-    _encrypted_dm_dtype     = filtered_headers.get("Encrypted-Dm-Dtype",-1)
-    m                       = int(filtered_headers.get("M",3))
-
+async def dbsnnc():
+    local_start_time           = time.time() #System startup time
+    headers                    = request.headers
+    to_remove_headers          = ["User-Agent","Accept-Encoding","Connection"]
+    filtered_headers           = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    algorithm                  = Constants.ClusteringAlgorithms.DBSNNC
+    logger                     = current_app.config["logger"]
+    STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+    BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
+    worker_id                  = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    plaintext_matrix_id        = filtered_headers.get("Plaintext-Matrix-Id")
+    encrypted_matrix_id        = filtered_headers.get("Encrypted-Matrix-Id",-1)
+    encrypted_dm_id            = filtered_headers.get("Encrypted-Dm-Id")
+    encrypted_threshold        = float(filtered_headers.get("Encrypted-Threshold"))
+    _encrypted_matrix_shape    = filtered_headers.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype    = filtered_headers.get("Encrypted-Matrix-Dtype",-1)
+    _encrypted_dm_shape        = filtered_headers.get("Encrypted-Dm-Shape",-1)
+    _encrypted_dm_dtype        = filtered_headers.get("Encrypted-Dm-Dtype",-1)
+    m                          = int(filtered_headers.get("M",3))
+    # Hay que sacar estos valores desde las variables de entorno (assigned to Shanel)
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10
+    timeout        = 120
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
     if _encrypted_matrix_shape == -1 :
@@ -1879,49 +1581,20 @@ def dbsnnc():
     if num_chunks == -1:
         return Response("Num-Chunks header is required", status=503)
     
-    logger.debug({
-        "event":"DBSNNC.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "bucket_id":BUCKET_ID,
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "encrypted_matrix_id":encrypted_matrix_id,
-        "encrypted_dm_id":encrypted_dm_id,
-        "encrypted_matrix_shape":_encrypted_matrix_shape,
-        "encrypted_matrix_dtype":_encrypted_matrix_dtype,
-        "encrypted_threshold":encrypted_threshold,
-        "num_chunks":num_chunks,
-        "m":m, 
-    })
-
     try:      
         responseHeaders["Start-Time"] = str(local_start_time)
-        
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrix_id":encrypted_matrix_id,
-            "num_chunks":num_chunks,
-            "encrypted_matrix_shape":_encrypted_matrix_shape,
-            "encrypted_matrix_dtype":_encrypted_matrix_dtype,
-            "bucket_id":BUCKET_ID,
-            
-        })
+
         get_merge_encrypted_matrix_start_time = time.time()
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_matrix_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_matrix_id))
-        response = x.unwrap()
-        encryptedMatrix = response.value
-        encrypted_matrix_metadata = response.metadata 
-
+        encryptedMatrix = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = encrypted_matrix_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = timeout
+            )
 
         get_merge_encrypted_matrix_st = time.time() - get_merge_encrypted_matrix_start_time
         logger.info({
@@ -1935,31 +1608,21 @@ def dbsnnc():
             "service_time":get_merge_encrypted_matrix_st
         })
 
-        responseHeaders["Encrypted-Matrix-Dtype"] = encrypted_matrix_metadata.tags.get("dtype",encryptedMatrix.dtype) #["tags"]["dtype"] #Save the data type
-        responseHeaders["Encrypted-Matrix-Shape"] = encrypted_matrix_metadata.tags.get("shape",encryptedMatrix.shape) #Save the shape
+        responseHeaders["Encrypted-Matrix-Dtype"] = encryptedMatrix.dtype #["tags"]["dtype"] #Save the data type
+        responseHeaders["Encrypted-Matrix-Shape"] = encryptedMatrix.shape #Save the shape
 
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrix_id":encrypted_dm_id,
-            "num_chunks":num_chunks,
-            "encrypted_matrix_shape":_encrypted_dm_shape,
-            "encrypted_matrix_dtype":_encrypted_dm_dtype,
-        })
+  
         get_merge_encrypted_dm_start_time = time.time()
         
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_dm_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_dm_id))
-        response = x.unwrap()
-        distance_matrix = response.value
-        dm_metadata = response.metadata 
+        distance_matrix:npt.NDArray = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = encrypted_dm_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = timeout
+        )
 
         get_merge_encrypted_dm_st = time.time() - get_merge_encrypted_dm_start_time
         logger.info({
@@ -1973,25 +1636,18 @@ def dbsnnc():
             "service_time": get_merge_encrypted_dm_st
         })
 
-        responseHeaders["Encrypted-Dm-Dtype"] = str(dm_metadata.tags.get("dtype",distance_matrix.dtype)) # Extract the type
-        responseHeaders["Encrypted-Dm-Shape"] = str(dm_metadata.tags.get("shape",distance_matrix.shape)) # Extract the shape
+        responseHeaders["Encrypted-Dm-Dtype"] = distance_matrix.dtype # Extract the type
+        responseHeaders["Encrypted-Dm-Shape"] = distance_matrix.shape # Extract the shape
         
         dbsnnc_run_start_time = time.time()
-        logger.debug({
-            "event":"DBSNNC.RUN.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "distance_matrix_shape":str(distance_matrix.shape),
-            "distance_matrix_dtype":str(distance_matrix.dtype),
-            "encrypted_threshold":encrypted_threshold
-        })
+
         result = Dbsnnc.run(
             distance_matrix     = distance_matrix,
             encrypted_threshold = encrypted_threshold
         )
-        end_time     = time.time()
+        end_time            = time.time()
         dbsnnc_service_time = end_time - dbsnnc_run_start_time
-        service_time = end_time - local_start_time
+        service_time        = end_time - local_start_time
 
         logger.info({
             "event":"DBSNNC.COMPLETED",
@@ -2023,26 +1679,29 @@ def dbsnnc():
             headers  = {"Error-Message":e})
     
 @clustering.route("/nnc", methods = ["POST"])
-def nnc():
-    local_start_time        = time.time() #System startup time
-    headers                 = request.headers
-    to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
-    filtered_headers        = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
-    algorithm               = Constants.ClusteringAlgorithms.NNC
-    logger                  = current_app.config["logger"]
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-    plaintext_matrix_id     = filtered_headers.get("Plaintext-Matrix-Id")
-    threshold               = float(filtered_headers.get("Threshold"))
-    _plaintext_matrix_shape = filtered_headers.get("Plaintext-Matrix-Shape",-1)
-    _plaintext_matrix_dtype = filtered_headers.get("Plaintext-Matrix-Dtype",-1)
-    _dm_shape               = filtered_headers.get("Dm-Shape",-1)
-    _dm_dtype               = filtered_headers.get("Dm-Dtype",-1)
-    dm_id                   = "{}dm".format(plaintext_matrix_id) 
-    response_headers        = {}
-    response_headers        = {}
-    
+async def nnc():
+    local_start_time           = time.time() #System startup time
+    headers                    = request.headers
+    to_remove_headers          = ["User-Agent","Accept-Encoding","Connection"]
+    filtered_headers           = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
+    algorithm                  = Constants.ClusteringAlgorithms.NNC
+    logger                     = current_app.config["logger"]
+    STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+    BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
+    worker_id                  = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    plaintext_matrix_id        = filtered_headers.get("Plaintext-Matrix-Id")
+    threshold                  = float(filtered_headers.get("Threshold"))
+    _plaintext_matrix_shape    = filtered_headers.get("Plaintext-Matrix-Shape",-1)
+    _plaintext_matrix_dtype    = filtered_headers.get("Plaintext-Matrix-Dtype",-1)
+    _dm_shape                  = filtered_headers.get("Dm-Shape",-1)
+    _dm_dtype                  = filtered_headers.get("Dm-Dtype",-1)
+    dm_id                      = "{}dm".format(plaintext_matrix_id) 
+    response_headers           = {}
+    response_headers           = {}
+    MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+    backoff_factor = 1.5
+    delay          = 1
+    max_retries    = 10  
     if _plaintext_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
     if _plaintext_matrix_shape == -1 :
@@ -2062,43 +1721,20 @@ def nnc():
     if num_chunks == -1:
         return Response("Num-Chunks header is required", status=503)
 
-    logger.debug({
-        "event":"NNC.STARTED",
-        "algorithm":algorithm,
-        "worker_id":worker_id,
-        "bucket_id":BUCKET_ID,
-        "plaintext_matrix_id":plaintext_matrix_id,
-        "threshold":threshold,
-        "dm_id":dm_id,
-    })
-
     try:      
         response_headers["Start-Time"] = str(local_start_time)
-        
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks,
-            "plaintext_matrix_shape":str(plaintext_matrix_shape),
-            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
-            "bucket_id":BUCKET_ID,
-        })
+
         get_merge_plaintext_matrix_start_time = time.time()
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = plaintext_matrix_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
-            ).result()
-        
-        if x.is_err:
-            raise Exception("{} not found".format(plaintext_matrix_id))
-        
-        response = x.unwrap()
-        plaintextMatrix = response.value
-        plaintext_matrix_metadata = response.metadata 
+        plaintextMatrix = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            key            = plaintext_matrix_id,
+            bucket_id      = BUCKET_ID,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
 
         get_merge_plaintext_matrix_st = time.time() - get_merge_plaintext_matrix_start_time
         
@@ -2112,32 +1748,22 @@ def nnc():
             "service_time":get_merge_plaintext_matrix_st
         })
         
-        responseHeaders["Plaintext-Matrix-Dtype"] = plaintext_matrix_metadata.tags.get("dtype",plaintextMatrix.dtype) #["tags"]["dtype"] #Save the data type
-        responseHeaders["Plaintext-Matrix-Shape"] = plaintext_matrix_metadata.tags.get("shape",plaintextMatrix.shape) #Save the shape
+        responseHeaders["Plaintext-Matrix-Dtype"] = plaintextMatrix.dtype #["tags"]["dtype"] #Save the data type
+        responseHeaders["Plaintext-Matrix-Shape"] = plaintextMatrix.shape #Save the shape
 
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "num_chunks":num_chunks,
-            "plaintext_matrix_shape":str(plaintext_matrix_shape),
-            "plaintext_matrix_dtype":_plaintext_matrix_dtype,
-            "dm_id":dm_id,
-            "dm_shape":str(dm_shape)
-        })
+ 
         get_merge_dm_start_time = time.time()
         
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = dm_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        if x.is_err:
-            raise Exception("{} not found".format(dm_id))
-        response = x.unwrap()
-        distance_matrix = response.value
-        dm_metadata = response.metadata
+        distance_matrix = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = dm_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            timeout        = MICTLANX_TIMEOUT
+        )
+
 
         get_merge_dm_st = time.time() - get_merge_dm_start_time
         logger.info({
@@ -2152,18 +1778,11 @@ def nnc():
             "service_time":get_merge_dm_st
         })
 
-        responseHeaders["Dm-Dtype"] = str(dm_metadata.tags.get("dtype",distance_matrix.dtype)) # Extract the type
-        responseHeaders["Dm-Shape"] = str(dm_metadata.tags.get("shape",distance_matrix.shape)) # Extract the shape
+        responseHeaders["Dm-Dtype"] = distance_matrix.dtype # Extract the type
+        responseHeaders["Dm-Shape"] = distance_matrix.shape # Extract the shape
         
         nnc_run_start_time = time.time()
-        logger.debug({
-            "event":"NNC.RUN.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "distance_matrix_shape":str(distance_matrix.shape),
-            "distance_matrix_dtype":str(distance_matrix.dtype),
-            "threshold":threshold
-        })
+
         result = Nnc.run(
             distance_matrix = distance_matrix,
             threshold       = threshold
@@ -2201,12 +1820,12 @@ def nnc():
             headers  = {"Error-Message":e})
     
 
-def pqc_skmeans_1(requestHeaders) -> Response:
+async def pqc_skmeans_1(requestHeaders) -> Response:
     try:
         arrival_time            = time.time() #Worker start time
         logger                  = current_app.config["logger"]
         worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-        STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+        STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
         BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
         status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
         is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
@@ -2224,7 +1843,9 @@ def pqc_skmeans_1(requestHeaders) -> Response:
         ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
         pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        
+        delay = 2 
+        backoff_factor = .5
+        max_retries = 10 
         if _encrypted_matrix_dtype == -1:
             return Response("Encrypted-Matrix-Dtype", status=500)
         if _encrypted_matrix_shape == -1 :
@@ -2271,21 +1892,14 @@ def pqc_skmeans_1(requestHeaders) -> Response:
 
         responseHeaders["Start-Time"] = str(arrival_time)
         
-        logger.debug({
-            "event":"GET.PYCTXT.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "key":init_sm_id,
-            "bucket_id":BUCKET_ID,            
-            "dtype":_encrypted_matrix_dtype
-        })
+   
         get_merge_encrypted_matrix_start_time  = time.time()
-        init_shiftmatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
+        init_shiftmatrix = await RoryCommon.get_pyctxt(
+            client = STORAGE_CLIENT, 
             bucket_id=BUCKET_ID, 
             key=init_sm_id, 
             ckks = ckks,
-            num_chunks=num_chunks
-            )
+        )
 
         logger.info({
             "event":"GET.PYCTXT.OR.ERROR",
@@ -2299,22 +1913,16 @@ def pqc_skmeans_1(requestHeaders) -> Response:
         
         skmeans = SkmeansPQC(he_object=ckks.he_object, init_shiftmatrix=init_shiftmatrix)
 
-        logger.debug({
-            "event":"GET.PYCTXT.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_matrix_id,
-            "dtype":_encrypted_matrix_dtype
-        })
         get_merge_encrypted_matrix_start_time  = time.time()
         
-        encryptedMatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
+        encryptedMatrix = await RoryCommon.get_pyctxt(
+            client= STORAGE_CLIENT, 
             bucket_id=BUCKET_ID, 
-            num_chunks=num_chunks,
             key=encrypted_matrix_id, 
-            ckks = ckks
+            ckks = ckks,
+            delay=delay,
+            backoff_factor=backoff_factor,
+            max_retries=max_retries
         )
 
         logger.info({
@@ -2326,23 +1934,20 @@ def pqc_skmeans_1(requestHeaders) -> Response:
             "dtype":_encrypted_matrix_dtype
         })
 
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":udm_id,
-        })
         udm_get_start_time  = time.time()
 
-        udm_matrix_response = LocalUtils.get_matrix_or_error(
+        udm = await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
             key       = udm_id,
+            force     = True,
+            delay=delay,
+            backoff_factor=backoff_factor,
+            max_retries=max_retries
         )
         udm_get_st = time.time() - udm_get_start_time
 
-        udm        = udm_matrix_response.value
+        # udm        = udm_matrix_response.value
         logger.info({
             "event":"GET.MATRIX.OR.ERROR",
             "algorithm":algorithm,
@@ -2354,68 +1959,39 @@ def pqc_skmeans_1(requestHeaders) -> Response:
             "service_time":udm_get_st
         })
 
-        responseHeaders["Udm-Matrix-Dtype"] = udm_matrix_response.metadata.tags.get("dtype",udm.dtype) # Extract the type
-        responseHeaders["Udm-Matrix-Shape"] = udm_matrix_response.metadata.tags.get("shape",udm.shape) # Extract the shape
+        responseHeaders["Udm-Matrix-Dtype"] = str(udm.dtype) # Extract the type
+        responseHeaders["Udm-Matrix-Shape"] = str(udm.shape) # Extract the shape
         
         if is_start_status: #if the status is start
-            logger.debug({
-                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "UDM_shape":str(udm.shape),
-                "UDM_dtype":str(udm.dtype),
-            })
-            __Cent_j = NONE #There is no Cent_j
+            __Cent_j = init_shiftmatrix #There is no Cent_j
         else: 
-        
-            logger.debug({
-                "event":"GET.PYCTXT.WITH.RETRY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_j_id,
-            })
-        
             cent_j_start_time = time.time()
 
-            __Cent_j = LocalUtils.get_pyctxt_with_retry(
-                STORAGE_CLIENT = STORAGE_CLIENT, 
+            __Cent_j = await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT, 
                 bucket_id=BUCKET_ID, 
-                num_chunks=num_chunks,
                 key=cent_i_id, 
-                ckks = ckks
+                ckks = ckks,
+                force = True,
+                delay=delay,
+                backoff_factor=backoff_factor,
+                max_retries=max_retries
             )
 
             status    = Constants.ClusteringStatus.WORK_IN_PROGRESS
             cent_j_st = time.time() - cent_j_start_time
 
             logger.info({
-                "event":"GET.PYCTXT.WITH.RETRY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
+                "event":"GET.PYCTXT.WITH",
                 "bucket_id":BUCKET_ID,
                 "key":cent_i_id,
-                "service_time":cent_j_st
-            })
-
-            logger.debug({
-                "event":"WORKER.RUN1.BEFORE",
                 "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "UDM_shape":str(udm.shape),
-                "UDM_dtype":str(udm.dtype),
+                "service_time":cent_j_st
             })
 
         _encrypted_matrix_shape = eval(_encrypted_matrix_shape)
         
-        run1_result:Result[
-        Tuple[npt.NDArray, List[PyCtxt], List[PyCtxt], List[int]],
-        Exception
-        ] = skmeans.run1( # The first part of the skmeans is done
+        run1_result = skmeans.run1( # The first part of the skmeans is done
             status          = status,
             k               = k,
             encryptedMatrix = encryptedMatrix, 
@@ -2427,53 +2003,47 @@ def pqc_skmeans_1(requestHeaders) -> Response:
         if run1_result.is_err:
             error = run1_result.unwrap_err()
             logger.error(str(error))
-            return Response(str(error), status=500 )
+            return Response(response=str(error), status=500 )
         S1,Cent_i,Cent_j,label_vector = run1_result.unwrap()
 
-        logger.debug({
-            "event":"PYCTXT.LIST.TO.GEN.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_i_id,
-        })
-
-        cent_i_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(Cent_i))
-        x = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        maybe_cent_i_chunks = RoryCommon.from_pyctxts_to_chunks(key=cent_i_id,xs= Cent_i,num_chunks=num_chunks)
+        
+        # Chunks.from_bytes(data=RoryCommon.pyctxt_list_to_bytes(Cent_i),group_id=cent_i_id,chunk_prefix=Some(cent_i_id), num_chunks=num_chunks)
+        if maybe_cent_i_chunks.is_none:
+            return Response(status=500, response="Failed to create the Cent_i chunks")
+        print("CHS", maybe_cent_i_chunks)
+        
+        x = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_i_id,
             key            = cent_i_id,
-            chunks         = cent_i_chunks,
+            chunks         = maybe_cent_i_chunks.unwrap(),
         )
 
-        cent_j_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(Cent_j))
+        maybe_cent_j_chunks = RoryCommon.from_pyctxts_to_chunks(key=cent_j_id,xs=Cent_j,num_chunks=num_chunks)
 
-        y = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        if maybe_cent_j_chunks.is_none:
+            return Response(status=500, response="Failed to create the Cent_j chunks")
+
+        y = await RoryCommon.delete_and_put_chunks(
+            client         = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_j_id,
             key            = cent_j_id,
-            chunks         = cent_j_chunks,
+            chunks         = maybe_cent_j_chunks.unwrap()
         )
+        maybe_encrypted_shift_matrix_chunks =  RoryCommon.from_pyctxts_to_chunks(xs=S1, key=encrypted_shift_matrix_id,num_chunks=num_chunks)
 
-        s1_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(S1))
 
-        z = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        if maybe_encrypted_shift_matrix_chunks.is_none:
+            return Response(status=500, response="Failed to create the encrypted shift matrix chunks")
+        # raise Exception("BOOM!")
+        S1_chunks = maybe_encrypted_shift_matrix_chunks.unwrap()
+        z = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_shift_matrix_id,
             key            = encrypted_shift_matrix_id,
-            chunks         = s1_chunks,
+            chunks         = S1_chunks,
         )
-
-        logger.debug({
-            "event":"PYCTXT.LIST.TO.GEN.AND.PUT.CHUNKED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_i_id,
-        })
 
         end_time     = time.time()
         service_time = end_time - arrival_time
@@ -2509,21 +2079,24 @@ def pqc_skmeans_1(requestHeaders) -> Response:
         return Response(str(e),status = 500)
 
 
-def pqc_skmeans_2(requestHeaders):
+async def pqc_skmeans_2(requestHeaders):
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT = current_app.config["ASYNC_STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.SKMEANS_PQC
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
     encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
     shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
     k                       = int(requestHeaders.get("K",3))
-    isZero                  = requestHeaders.get("Is-Zero")
+    isZero                  = bool(int(requestHeaders.get("Is-Zero")))
     iterations              = int(requestHeaders.get("Iterations",0))
     init_sm_id              = "{}initsm".format(plaintext_matrix_id)
+    delay          = 2
+    backoff_factor = .5
+    max_retries    = 10
     
     _round   = False
     decimals = 2
@@ -2571,30 +2144,29 @@ def pqc_skmeans_2(requestHeaders):
             "bucket_id":BUCKET_ID
         }) 
 
-        UDM_put_future:Awaitable[Result[GetNDArrayResponse,Exception]] =  STORAGE_CLIENT.get_ndarray_with_retry(
-            key         = udm_id,
-            bucket_id   = BUCKET_ID,
-            max_retries = 20,
-            delay       = 2
+        UDM =  await RoryCommon.get_and_merge(
+            client    = STORAGE_CLIENT,
+            key       = udm_id,
+            bucket_id = BUCKET_ID,
+            force     = True,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            max_retries    = max_retries
         )
 
-        UDM_result:Result[GetNDArrayResponse,Exception] = UDM_put_future.result()
-        if UDM_result.is_err:
-            return Response(None, status=500, headers={"Error-Message":str(UDM_result.unwrap_err())})
         get_UDM_st = time.time() - get_UDM_start_time
-        
-        UDM_response:GetNDArrayResponse = UDM_result.unwrap()
-        UDM = UDM_response.value
-
         get_shift_matrix_start_time = time.time()
 
-        shiftMatrix_get_response = LocalUtils.get_matrix_or_error(
+        shiftMatrix= await RoryCommon.get_and_merge(
             client    = STORAGE_CLIENT,
             key       = shift_matrix_id,
-            bucket_id = BUCKET_ID
+            bucket_id = BUCKET_ID,
+            force = True,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            max_retries    = max_retries
         )
 
-        shiftMatrix = shiftMatrix_get_response.value
         get_shift_matrix_st = time.time() - get_shift_matrix_start_time
         
         if(isZero): #If Shift matrix is zero
@@ -2619,12 +2191,14 @@ def pqc_skmeans_2(requestHeaders):
             )
         
         else: #If Shift matrix is not zero
-            init_shiftmatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
-            bucket_id=BUCKET_ID, 
-            key=init_sm_id, 
-            ckks = ckks,
-            num_chunks=num_chunks
+            init_shiftmatrix = await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT, 
+                bucket_id=BUCKET_ID, 
+                key=init_sm_id, 
+                ckks = ckks,
+                delay          = delay,
+                backoff_factor = backoff_factor,
+                max_retries    = max_retries
             )
 
             skmeans = SkmeansPQC(he_object=ckks.he_object, init_shiftmatrix=init_shiftmatrix) 
@@ -2645,78 +2219,36 @@ def pqc_skmeans_2(requestHeaders):
             _UDM = skmeans.run_2( # The second part of the skmeans starts
                 k           = k,
                 UDM         = UDM,
-                attributes  = int(encrypted_matrix_shape[1]),
+                num_attributes  = int(encrypted_matrix_shape[1]),
                 shiftMatrix = shiftMatrix,
             )
             UDM_array = np.array(_UDM)
-            logger.debug({
-                "event":"SKMEANS.RUN2",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "k":k,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
 
-            logger.debug({
-                "event":"PUT.NDARRAY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
             put_udm_start_time = time.time()
 
-            udm_chunks = Chunks.from_ndarray(
+            maybe_udm_chunks = Chunks.from_ndarray(
                 ndarray      = UDM_array,
                 group_id     = udm_id,
                 chunk_prefix = Some(udm_id),
                 num_chunks   = num_chunks,
             )
 
-            if udm_chunks.is_none:
-                raise "something went wrong creating the chunks"
+            if maybe_udm_chunks.is_none:
+                return Response(status=500, response="something went wrong creating the chunks")
             
-            logger.info({
-                "event":"PUT.NDARRAY",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
-
-            logger.debug({
-                "event":"DELETE.AND.PUT.CHUNKED.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
-                "bucket_id":BUCKET_ID,
-                "udm_shape": str(UDM_array.shape),
-                "udm_dtype":str(UDM_array.dtype),
-            })
-
-            chunks_bytes = LocalUtils.chunks_to_bytes_gen(
-                chs = udm_chunks.unwrap()
-            )
-
-            x = LocalUtils.delete_and_put_chunked(
-                STORAGE_CLIENT = STORAGE_CLIENT,
+            put_udm_result = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT,
                 bucket_id      = BUCKET_ID,
-                ball_id        = udm_id,
                 key            = udm_id,
-                chunks         = chunks_bytes,
+                chunks         = maybe_udm_chunks.unwrap(),
                 tags = {
-                    "shape": str(UDM_array.shape),
-                    "dtype": str(UDM_array.dtype)
+                    "full_shape": str(UDM_array.shape),
+                    "full_dtype": str(UDM_array.dtype)
                 }
             )
 
-            if x.is_err:
-                error = str(x.unwrap_err())
+            if put_udm_result.is_err:
+                error = str(put_udm_result.unwrap_err())
                 logger.error({
                     "msg":error
                 })
@@ -2727,19 +2259,18 @@ def pqc_skmeans_2(requestHeaders):
 
             logger.info({
                 "event":"DELETE.AND.PUT.CHUNKED",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "key":udm_id,
                 "bucket_id":BUCKET_ID,
+                "key":udm_id,
                 "udm_shape": str(UDM_array.shape),
                 "udm_dtype":str(UDM_array.dtype),
-                "service_time": put_udm_st
+                "service_time": put_udm_st,
+                "algorithm":algorithm,
             })
 
             serviceTime2                     = endTime2 - local_start_time  #Service time is calculated
             response_headers["End-Time"]     = str(endTime2)
             response_headers["Service-Time"] = str(serviceTime2)
-            
+            print("*"*40)
             logger.info({
                 "event":"SKMEANS.2.UNCOMPLETED",
                 "plaintext_matrix_id":plaintext_matrix_id,
@@ -2760,12 +2291,12 @@ def pqc_skmeans_2(requestHeaders):
  
 
 @clustering.route("/pqc/skmeans",methods = ["POST"])
-def pqc_skmeans():
+async def pqc_skmeans():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
     step_index      = int(filteredHeaders.get("Step-Index",1))
-    response        = Response()
+    response        = Response(response="Invalid step index", status=500)
     logger                  = current_app.config["logger"]
 
     logger.info({
@@ -2773,18 +2304,18 @@ def pqc_skmeans():
         "step_index":step_index
     })
     if step_index == 1:
-        return pqc_skmeans_1(filteredHeaders)
+        return await pqc_skmeans_1(filteredHeaders)
     elif step_index == 2:
-        return pqc_skmeans_2(filteredHeaders)
+        return await pqc_skmeans_2(filteredHeaders)
     else:
         return response
     
-def pqc_dbskmeans_1(requestHeaders):
+async def pqc_dbskmeans_1(requestHeaders):
     try:
         arrival_time            = time.time() #Worker start time
         logger                  = current_app.config["logger"]
         worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
-        STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+        STORAGE_CLIENT  = current_app.config["ASYNC_STORAGE_CLIENT"]
         BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
         status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
         is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
@@ -2826,6 +2357,9 @@ def pqc_dbskmeans_1(requestHeaders):
         cent_i_id                 = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
         cent_j_id                 = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
         responseHeaders           = {}
+        backoff_factor = 0.5
+        delay =2 
+        max_retries = 10
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
@@ -2861,24 +2395,21 @@ def pqc_dbskmeans_1(requestHeaders):
 
         responseHeaders["Start-Time"] = str(arrival_time)
         
-        logger.debug({
-            "event":"GET.PYCTXT.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "key":init_sm_id,
-            "bucket_id":BUCKET_ID,            
-            "dtype":_encrypted_matrix_dtype
-        })
+     
         get_merge_encrypted_matrix_start_time  = time.time()
-        init_shiftmatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
+        init_shiftmatrix = await RoryCommon.get_pyctxt(
+            client = STORAGE_CLIENT, 
             bucket_id=BUCKET_ID, 
             key=init_sm_id, 
             ckks = ckks,
-            num_chunks=num_chunks
-            )
+            backoff_factor=backoff_factor, 
+            delay=delay,
+            force=False,
+            max_retries=max_retries
+        )
         
         logger.info({
-            "event":"GET.PYCTXT.OR.ERROR",
+            "event":"GET.PYCTXT",
             "algorithm":algorithm,
             "plaintext_matrix_id":plaintext_matrix_id,
             "init_shift_matrix_id":init_sm_id,
@@ -2886,105 +2417,54 @@ def pqc_dbskmeans_1(requestHeaders):
             "key":encrypted_matrix_id,
             "num_chunks":num_chunks,
         })
+        print(init_shiftmatrix)
 
         dbskmeans = DbskmeansPQC(he_object=ckks.he_object, init_shiftmatrix=init_shiftmatrix)
 
-        logger.debug({
-            "event":"GET.PYCTXT.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_matrix_id,
-            "dtype":_encrypted_matrix_dtype
-        })
         get_merge_encrypted_matrix_start_time  = time.time()
         
-        encryptedMatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
+        encryptedMatrix = await RoryCommon.get_pyctxt(
+            client = STORAGE_CLIENT, 
             bucket_id=BUCKET_ID, 
-            num_chunks=num_chunks,
             key=encrypted_matrix_id, 
-            ckks = ckks
+            ckks = ckks,
         )
 
         logger.info({
-            "event":"GET.PYCTXT.OR.ERROR",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
+            "event":"GET.PYCTXT",
             "bucket_id":BUCKET_ID,
             "key":encrypted_matrix_id,
-            "dtype":_encrypted_matrix_dtype
+            "response_time":time.time() - get_merge_encrypted_matrix_start_time
         })
 
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":udm_id,
-        })
         udm_get_start_time  = time.time()
 
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID ,
-            "key":encrypted_udm_id,
-            "num_chunks":num_chunks,
-            "encrypted_udm_shape":str(encrypted_udm_shape),
-        })
+        
         get_merge_start_time = time.time()
         
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_udm_id,
+        encrypted_udm = await RoryCommon.get_and_merge(
+            client = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
+            key       = encrypted_udm_id,
+            max_retries = max_retries,
+            delay = delay, 
+            backoff_factor=backoff_factor
+        )
         
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_udm_id))
-        
-        response      = x.unwrap()
-        encrypted_udm = response.value
-        udm_metadata  = response.metadata 
-
         get_merge_st = time.time() - get_merge_start_time
         logger.info({
-            "event":"GET.NDARRAY.WITH.RETRY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
+            "event":"GET.AND.MERGE",
             "bucket_id":BUCKET_ID ,
             "key":encrypted_udm_id,
-            "num_chunks":num_chunks,
-            "shape":str(encrypted_udm.shape),
-            "dtype":str(encrypted_udm.dtype),
-            "service_time":get_merge_st
+            "response_time":get_merge_st
         })
 
-        responseHeaders["Encrypted-Udm-Dtype"] = str(udm_metadata.tags.get("dtype",encrypted_udm.dtype)) # Extract the type
-        responseHeaders["Encrypted-Udm-Shape"] = str(udm_metadata.tags.get("shape",encrypted_udm.shape)) # Extract the shape
+        responseHeaders["Encrypted-Udm-Dtype"] = str(encrypted_udm.dtype) # Extract the type
+        responseHeaders["Encrypted-Udm-Shape"] = str(encrypted_udm.shape) # Extract the shape
         
         if is_start_status: #if the status is start
-            logger.debug({
-                "event":"NO.CENTJ.WORKER.RUN1.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "status":status,
-                "k":k,
-                "UDM_shape":str(encrypted_udm.shape),
-                "UDM_dtype":str(encrypted_udm.dtype),
-            })
-            __Cent_j = NONE #There is no Cent_j
+            __Cent_j = init_shiftmatrix #There is no Cent_j
         else: 
-            logger.debug({
-                "event":"GET.PYCTXT.WITH.RETRY.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "bucket_id":BUCKET_ID,
-                "key":cent_j_id,
-            })
         
             cent_j_start_time = time.time()
 
@@ -3018,18 +2498,15 @@ def pqc_dbskmeans_1(requestHeaders):
                 "UDM_dtype":str(encrypted_udm.dtype),
             })
 
-        _encrypted_matrix_shape = eval(_encrypted_matrix_shape)
+        # _encrypted_matrix_shape = eval(_encrypted_matrix_shape)
 
-        run1_result:Result[
-        Tuple[npt.NDArray, List[PyCtxt], List[PyCtxt], List[int]],
-        Exception
-        ] = dbskmeans.run1( # The first part of the skmeans is done
+        run1_result = dbskmeans.run1( # The first part of the skmeans is done
             status          = status,
             k               = k,
             encryptedMatrix = encryptedMatrix, 
             UDM             = encrypted_udm,
             Cent_j          = __Cent_j,
-            num_attributes  = _encrypted_matrix_shape[1]
+            num_attributes  = encrypted_matrix_shape[1]
         )
         
         if run1_result.is_err:
@@ -3038,50 +2515,46 @@ def pqc_dbskmeans_1(requestHeaders):
             return Response(str(error), status=500 )
         S1,Cent_i,Cent_j,label_vector = run1_result.unwrap()
 
-        logger.debug({
-            "event":"PYCTXT.LIST.TO.GEN.AND.PUT.CHUNKED.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_i_id,
-        })
-
-        cent_i_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(Cent_i))
-        x = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        maybe_cent_i_chunks = RoryCommon.from_pyctxts_to_chunks(key=cent_i_id,num_chunks=num_chunks,xs=Cent_i)
+        if maybe_cent_i_chunks.is_none:
+            return Response(status=500, response="Failed to create chunks from cent_i")
+        # MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(Cent_i))
+        x = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_i_id,
             key            = cent_i_id,
-            chunks         = cent_i_chunks,
+            chunks         = maybe_cent_i_chunks.unwrap(),
         )
+        if x.is_err:
+            return Response(status =500, response="Failed to put cent i")
 
-        cent_j_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(Cent_j))
+        maybe_cent_j_chunks = RoryCommon.from_pyctxts_to_chunks(key=cent_j_id,num_chunks=num_chunks,xs=Cent_j)
 
-        y = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        if maybe_cent_j_chunks.is_none:
+            return Response(status=500, response="Failed to create chunks from cent_j")
+        y = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = cent_j_id,
             key            = cent_j_id,
-            chunks         = cent_j_chunks,
+            chunks         = maybe_cent_j_chunks.unwrap(),
         )
+        if y.is_err:
+            return Response(status =500, response="Failed to put cent j")
 
-        s1_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(S1))
+        # s1_chunks = MictlanXUtils.to_gen_bytes(data=LocalUtils.pyctxt_list_to_bytes(S1))
+        maybe_s1_chunks = RoryCommon.from_pyctxts_to_chunks(key = encrypted_shift_matrix_id, num_chunks=num_chunks,xs = S1)
+        if maybe_s1_chunks.is_none:
+            return Response(status=500, response="Failed to create chunks from encrypted shiftmatrix")
 
-        z = LocalUtils.delete_and_put_chunked(
-            STORAGE_CLIENT = STORAGE_CLIENT,
+        z = await RoryCommon.delete_and_put_chunks(
+            client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
-            ball_id        = encrypted_shift_matrix_id,
             key            = encrypted_shift_matrix_id,
-            chunks         = s1_chunks,
+            chunks         = maybe_s1_chunks.unwrap(),
         )
+        if z.is_err:
+            return Response(status =500, response="Failed to put encrypted shift matrix")
 
-        logger.debug({
-            "event":"PYCTXT.LIST.TO.GEN.AND.PUT.CHUNKED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "bucket_id":BUCKET_ID,
-            "key":cent_i_id,
-        })
 
         end_time     = time.time()
         service_time = end_time - arrival_time
@@ -3118,19 +2591,19 @@ def pqc_dbskmeans_1(requestHeaders):
         return Response(str(e),status = 500)
 
 
-def pqc_dbskmeans_2(requestHeaders):
+async def pqc_dbskmeans_2(requestHeaders):
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
     BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    STORAGE_CLIENT:V4Client = current_app.config["STORAGE_CLIENT"]
+    STORAGE_CLIENT:V4Client = current_app.config["ASYNC_STORAGE_CLIENT"]
     algorithm               = Constants.ClusteringAlgorithms.SKMEANS_PQC
     status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
     plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
     encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
     shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
     k                       = int(requestHeaders.get("K",3))
-    isZero                  = requestHeaders.get("Is-Zero")
+    isZero                  = bool(int(requestHeaders.get("Is-Zero")))
     iterations              = int(requestHeaders.get("Iterations",0))
     
     _round   = False
@@ -3147,6 +2620,9 @@ def pqc_dbskmeans_2(requestHeaders):
     _encrypted_udm_shape    = requestHeaders.get("Encrypted-Udm-Shape",-1)
     _encrypted_udm_dtype    = requestHeaders.get("Encrypted-Udm-Dtype",-1)
     
+    backoff_factor = 0.5
+    delay =2 
+    max_retries = 10
 
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
@@ -3191,46 +2667,26 @@ def pqc_dbskmeans_2(requestHeaders):
 
     try:
         get_UDM_start_time = time.time()
-        logger.debug({
-            "event":"GET.NDARRAY.WITH.RETRY.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_udm_id, 
-            "bucket_id":BUCKET_ID
-        }) 
+ 
         get_merge_start_time = time.time()
 
-        x:Result[GetNDArrayResponse,Exception] = STORAGE_CLIENT.get_ndarray_with_retry(
-            key       = encrypted_udm_id,
-            bucket_id = BUCKET_ID,
-            max_retries = 20,
-            delay = 2
-            ).result()
-        if x.is_err:
-            raise Exception("{} not found".format(encrypted_udm_id))
-        udm_ = x.unwrap()
-        prev_encrypted_udm = udm_.value
-        encrypted_udm_metadata = udm_.metadata
+        prev_encrypted_udm = await RoryCommon.get_and_merge(
+            client         = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = encrypted_udm_id,
+            max_retries    = max_retries,
+            delay          = delay,
+            backoff_factor = backoff_factor,
+            force          = True
+        )
 
         logger.info({
-            "event":"GET.NDARRAY.WITH.RETRY",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":encrypted_udm_id,
+            "event":"GET.AND.MERGE",
             "bucket_id":BUCKET_ID,
-            "num_chunks":num_chunks,
-            "shape":_encrypted_udm_shape,
-            "dtype":_encrypted_udm_dtype,
-            "service_time":time.time() - get_merge_start_time
+            "key":encrypted_udm_id,
+            "response_time":time.time() - get_merge_start_time
         })
         
-        logger.debug({
-            "event":"GET.MATRIX.OR.ERROR.BEFORE",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "key":cent_i_id,
-            "bucket_id":BUCKET_ID,
-        })
 
         if(isZero): #If Shift matrix is zero
             response_headers["Clustering-Status"]  = Constants.ClusteringStatus.COMPLETED #Change the status to COMPLETED
@@ -3254,12 +2710,14 @@ def pqc_dbskmeans_2(requestHeaders):
             )
         
         else:
-            init_shiftmatrix = LocalUtils.get_pyctxt_with_retry(
-            STORAGE_CLIENT = STORAGE_CLIENT, 
-            bucket_id=BUCKET_ID, 
-            key=init_sm_id, 
-            ckks = ckks,
-            num_chunks=num_chunks
+            init_shiftmatrix = await RoryCommon.get_pyctxt(
+                client = STORAGE_CLIENT, 
+                bucket_id=BUCKET_ID, 
+                key=init_sm_id, 
+                ckks = ckks,
+                backoff_factor=backoff_factor,
+                delay=delay,
+                max_retries=max_retries
             )
 
             dbskmeans = DbskmeansPQC(he_object=ckks.he_object, init_shiftmatrix=init_shiftmatrix)
@@ -3268,10 +2726,14 @@ def pqc_dbskmeans_2(requestHeaders):
 
             response_headers["Clustering-Status"] = status #The status is changed to WORK IN PROGRESS
             get_matrix_start_time = time.time()
-            shift_matrix_ope_response = LocalUtils.get_matrix_or_error(
+            shift_matrix_ope_response = await RoryCommon.get_and_merge(
+                client = STORAGE_CLIENT,
                 bucket_id = BUCKET_ID,
-                client    = STORAGE_CLIENT,
-                key       = shift_matrix_ope_id
+                key       = shift_matrix_ope_id,
+                max_retries=max_retries,
+                backoff_factor=backoff_factor,
+                delay=delay,
+                force=True
             )
             shift_matrix_ope:npt.NDArray = shift_matrix_ope_response.value
 
@@ -3310,7 +2772,7 @@ def pqc_dbskmeans_2(requestHeaders):
                 })
                 return Response(
                     status   = 500,
-                    response = "Something went wrong segment encrypted udm."
+                    response = "Something went wrong segment udm."
                 )
             
             udm_chunks = maybe_udm_chunks.unwrap()
@@ -3320,23 +2782,18 @@ def pqc_dbskmeans_2(requestHeaders):
             del current_udm
 
 
-            chunks_udm_bytes = LocalUtils.chunks_to_bytes_gen(
-                chs = udm_chunks
-            )
-            put_chunks_udm_generator_results = LocalUtils.delete_and_put_chunked(
-                STORAGE_CLIENT = STORAGE_CLIENT,
+            put_chunks_udm_generator_results = await RoryCommon.delete_and_put_chunks(
+                client = STORAGE_CLIENT,
                 bucket_id      = BUCKET_ID,
-                ball_id        = encrypted_udm_id,
                 key            = encrypted_udm_id, 
-                chunks         = chunks_udm_bytes, 
+                chunks         = udm_chunks, 
                 tags = {
-                    "shape":cm_shape,
-                    "dtype":cm_dtype,
+                    "full_shape":cm_shape,
+                    "full_dtype":cm_dtype,
                 }
             )
 
             del udm_chunks
-            del chunks_udm_bytes
 
             end_time                         = time.time()
             service_time                     = end_time - local_start_time  #Service time is calculated
@@ -3383,7 +2840,7 @@ def pqc_dbskmeans_2(requestHeaders):
 
 
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])
-def pqc_dbskmeans():
+async def pqc_dbskmeans():
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
@@ -3396,8 +2853,8 @@ def pqc_dbskmeans():
         "step_index":step_index
     })
     if step_index == 1:
-        return pqc_dbskmeans_1(filteredHeaders)
+        return await pqc_dbskmeans_1(filteredHeaders)
     elif step_index == 2:
-        return pqc_dbskmeans_2(filteredHeaders)
+        return await pqc_dbskmeans_2(filteredHeaders)
     else:
         return response

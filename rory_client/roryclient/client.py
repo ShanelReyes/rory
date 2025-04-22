@@ -17,6 +17,7 @@ from dataclasses import dataclass,field
 class KnnTrainResponse:
     response_time:float
     algorithm:str
+    model_labels_shape:List[int]
 
 @dataclass
 class KnnPredictResponse:
@@ -34,6 +35,7 @@ class SknnTrainResponse:
     encrypted_model_shape:str
     encrypted_model_dtype:str
     algorithm:str
+    model_labels_shape:List[int]
 
 
 @dataclass
@@ -79,7 +81,9 @@ class RoryClient(object):
             plaintext_matrix_id:str,
             plaintext_matrix_filename:str, 
             k:int = 2, 
-            extension:str = "npy"):
+            extension:str = "npy",
+            num_chunks:int =2
+            ):
         """
         Sends a POST request to the /clustering/kmeans endpoint with the specified headers.
 
@@ -106,6 +110,7 @@ class RoryClient(object):
                 "K": str(k),
                 "Plaintext-Matrix-Filename": plaintext_matrix_filename,
                 "Plaintext-Matrix-Id": plaintext_matrix_id,
+                "Num-Chunks":str(num_chunks)
             }
             
             response = R.post(f"{self.kmeans_url}", headers = headers)
@@ -174,7 +179,7 @@ class RoryClient(object):
             num_chunks:int = 2, 
             max_iterations:int = 5, 
             extension: str = "npy", 
-            sens: str = "0.00000000001"
+            sens: float = 0.00000000001
         ):
         """
         Sends a POST request to the /clustering/dbskmeans endpoint with the specified headers.
@@ -366,7 +371,7 @@ class RoryClient(object):
         extension: str = "npy", 
         threshold: float = 1.4,
         num_chunks:int = 2, 
-        sens: str = "0.00000000001"
+        sens:float= 0.00000000001
         ):
         """
         Sends a POST request to the /clustering/nnc endpoint with the specified headers.
@@ -399,7 +404,7 @@ class RoryClient(object):
                 "Num-Chunks": str(num_chunks),
                 "Sens": str(sens)
             }
-            response = R.post(f"{self.nnc_url}", headers=headers)
+            response = R.post(f"{self.dbsnnc_url}", headers=headers)
             response.raise_for_status()
             data = NncResponse(**response.json())
             return Ok(data)
@@ -434,6 +439,7 @@ class RoryClient(object):
         model_labels_filename:str,
         record_test_id:str,
         record_test_filename:str,
+        model_labels_shape:str,
         extension:str="npy"         
         ):
         try:
@@ -443,7 +449,8 @@ class RoryClient(object):
                 "Model-Labels-Filename": model_labels_filename,
                 "Records-Test-Id":record_test_id,
                 "Records-Test-Filename":record_test_filename,
-                "Extension":extension
+                "Extension":extension,
+                "Model-Labels-Shape":model_labels_shape
             }
             response = R.post(f"{self.knn_url}/predict", headers=headers)
             response.raise_for_status()
@@ -477,9 +484,10 @@ class RoryClient(object):
                 model_labels_filename=model_labels_filename, 
                 record_test_id=record_test_id,
                 record_test_filename=record_test_filename,
-                extension=extension
+                extension=extension,
+                model_labels_shape=str(tuple(train_response.model_labels_shape))
             )
-            return Ok(predict_result)
+            return predict_result
         except Exception as e:
             return Err(e)
 
@@ -512,6 +520,7 @@ class RoryClient(object):
         record_test_id:str,
         record_test_filename:str,
         encrypted_model_shape:str,
+        model_labels_shape:str,
         encrypted_model_dtype:str = "float64",
         num_chunks:int=2,
         extension:str="npy",
@@ -526,7 +535,8 @@ class RoryClient(object):
                 "Extension":extension,
                 "Num-Chunks":str(num_chunks),
                 "Encrypted-Model-Shape": encrypted_model_shape,
-                "Encrypted-Model-Dtype":encrypted_model_dtype
+                "Encrypted-Model-Dtype":encrypted_model_dtype,
+                "Model-Labels-Shape": model_labels_shape
             }
             response = R.post(f"{self.sknn_url}/predict", headers=headers)
             response.raise_for_status()
@@ -541,11 +551,9 @@ class RoryClient(object):
         model_labels_filename:str,
         record_test_id:str,
         record_test_filename:str,       
-        # encrypted_model_shape:str,
-        # encrypted_model_dtype:str = "float64",
         num_chunks:int=2,
         extension:str="npy",
-        ):
+        )->Result[KnnPredictResponse,Exception]:
         try:
             sknn_train_result = self.sknn_train(
                 model_id              = model_id,
@@ -567,9 +575,10 @@ class RoryClient(object):
                 extension             = extension,
                 num_chunks            = num_chunks,
                 encrypted_model_shape = train_response.encrypted_model_shape,
-                encrypted_model_dtype = train_response.encrypted_model_dtype
+                encrypted_model_dtype = train_response.encrypted_model_dtype,
+                model_labels_shape= str(tuple(train_response.model_labels_shape))
             )
-            return Ok(predict_result)
+            return predict_result
         except Exception as e:
             return Err(e)    
 
@@ -605,7 +614,7 @@ class RoryClient(object):
         num_chunks:int=2,
         extension:str="npy",
         encrypted_model_dtype:str ="float64"
-        ):
+        )->Result[KnnPredictResponse, Exception]:
         try:
             headers={
                 "Extension": extension,
@@ -631,11 +640,11 @@ class RoryClient(object):
         model_labels_filename:str, 
         record_test_id:str,
         record_test_filename:str,
-        encrypted_model_shape: str,
+        # encrypted_model_shape: str,
         num_chunks:int=2,
         extension:str="npy",
-        encrypted_model_dtype:str ="float64"
-        ):
+        # encrypted_model_dtype:str ="float64"
+        )->Result[KnnPredictResponse, Exception]:
         try:
             sknn_train_result = self.sknn_pqc_train(
                 model_id              = model_id,
@@ -647,7 +656,6 @@ class RoryClient(object):
             if sknn_train_result.is_err:
                 return sknn_train_result
             train_response = sknn_train_result.unwrap()
-
             predict_result = self.sknn_pqc_predict(
                 model_id              = model_id,
                 model_filename        = model_filename,
@@ -656,10 +664,10 @@ class RoryClient(object):
                 record_test_filename  = record_test_filename,
                 extension             = extension,
                 num_chunks            = num_chunks,
-                encrypted_model_shape = encrypted_model_shape,
-                encrypted_model_dtype = encrypted_model_dtype
+                encrypted_model_shape = train_response.encrypted_model_shape,
+                encrypted_model_dtype = train_response.encrypted_model_dtype
             )
-            return Ok(predict_result)
+            return predict_result
         except Exception as e:
             return Err(e)
 

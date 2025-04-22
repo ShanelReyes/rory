@@ -9,7 +9,7 @@ client = RoryClient(hostname="localhost",port=3001)
 def test_kmeans():
     k = 2
     plaintext_matrix_filename =  "clusteringc0r10a5k20"
-    plaintext_matrix_id       = "kmeans1"
+    plaintext_matrix_id       = "kmeansx"
     extension                 = "npy"
     result = client.kmeans(
         k                         = k,
@@ -53,7 +53,7 @@ def test_dbskmeans():
     extension                 = "npy"
     num_chunks                = 2
     max_iterations            = 5
-    sens                      = "0.00000000001"
+    sens                      = 0.00000000001
     result = client.dbskmeans(
         k                         = k,
         plaintext_matrix_filename = plaintext_matrix_filename,
@@ -69,6 +69,47 @@ def test_dbskmeans():
     else:
         print(result)
 
+@pytest.mark.skip("dbsnnc algorithm")
+def test_dbsnnc():
+    plaintext_matrix_filename =  "clusteringc0r10a5k20"
+    plaintext_matrix_id       = "nnc1"
+    extension                 = "npy"
+    threshold                 = 1.4
+    num_chunks                = 2
+    sens                      = 0.00000000001
+    result = client.dbsnnc(
+        plaintext_matrix_filename = plaintext_matrix_filename,
+        plaintext_matrix_id       = plaintext_matrix_id,
+        threshold                 = threshold,
+        extension                 = extension,
+        num_chunks                = num_chunks,
+        sens                      = sens
+    )
+    if result.is_ok:
+        response = result.unwrap()
+        print("DBSNNC result", response.label_vector)
+    else:
+        print(result)
+
+@pytest.mark.skip("nnc algorithm")
+def test_nnc():
+    plaintext_matrix_filename =  "clusteringc0r10a5k20"
+    plaintext_matrix_id       = "nnc1"
+    extension                 = "npy"
+    threshold                 = "1.4"
+    result = client.nnc(
+        plaintext_matrix_filename = plaintext_matrix_filename,
+        plaintext_matrix_id       = plaintext_matrix_id,
+        threshold                 = threshold,
+        extension                 = extension
+    )
+    if result.is_ok:
+        response = result.unwrap()
+        print("NNC result", response.label_vector)
+    else:
+        print(result)
+    # print("DBSNNC result", result.label_vector)
+
 @pytest.mark.skip("skmeans pqc algorithm")
 def test_skmeans_pqc():
     k = 2
@@ -78,20 +119,26 @@ def test_skmeans_pqc():
     num_chunks                = 2
     max_iterations            = 5
     experiment_iteration      = 0
-    result = client.skmeans_pqc(
-        k                         = k,
-        plaintext_matrix_filename = plaintext_matrix_filename,
-        plaintext_matrix_id       = plaintext_matrix_id,
-        extension                 = extension,
-        experiment_iteration      = experiment_iteration,
-        num_chunks                = num_chunks,
-        max_iterations            = max_iterations,
-    )
-    if result.is_ok:
-        response = result.unwrap()
-        print("SKMEANS PQC result", response.label_vector)
-    else:
-        print(result)
+    n = 10
+    success_count = 0
+    t1 = T.time()
+    for i in range(n):
+        result = client.skmeans_pqc(
+            k                         = k,
+            plaintext_matrix_filename = plaintext_matrix_filename,
+            plaintext_matrix_id       = plaintext_matrix_id,
+            extension                 = extension,
+            experiment_iteration      = experiment_iteration,
+            num_chunks                = num_chunks,
+            max_iterations            = max_iterations,
+        )
+        if result.is_ok:
+            response = result.unwrap()
+            print("SKMEANS PQC result", response.label_vector)
+            success_count+=1
+        else:
+            print(result)
+    print(f"SUCCESS={success_count} time={T.time() - t1}")
     
 
 @pytest.mark.skip("Dbskmeans pqc algorithm")
@@ -120,54 +167,86 @@ def test_dbskmeans_pqc():
     else:
         print(result)
 
-
-#### NNC
-@pytest.mark.skip("nnc algorithm")
-def test_nnc():
-    plaintext_matrix_filename =  "clusteringc0r10a5k20"
-    plaintext_matrix_id       = "nnc1"
-    extension                 = "npy"
-    threshold                 = "1.4"
-    result = client.nnc(
-        plaintext_matrix_filename = plaintext_matrix_filename,
-        plaintext_matrix_id       = plaintext_matrix_id,
-        threshold                 = threshold,
-        extension                 = extension
+@pytest.mark.skip("KNN COMPLETED")
+def test_knn():
+    model_id              = "knn1a"
+    model_filename        = "classificationc0r10a5k20model"
+    model_labels_filename = "classificationc0r10a5k20modellabels"
+    record_test_id        = "knn1a"
+    record_test_filename  = "classificationc0r10a5k20data"
+    extension             = "npy"
+    result = client.knn(
+        model_id              = model_id,
+        model_filename        = model_filename,
+        model_labels_filename = model_labels_filename,
+        record_test_filename  = record_test_filename,
+        record_test_id        = record_test_id,
+        extension             = extension
     )
     if result.is_ok:
         response = result.unwrap()
-        print("NNC result", response.label_vector)
-    else:
-        print(result)
+        print(response.label_vector)
+    assert result.is_ok
+
+
+@pytest.mark.skip("SKNN COMPLETED")
+def test_sknn():
+    model_id              = "sknn1a"
+    model_filename        = "classificationc0r10a5k20model"
+    model_labels_filename = "classificationc0r10a5k20modellabels"
+    record_test_id        = "xx"
+    record_test_filename  = "classificationc0r10a5k20data"
+    extension             = "npy"
+    # encrypted_model_shape = "(8,5)"
+    # encrypted_model_dtype = "float32"
+    num_chunks            = 2
+    result = client.sknn(
+        model_id              = model_id,
+        model_filename        = model_filename,
+        model_labels_filename = model_labels_filename,
+        record_test_filename  = record_test_filename,
+        record_test_id        = record_test_id,
+        extension             = extension,
+        num_chunks            = num_chunks,
+    )
+    if result.is_ok:
+        response = result.unwrap()
+        print(response.label_vectorJA)
+        # print("SKNN RESULT",response)
+    assert result.is_ok
+
 
     # print("NNC result", result.label_vector)
 
-@pytest.mark.skip("dbsnnc algorithm")
-def test_dbsnnc():
-    plaintext_matrix_filename =  "clusteringc0r10a5k20"
-    plaintext_matrix_id       = "nnc1"
-    extension                 = "npy"
-    threshold                 = "1.4"
-    num_chunks                = 2
-    sens                      = "0.00000000001"
-    result = client.dbsnnc(
-        plaintext_matrix_filename = plaintext_matrix_filename,
-        plaintext_matrix_id       = plaintext_matrix_id,
-        threshold                 = threshold,
-        extension                 = extension,
-        num_chunks                = num_chunks,
-        sens                      = sens
+
+@pytest.mark.skip("SKNN PQC COMPLETED")
+def test_sknn_pqc():
+    model_id              = "sknnpqc1aa"
+    model_filename        = "classificationc0r10a5k20model"
+    model_labels_filename = "classificationc0r10a5k20modellabels"
+    record_test_id        = "sknn1pqc1aa"
+    record_test_filename  = "classificationc0r10a5k20data"
+    extension             = "npy"
+    encrypted_model_shape = "(8,5)"
+    encrypted_model_dtype = "float32"
+    num_chunks            = 2
+    result = client.sknn_pqc(
+        model_id              = model_id,
+        model_filename        = model_filename,
+        model_labels_filename = model_labels_filename,
+        record_test_filename  = record_test_filename,
+        record_test_id        = record_test_id,
+        extension             = extension,
+        num_chunks            = num_chunks,
+        # encrypted_model_shape = encrypted_model_shape,
+        # encrypted_model_dtype = encrypted_model_dtype
     )
-    if result.is_ok:
-        response = result.unwrap()
-        print("DBSNNC result", response.label_vector)
-    else:
-        print(result)
-    # print("DBSNNC result", result.label_vector)
+    assert result.is_ok
+    response = result.unwrap()
+    print(response.label_vector)
 
 
-#### Classification
-
+# ================================================
 @pytest.mark.skip("KNN TRAIN")
 def test_knn_train():
     model_id              = "knn"
@@ -210,26 +289,6 @@ def test_knn_predict():
         print(result)
     # print("KNN PREDICT RESULT",result)
 
-@pytest.mark.skip("KNN COMPLETED")
-def test_knn():
-    model_id              = "knn1a"
-    model_filename        = "classificationc0r10a5k20model"
-    model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "knn1a"
-    record_test_filename  = "classificationc0r10a5k20data"
-    extension             = "npy"
-    result = client.knn(
-        model_id              = model_id,
-        model_filename        = model_filename,
-        model_labels_filename = model_labels_filename,
-        record_test_filename  = record_test_filename,
-        record_test_id        = record_test_id,
-        extension             = extension
-    )
-    if result.is_ok:
-        response = result.unwrap()
-        print("KNN RESULT",response)
-    assert result.is_ok
 
 @pytest.mark.skip("SKNN TRAIN")
 def test_sknn_train():
@@ -282,33 +341,6 @@ def test_sknn_predict():
         print(result)
     # print("SKNN PREDICT RESULT",result)
 
-# @pytest.mark.skip("SKNN COMPLETED")
-def test_sknn():
-    model_id              = "sknn1a"
-    model_filename        = "classificationc0r10a5k20model"
-    model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "xx"
-    record_test_filename  = "classificationc0r10a5k20data"
-    extension             = "npy"
-    # encrypted_model_shape = "(8,5)"
-    # encrypted_model_dtype = "float32"
-    num_chunks            = 2
-    result = client.sknn(
-        model_id              = model_id,
-        model_filename        = model_filename,
-        model_labels_filename = model_labels_filename,
-        record_test_filename  = record_test_filename,
-        record_test_id        = record_test_id,
-        extension             = extension,
-        num_chunks            = num_chunks,
-        # encrypted_model_shape = encrypted_model_shape,
-        # encrypted_model_dtype = encrypted_model_dtype
-    )
-    if result.is_ok:
-        response = result.unwrap()
-        print("SKNN RESULT",response)
-    assert result.is_ok
-
 
 @pytest.mark.skip("SKNN PQC TRAIN")
 def test_sknn_pqc_train():
@@ -360,32 +392,6 @@ def test_sknn_pqc_predict():
 
     # print("SKNN PQC PREDICT RESULT",result)
 
-@pytest.mark.skip("SKNN PQC COMPLETED")
-def test_sknn_pqc():
-    model_id              = "sknnpqc1aa"
-    model_filename        = "classificationc0r10a5k20model"
-    model_labels_filename = "classificationc0r10a5k20modellabels"
-    record_test_id        = "sknn1pqc1aa"
-    record_test_filename  = "classificationc0r10a5k20data"
-    extension             = "npy"
-    encrypted_model_shape = "(8,5)"
-    encrypted_model_dtype = "float32"
-    num_chunks            = 2
-    result = client.sknn_pqc(
-        model_id              = model_id,
-        model_filename        = model_filename,
-        model_labels_filename = model_labels_filename,
-        record_test_filename  = record_test_filename,
-        record_test_id        = record_test_id,
-        extension             = extension,
-        num_chunks            = num_chunks,
-        encrypted_model_shape = encrypted_model_shape,
-        encrypted_model_dtype = encrypted_model_dtype
-    )
-    if result.is_ok:
-        response = result.unwrap()
-        print("SKNN RESULT",response)
-    assert result.is_ok
 
 
 @pytest.mark.skip("")
