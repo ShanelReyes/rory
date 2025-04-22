@@ -19,7 +19,8 @@ from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor
 from utils.utils import Utils
 from rorycommon import Common as RoryCommon
-
+from uuid import uuid4
+from models import ExperimentLogEntry
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
 @clustering.route("/test",methods=["GET","POST"])
@@ -53,21 +54,12 @@ async def kmeans():
         plaintext_matrix_filename  = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                  = request_headers.get("Extension","csv")
         k                          = request_headers.get("K","3")
+        experiment_id              = request_headers.get("Experiment-Id",uuid4().hex[:10])
         plaintext_matrix_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
 
-        logger.info({
-            "event":"KMEANS.STARTED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "plaintext_matrix_filename":plaintext_matrix_filename,
-            "extension":extension,
-            "k":k,
-            "plaintext_matrix_path":plaintext_matrix_path,
-            "num_chunks":num_chunks,
-        })
+ 
         read_dataset_start_time = time.time()
-        plaintext_matrix_result = Utils.read_numpy_from(
-            client    = STORAGE_CLIENT,
+        plaintext_matrix_result = await RoryCommon.read_numpy_from(
             path      = plaintext_matrix_path,
             extension = extension
         )
@@ -77,19 +69,21 @@ async def kmeans():
         else:
             raise plaintext_matrix_result.unwrap_err()
   
-        read_dataset_st = time.time() - read_dataset_start_time
+        # read_dataset_st = time.time() - read_dataset_start_time
         
-
-        logger.debug({
-            "event":"LOCAL.READ.DATASET",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "key":plaintext_matrix_id,
-            "filename":plaintext_matrix_filename,
-            "service_time":read_dataset_st
-        })
-
+        local_read_entry = ExperimentLogEntry(
+            event="LOCAL.READ", 
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=read_dataset_start_time,
+            end_time= time.time(),
+            id= plaintext_matrix_id,
+            worker_id= "",
+            num_chunks=num_chunks,
+            k=k,
+            workers= 0, 
+        )
+        logger.info(local_read_entry.model_dump())
         put_pm_start_time = time.time()
         put_ptm_result = await RoryCommon.put_ndarray(
             client=STORAGE_CLIENT, 
@@ -106,20 +100,23 @@ async def kmeans():
             })
             return Response(response=str(error), status=500)
 
-        put_pm_service_time = time.time()- put_pm_start_time
-        logger.info({
-            "event":"DELETE.AND.PUT.CHUNKED",
-            "bucket_id":BUCKET_ID,
-            "key":plaintext_matrix_id,
-            "algorithm":algorithm,
-            "shape":str(plaintextMatrix.shape),
-            "dtype":str(plaintextMatrix.dtype),
-            "service_time":put_pm_service_time
-        })
+        put_ptm_entry = ExperimentLogEntry(
+            event="PUT",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=put_pm_start_time,
+            end_time=time.time(),
+            id=plaintext_matrix_id,
+            worker_id="",
+            num_chunks=num_chunks,
+            k = k,
+            workers=0,
+        )
+        logger.info(put_ptm_entry.model_dump())
         
         service_time_client = time.time() - arrivalTime
 
-        get_worker_arrival_time = time.time()
+        get_worker_start_time = time.time()
         manager:RoryManager     = current_app.config.get("manager") # Communicates with the manager
         get_worker_result       = manager.getWorker( #Gets the worker from the manager
             headers = {
@@ -137,18 +134,24 @@ async def kmeans():
         (worker_id, worker_port) = get_worker_result.unwrap()
         
         get_worker_end_time     = time.time()
-        get_worker_service_time = get_worker_end_time - get_worker_arrival_time 
+        # get_worker_service_time = get_worker_end_time - get_worker_start_time 
         worker_id               = "localhost" if TESTING else worker_id
 
-        logger.info({
-            "event":"GET.WORKER",
-            "worker_id":worker_id,
-            "worker_port":worker_port,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":get_worker_service_time,
-        })
-        worker_start_time = time.time()
+        get_worker_entry = ExperimentLogEntry(
+            event="GET.WORKER",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=get_worker_start_time,
+            end_time=get_worker_end_time,
+            id=plaintext_matrix_id,
+            worker_id=worker_id,
+            num_chunks=num_chunks,
+            k =k,
+            workers=0
+        )
+        logger.info(get_worker_entry.model_dump())
+        # raise Exception("BOOM!")
+        worker_run_1_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = worker_port,
@@ -157,50 +160,63 @@ async def kmeans():
         )   
 
         interaction_arrival_time = time.time()
-        logger.debug({
-            "event":"WORKER.RUN.BEFORE",
-            "algorithm":algorithm,
-            "k":k,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "worker_id":worker_id,
-            "service_time":time.time() - interaction_arrival_time
-        })
 
         workerResponse = worker.run(
             headers = {
                 "Plaintext-Matrix-Id": plaintext_matrix_id,
                 "K": str(k),
+                "Experiment-Id": experiment_id,
             },
             timeout = WORKER_TIMEOUT
         )
-        logger.info({
-            "event":"WORKER.RUN",
-            "algorithm":algorithm,
-            "k":k,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "worker_id":worker_id,
-            "service_time":time.time() - interaction_arrival_time
-        })
+        worker_run_1_entry = ExperimentLogEntry(
+            event="WORKER.RUN.1",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=worker_run_1_start_time,
+            end_time=time.time(),
+            id=plaintext_matrix_id,
+            worker_id=worker_id,
+            num_chunks=num_chunks,
+            k=k,
+            workers=0
+        )
+        logger.info(worker_run_1_entry.model_dump())
 
-        stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
-        jsonWorkerResponse   = json.loads(stringWorkerResponse) #pass to json
-        worker_service_time  =  jsonWorkerResponse["service_time"]
+        # stringWorkerResponse = workerResponse.content.decode("utf-8") #Response from worker
+        jsonWorkerResponse   = workerResponse.json()
+        # json.loads(stringWorkerResponse) #pass to json
+        # worker_service_time  =  jsonWorkerResponse["service_time"]
         iterations           = int(jsonWorkerResponse["iterations"]) # Extract the current number of iterations
         endTime              = time.time() # Get the time when it ends
-        worker_response_time = endTime - worker_start_time
+        worker_response_time = endTime - worker_run_1_start_time
         response_time        = endTime - arrivalTime # Get the service time
 
-        logger.info({
-            "event":"KMEANS.COMPLETED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "worker_service_time": worker_service_time,
-            "worker_response_time":worker_response_time,
-            "response_time":response_time,
-            "iterations":iterations,
-            "k":k,
-            "service_time_manager":get_worker_service_time,
-        })
+        kmeans_completed_entry = ExperimentLogEntry(
+            event="KMEANS.COMPLETED",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=worker_run_1_start_time,
+            end_time=time.time(),
+            id=plaintext_matrix_id,
+            worker_id=worker_id,
+            num_chunks=num_chunks,
+            k=k,
+            workers=0,
+            iterations=iterations
+        )
+        
+        logger.info(kmeans_completed_entry.model_dump())
+        #     "event":"KMEANS.COMPLETED",
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "worker_service_time": worker_service_time,
+        #     "worker_response_time":worker_response_time,
+        #     "response_time":response_time,
+        #     "iterations":iterations,
+        #     "k":k,
+        #     "service_time_manager":get_worker_service_time,
+        # })
 
         return Response(
             response = json.dumps({
@@ -208,7 +224,7 @@ async def kmeans():
                 "iterations":iterations,
                 "algorithm":algorithm,
                 "worker_id":worker_id,
-                "service_time_manager":get_worker_service_time,
+                "service_time_manager":get_worker_entry.time,
                 "service_time_worker":worker_response_time,
                 "service_time_client":service_time_client,
                 "response_time_clustering":response_time,
@@ -236,7 +252,7 @@ async def skmeans():
         STORAGE_CLIENT:AsyncClient      = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
-        securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
+        security_level                = current_app.config.get("LIU_SECURITY_LEVEL",128)
         np_random:bool                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         
@@ -251,6 +267,7 @@ async def skmeans():
         udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix0")
         extension                 = request_headers.get("Extension","csv")
+        experiment_id             = request_headers.get("Experiment-Id",uuid4().hex[:10])
         k                         = int(request_headers.get("K"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
@@ -258,28 +275,31 @@ async def skmeans():
         requestId                 = "request-{}".format(plaintext_matrix_id)
         m                         = dataowner.m
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
+        cores       = os.cpu_count()
+        max_workers = num_chunks if max_workers > num_chunks else max_workers
+        max_workers = cores if max_workers > cores else max_workers
         
-        logger.debug({
-            "event":"SKMEANS.STARTED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrix_id":encrypted_matrix_id,
-            "udm_id":udm_id,
-            "plaintext_matrix_filename":plaintext_matrix_filename,
-            "plaintext_matrix_path":plaintext_matrix_path,
-            "security_level":securitylevel,
-            "m":m,
-            "k":k,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-            "bucket_id":BUCKET_ID,
-            "testing":TESTING,
-            "experiment_iteration":experiment_iteration,
-            "max_iterations":MAX_ITERATIONS,
-            "request_id":requestId,
-            "worker_timeout":WORKER_TIMEOUT,
-            "source_path":SOURCE_PATH,
-        })
+        # logger.debug({
+        #     "event":"SKMEANS.STARTED",
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "encrypted_matrix_id":encrypted_matrix_id,
+        #     "udm_id":udm_id,
+        #     "plaintext_matrix_filename":plaintext_matrix_filename,
+        #     "plaintext_matrix_path":plaintext_matrix_path,
+        #     "security_level":securitylevel,
+        #     "m":m,
+        #     "k":k,
+        #     "num_chunks":num_chunks,
+        #     "max_workers":max_workers,
+        #     "bucket_id":BUCKET_ID,
+        #     "testing":TESTING,
+        #     "experiment_iteration":experiment_iteration,
+        #     "max_iterations":MAX_ITERATIONS,
+        #     "request_id":requestId,
+        #     "worker_timeout":WORKER_TIMEOUT,
+        #     "source_path":SOURCE_PATH,
+        # })
         
 
         local_read_dataset_start_time = time.time()
@@ -296,66 +316,90 @@ async def skmeans():
         
         r = plaintext_matrix.shape[0]
         a = plaintext_matrix.shape[1]
-        logger.info({
-            "event":"LOCAL.READ.DATASET",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "path":plaintext_matrix_path,
-            "filename":plaintext_matrix_filename,
-            "records":r,
-            "attributes":a,
-            "service_time":local_read_dataset_st
-        })
+        local_read_entry = ExperimentLogEntry(
+            event="LOCAL.READ",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=local_read_dataset_start_time,
+            end_time= time.time(),
+            id= plaintext_matrix_id,
+            worker_id= "",
+            num_chunks=num_chunks,
+            k=k,
+            workers= max_workers, 
+            security_level=security_level,
+            m = m
+        )
+        logger.info(local_read_entry.model_dump())
+            # "event":"LOCAL.READ.DATASET",
+            # "algorithm":algorithm,
+            # "plaintext_matrix_id":plaintext_matrix_id,
+            # "path":plaintext_matrix_path,
+            # "filename":plaintext_matrix_filename,
+            # "records":r,
+            # "attributes":a,
+            # "service_time":local_read_dataset_st
+        # })
 
-        cores       = os.cpu_count()
-        max_workers = num_chunks if max_workers > num_chunks else max_workers
-        max_workers = cores if max_workers > cores else max_workers
+
+        n = a*r*m
 
         encryption_start_time = time.time()
-        n = a*r*m
-        logger.debug({
-            "event":"SEGMENT.ENCRYPT.LIU.BEFORE",
-            "key":encrypted_matrix_id,
-            "plaintext_matrix_shape":str(plaintext_matrix.shape),
-            "plaintext_matrix_dtype":str(plaintext_matrix.dtype),
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "n":n,
-            "num_chunks":num_chunks,
-            "max_workers":max_workers,
-        })
-
-
-        put_chunk_result,seg_encry_rt, put_chunks_st = await RoryCommon.segment_encrypt_and_put_chunks(
-            bucket_id=BUCKET_ID, 
-            client=STORAGE_CLIENT,
-            dataowner=dataowner,
-            executor=executor,
-            key=encrypted_matrix_id,
-            matrix=plaintext_matrix,
-            n=n,
-            np_random=np_random,
+        encrypted_ptm_chunks = RoryCommon.segment_and_encrypt_liu_with_executor( #Encrypt 
+            executor         = executor,
+            key              = encrypted_matrix_id,
+            plaintext_matrix = plaintext_matrix,
+            dataowner        = dataowner,
+            n                = n,
+            num_chunks       = num_chunks,
+            np_random        = np_random
+        )
+        segment_encrypt_entry = ExperimentLogEntry(
+            event="SEGMENT.ENCRYPT",
+            experiment_id=experiment_id,
+            algorithm=algorithm,
+            start_time=encryption_start_time,
+            end_time= time.time(),
+            id= plaintext_matrix_id,
+            worker_id= "",
             num_chunks=num_chunks,
-            tags={
+            k=k,
+            workers= max_workers, 
+            security_level=security_level,
+            m = m
+        )
+        logger.info(segment_encrypt_entry.model_dump())
+        
+        put_ptm_start_time = time.time()
+        put_ptm_chunks_results = await RoryCommon.put_chunks(
+            client = STORAGE_CLIENT,
+            bucket_id      = BUCKET_ID,
+            key            = encrypted_matrix_id,
+            chunks         = encrypted_ptm_chunks,
+            tags= {
                 "full_shape": str((r,a,m)),
                 "full_dtype":"float64"
-            }, 
-        )
 
-        # put_chunks_st = time.time() - put_chunks_start_time
-        logger.info({
-            "event":"SEGMENT.ENCRYPT.DELETE.PUT",
-            "bucket_id":BUCKET_ID,
-            "key":encrypted_matrix_id,
-            "num_chunks":num_chunks,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":put_chunks_st, 
-            "seg_encrypt_st":seg_encry_rt,
-            "ok":put_chunk_result.is_ok
-        })
-        if put_chunk_result.is_err:
-            raise Exception(f"Put chunk failed: {BUCKET_ID}@{encrypted_matrix_id}")
+            }
+
+        )
+        if put_ptm_chunks_results.is_err:
+            return Response(status=500, response = "Put encrypted matrix failed")
+        put_encrypted_ptm_entry = ExperimentLogEntry(
+            event          = "PUT",
+            experiment_id  = experiment_id,
+            algorithm      = algorithm,
+            start_time     = put_ptm_start_time,
+            end_time       = time.time(),
+            id             = plaintext_matrix_id,
+            worker_id      = "",
+            num_chunks     = num_chunks,
+            k              = k,
+            workers        = max_workers,
+            security_level = security_level,
+            m              = m
+        )
+        logger.info(put_encrypted_ptm_entry.model_dump())
 
         udm_start_time = time.time()
         udm            = dataowner.get_U(
@@ -364,26 +408,40 @@ async def skmeans():
         )
         
         udm_gen_st = time.time()- udm_start_time
-        logger.info({
-            "event":"UDM.GENERATION",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "shape":str(udm.shape),
-            "udm_id":udm_id,
-            "service_time":udm_gen_st,
-        })
+        udm_gen_entry = ExperimentLogEntry(
+            event          = "UDM.GENERATION",
+            experiment_id  = experiment_id,
+            algorithm      = algorithm,
+            start_time     = udm_start_time,
+            end_time       = time.time(),
+            id             = plaintext_matrix_id,
+            worker_id      = "",
+            num_chunks     = num_chunks,
+            k              = k,
+            workers        = max_workers,
+            security_level = security_level,
+            m              = m
+        )
+        logger.info(udm_gen_entry.model_dump())
+        #     "event":"UDM.GENERATION",
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "shape":str(udm.shape),
+        #     "udm_id":udm_id,
+        #     "service_time":udm_gen_st,
+        # })
 
     
         udm_put_start_time = time.time()
         
-        udm_matrix_chunks = Chunks.from_ndarray(
+        maybe_udm_matrix_chunks = Chunks.from_ndarray(
             ndarray      = udm,
             group_id     = udm_id,
             chunk_prefix = Some(udm_id),
             num_chunks   = num_chunks,
         )
 
-        if udm_matrix_chunks.is_none:
+        if maybe_udm_matrix_chunks.is_none:
             raise "something went wrong creating the chunks"
 
 
@@ -391,7 +449,7 @@ async def skmeans():
             client = STORAGE_CLIENT,
             bucket_id      = BUCKET_ID,
             key            = udm_id,
-            chunks         = udm_matrix_chunks.unwrap(),
+            chunks         = maybe_udm_matrix_chunks.unwrap(),
             tags = {
                 "full_shape": str(udm.shape),
                 "full_dtype": str(udm.dtype)
@@ -401,26 +459,31 @@ async def skmeans():
         if udm_put_result.is_err:
             e= udm_put_result.unwrap_err()
             raise Exception(f"Put UDM failed: {str(e)}")
-        udm_put_st = time.time() - udm_put_start_time
-
+        
         service_time_client = time.time() - arrivalTime
-        logger.info({            
-            "event":"DELETE.AND.PUT.CHUNKED",
-            "bucket_id":BUCKET_ID,
-            "key":udm_id,
-            "algorithm":algorithm,
-            "udm_shape":str(udm.shape),
-            "udm_dtype":str(udm.dtype),
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":udm_put_st
-        })
+        udm_put_entry = ExperimentLogEntry(
+            event          = "PUT",
+            experiment_id  = experiment_id,
+            algorithm      = algorithm,
+            start_time     = udm_put_start_time,
+            end_time       = time.time(),
+            id             = plaintext_matrix_id,
+            worker_id      = "",
+            num_chunks     = num_chunks,
+            k              = k,
+            workers        = max_workers,
+            security_level = security_level,
+            m              = m
+        )
+        logger.info(udm_put_entry.model_dump())
+
         get_worker_start_time       = time.time()
         manager:RoryManager         = current_app.config.get("manager") # Communicates with the manager
         get_worker_result           = manager.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"             : algorithm,
                 "Start-Request-Time"    : str(arrivalTime),
-                "Start-Get-Worker-Time" : str(get_worker_start_time) 
+                "Start-Get-Worker-Time" : str(get_worker_start_time)
             }
         )
         if get_worker_result.is_err:
@@ -433,16 +496,30 @@ async def skmeans():
         get_worker_service_time = get_worker_end_time - get_worker_start_time
         worker_id               =  "localhost" if TESTING else worker_id
 
-        logger.info({
-            "event":"MANAGER.GET.WORKER",
-            "worker_id":worker_id,
-            "port":port,
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "service_time":get_worker_service_time,
-            "k":k,
-            "m":m
-        })
+        get_worker_entry = ExperimentLogEntry(
+            event          = "GET.WORKER",
+            experiment_id  = experiment_id,
+            algorithm      = algorithm,
+            start_time     = get_worker_start_time,
+            end_time       = time.time(),
+            id             = plaintext_matrix_id,
+            worker_id      = worker_id,
+            num_chunks     = num_chunks,
+            k              = k,
+            workers        = max_workers,
+            security_level = security_level,
+            m              = m
+        )
+        logger.info(get_worker_entry.model_dump())
+        #     "event":"MANAGER.GET.WORKER",
+        #     "worker_id":worker_id,
+        #     "port":port,
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "service_time":get_worker_service_time,
+        #     "k":k,
+        #     "m":m
+        # })
         
         worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
@@ -475,7 +552,8 @@ async def skmeans():
                 "K"                      : str(k),
                 "M"                      : str(m), 
                 "Experiment-Iteration"   : str(experiment_iteration), 
-                "Max-Iterations"         : str(MAX_ITERATIONS) 
+                "Max-Iterations"         : str(MAX_ITERATIONS),
+                "Experiment-Id":experiment_id
             }
             
           
@@ -490,35 +568,29 @@ async def skmeans():
                 return Response("Worker error: {}".format(worker_run1_response.content),status=500)
             
             worker_run1_response.raise_for_status()
-            # stringWorkerResponse      = worker_run1_response.content.decode("utf-8") #Response from worker
-            # jsonWorkerResponse        = json.loads(stringWorkerResponse) #pass to json
             jsonWorkerResponse        = worker_run1_response.json()
             encrypted_shift_matrix_id = jsonWorkerResponse["encrypted_shift_matrix_id"]
             run1_service_time         = jsonWorkerResponse["service_time"]
             run1_n_iterations         = jsonWorkerResponse["n_iterations"]
             label_vector              = jsonWorkerResponse["label_vector"]
 
-            logger.info({
-                "event":"SKMEANS.RUN1",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "step_index":"1",
-                "clustering_status":str(status),
-                "request_id":requestId,
-                "encrypted_matrix_id":encrypted_matrix_id,
-                "encrypted_matrix_shape":"({},{},{})".format(r,a,m),
-                "encrypted_matrix_dtype":"float64", 
-                "num_chunks":num_chunks,
-                "iterations":iterations,
-                "k":k, 
-                "m":m, 
-                "experiment_iteration":experiment_iteration,
-                "max_iterations":MAX_ITERATIONS,
-                "status":worker_run1_status,
-                "worker_service_time": run1_service_time,
-                "n_iterations":run1_n_iterations,
-                "response_time":time.time() - inner_interaction_arrival_time
-            })
+            run1_worker_entry = ExperimentLogEntry(
+                event          = "SKMEANS.RUN1",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = inner_interaction_arrival_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = run1_n_iterations
+            )
+            logger.info(run1_worker_entry.model_dump())
+
             
        
             encrypted_shift_matrix_start_time = time.time()
@@ -527,39 +599,46 @@ async def skmeans():
                 key       = encrypted_shift_matrix_id,
                 bucket_id = BUCKET_ID
             )
-            logger.info({
-                "event":"GET.MATRIX.OR.ERROR",
-                "bucket_id":BUCKET_ID,
-                "key":encrypted_shift_matrix_id,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "algorithm":algorithm,
-                "service_time": time.time() - encrypted_shift_matrix_start_time
-            })
-            
-            # encrypted_shift_matrix = encryptedShiftMatrix_get_response.value
-            
-            logger.debug({
-                "event":"DECRYPT.BEFORE",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "m":m,
-                "shape":str(encrypted_shift_matrix.shape),
-                "dtype":str(encrypted_shift_matrix.dtype)
-            })
+            get_encrypted_sm_entry = ExperimentLogEntry(
+                event          = "GET",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = encrypted_shift_matrix_start_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = 0
+            )
+            logger.info(get_encrypted_sm_entry.model_dump())
+     
 
             decrypt_start_time = time.time()
             shiftMatrix_chipher_schema_res = liu.decryptMatrix( #Shift Matrix is decrypted
                 ciphertext_matrix = encrypted_shift_matrix.tolist(),
                 secret_key        = dataowner.sk,
             )
-            logger.info({
-                "event":"DECRYPT",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "shape":str(encrypted_shift_matrix.shape),
-                "dtype":str(encrypted_shift_matrix.dtype),
-                "service_time":time.time() - decrypt_start_time
-            })
+            decrypt_entry = ExperimentLogEntry(
+                event          = "DECRYPT",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = decrypt_start_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = 0
+            )
+            logger.info(decrypt_entry.model_dump())
+     
 
             shift_matrix    = shiftMatrix_chipher_schema_res.matrix
             shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
@@ -589,17 +668,22 @@ async def skmeans():
                 }
             )
 
-            logger.info({
-                "event":"DELETE.AND.PUT.CHUNKED",
-                "bucket_id":BUCKET_ID,
-                "key":shift_matrix_id,
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "shape":str(shift_matrix.shape),
-                "dtype":str(shift_matrix.dtype),
-                "ok":put_shift_matrix_result.is_ok,
-                "service_time":time.time() -  put_shift_matrix_start_time
-            })
+            put_sm_entry = ExperimentLogEntry(
+                event          = "PUT",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = put_shift_matrix_start_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = 0
+            )
+            logger.info(put_sm_entry.model_dump())
 
             status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
             run2_headers = {
@@ -615,7 +699,8 @@ async def skmeans():
                     "K":str(k),
                     "M":str(m), 
                     "Experiment-Iteration": str(experiment_iteration), 
-                    "Max-Iterations":str(MAX_ITERATIONS) 
+                    "Max-Iterations":str(MAX_ITERATIONS),
+                    "Experiment-Id":experiment_id
             }
             
             worker_run2_response      = worker.run(
@@ -632,43 +717,73 @@ async def skmeans():
             else: 
                 status = int(worker_run2_response.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
             endTime    = time.time() # Get the time when it ends
-            inner_interaction_service_time   = endTime - inner_interaction_arrival_time
             
-            logger.info({
-                "event":"SKMEANS.ITERATION.COMPLETED",
-                "algorithm":algorithm,
-                "plaintext_matrix_id":plaintext_matrix_id,
-                "worker_id":worker_id,
-                "k":k,
-                "m":m,
-                "iterations":iterations,
-                "service_time":inner_interaction_service_time,
-            })
+            skmeans_iteration_completed_entry = ExperimentLogEntry(
+                event          = "ITERATION.COMPLETED",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = inner_interaction_arrival_time,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = 0
+            )
+            logger.info(skmeans_iteration_completed_entry.model_dump())
+            # logger.info({
+            #     "event":"SKMEANS.ITERATION.COMPLETED",
+            #     "algorithm":algorithm,
+            #     "plaintext_matrix_id":plaintext_matrix_id,
+            #     "worker_id":worker_id,
+            #     "k":k,
+            #     "m":m,
+            #     "iterations":iterations,
+            #     "service_time":inner_interaction_service_time,
+            # })
 
         interaction_end_time     = time.time()
         interaction_service_time = interaction_end_time - interaction_arrival_time 
         worker_response_time     = endTime - worker_start_time
         response_time            = endTime - arrivalTime 
 
-        logger.info({
-            "event":"SKMEANS.COMPLETED",
-            "algorithm":algorithm,
-            "plaintext_matrix_id":plaintext_matrix_id,
-            "encrypted_matrix_id":encrypted_matrix_id,
-            "num_chunks":num_chunks,
-            "worker_id":worker_id,
-            "k":k,
-            "m":m,
-            "n_iterations":iterations, 
-            "max_iterations":MAX_ITERATIONS,
-            "service_time_encrypted_matrix":seg_encry_rt,
-            "service_time_dm_generation":udm_gen_st,
-            "service_time_manager":get_worker_service_time,
-            "service_time_worker":worker_response_time,
-            "service_time_client":service_time_client,
-            "response_time_clustering":response_time,
-            "iterations_service_time":interaction_service_time
-        })
+        clustering_completed_entry = ExperimentLogEntry(
+                event          = "CLUSTERING",
+                experiment_id  = experiment_id,
+                algorithm      = algorithm,
+                start_time     = arrivalTime,
+                end_time       = time.time(),
+                id             = plaintext_matrix_id,
+                worker_id      = worker_id,
+                num_chunks     = num_chunks,
+                k              = k,
+                workers        = max_workers,
+                security_level = security_level,
+                m              = m,
+                iterations     = iterations
+            )
+        logger.info(clustering_completed_entry.model_dump())
+        #     "event":"SKMEANS.COMPLETED",
+        #     "algorithm":algorithm,
+        #     "plaintext_matrix_id":plaintext_matrix_id,
+        #     "encrypted_matrix_id":encrypted_matrix_id,
+        #     "num_chunks":num_chunks,
+        #     "worker_id":worker_id,
+        #     "k":k,
+        #     "m":m,
+        #     "n_iterations":iterations, 
+        #     "max_iterations":MAX_ITERATIONS,
+        #     "service_time_encrypted_matrix":seg_encry_rt,
+        #     "service_time_dm_generation":udm_gen_st,
+        #     "service_time_manager":get_worker_service_time,
+        #     "service_time_worker":worker_response_time,
+        #     "service_time_client":service_time_client,
+        #     "response_time_clustering":response_time,
+        #     "iterations_service_time":interaction_service_time
+        # })
 
         return Response(
             response = json.dumps({
