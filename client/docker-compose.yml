@@ -5,6 +5,7 @@ services:
     hostname: rory-client-0
     ports:
       - 3000:3000
+    # env_file:""
     environment:
       - RORY_DEBUG=0
       - NODE_ID=rory-client-0

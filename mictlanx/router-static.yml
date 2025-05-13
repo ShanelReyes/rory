@@ -1,0 +1,216 @@
+services:
+  
+  mictlanx-router-0:
+    image: nachocode/mictlanx:router-0.0.161a10
+    container_name: mictlanx-router-0
+    environment:
+      - MICTLANX_DAEMON_HOSTNAME=mictlanx-rm
+      - MICTLANX_DAEMON_PORT=5555
+      - MICTLANX_DAEMON_PROTOCOL=tcp
+      - LOG_PATH=${LOG_PATH:-/log}
+      - MICTLANX_ROUTER_HOST=${MICTLANX_ROUTER_HOST:-localhost}
+      - MICTLANX_ROUTER_PORT=${MICTLANX_ROUTER_PORT:-60666}
+      - MICTLANX_ROUTER_MAX_WORKERS=${MICTLANX_ROUTER_MAX_WORKERS:-4}
+      - MICTLANX_ROUTER_LB_ALGORITHM=${MICTLANX_ROUTER_LB_ALGORITHM:-ROUND_ROBIN}
+      - MICTLANX_ROUTER_LOG_NAME=${MICTLANX_ROUTER_LOG_NAME:-mictlanx-router-0}
+      - MICTLANX_ROUTER_LOG_INTERVAL=${MICTLANX_ROUTER_LOG_INTERVAL:-24}
+      - MICTLANX_ROUTER_LOG_WHEN=${MICTLANX_ROUTER_LOG_WHEN:-h}
+      - MICTLANX_ROUTER_LOG_SHOW=${MICTLANX_ROUTER_LOG_SHOW:-1}
+      - MICTLANX_ROUTER_REPLICATOR_QUEUE_MAXSIZE=${MICTLANX_ROUTER_REPLICATOR_QUEUE_MAXSIZE:-100}
+      - MICTLANX_ROUTER_PEER_HEALER_HEARTBEAT=${MICTLANX_ROUTER_PEER_HEALER_HEARTBEAT:-1m}
+      - MICTLANX_ROUTER_REPLICATOR_QUEUE_TIMEOUT=${MICTLANX_ROUTER_REPLICATOR_QUEUE_TIMEOUT:-30s}
+      - MICTLANX_ROUTER_SYNC_FAST=${MICTLANX_ROUTER_SYNC_FAST:-1}
+      - MICTLANX_ROUTER_MAX_PEERS=${MICTLANX_ROUTER_MAX_PEERS:-10}
+      - MICTLANX_ROUTER_MAX_TTL=${MICTLANX_ROUTER_MAX_TTL:-3}
+      - MICTLANX_ROUTER_AVAILABLE_NODES=${MICTLANX_ROUTER_AVAILABLE_NODES:-0;1;2;3;4;5;6;7;8;9;10}
+      - MICTLANX_ROUTER_MAX_AFTER_ELASTICITY=${MICTLANX_ROUTER_MAX_AFTER_ELASTICITY:-10}
+      - MICTLANX_ROUTER_SHOW_REPLICATOR_LOGS=${MICTLANX_ROUTER_SHOW_REPLICATOR_LOGS:-1}
+      - MICTLANX_ROUTER_MAX_TRIES=${MICTLANX_ROUTER_MAX_TRIES:-60}
+      - MICTLANX_ROUTER_MAX_TASKS=${MICTLANX_ROUTER_MAX_TASKS:-100}
+      - MICTLANX_ROUTER_MAX_CONCURRENCY=${MICTLANX_ROUTER_MAX_CONCURRENCY:-5}
+      - MICTLANX_ROUTER_MAX_PEERS_RF=${MICTLANX_ROUTER_MAX_PEERS_RF:-5}
+      - MICTLANX_ROUTER_NETWORK_ID=${MICTLANX_ROUTER_NETWORK_ID:-mictlanx}
+      - MICTLANX_ROUTER_BASE_PROTOCOL=${MICTLANX_ROUTER_BASE_PROTOCOL:-http}
+
+      - MICTLANX_PEERS=${MICTLANX_PEERS:-mictlanx-peer-0:mictlanx-peer-0:25000 mictlanx-peer-1:mictlanx-peer-1:25001 mictlanx-peer-2:mictlanx-peer-2:25002}
+      - MICTLANX_PROTOCOL=${MICTLANX_PROTOCOL:-http}
+      - MICTLANX_API_VERSION=${MICTLANX_API_VERSION:-4}
+      - MICTLANX_TIMEOUT=${MICTLANX_TIMEOUT:-3600}
+
+      - MICTLANX_SUMMONER_API_VERSION=${MICTLANX_SUMMONER_API_VERSION:-3}
+      - MICTLANX_SUMMONER_IP_ADDR=${MICTLANX_SUMMONER_IP_ADDR:-mictlanx-summoner-0}
+      - MICTLANX_SUMMONER_PORT=${MICTLANX_SUMMONER_PORT:-15000}
+      - MICTLANX_SUMMONER_MODE=${MICTLANX_SUMMONER_MODE:-docker}
+      - MICTLANX_SUMMONER_SUBNET=${MICTLANX_SUMMONER_SUBNET:-10.0.0.0/25}
+    command: hypercorn mictlanxrouter.server:app --bind ${MICTLANX_ROUTER_HOST-0.0.0.0}:${MICTLANX_ROUTER_PORT-60666} --certfile=/pems/cert.pem --keyfile=/pems/key.pem --workers ${MICTLANX_WORKERS_ROUTER-4}
+    ports:
+      - ${MICTLANX_ROUTER_PORT-60666}:${MICTLANX_ROUTER_PORT-60666}
+    volumes:
+      - mictlanx-router-0_logs:/log
+      - ./peers.json:/app/peers.json
+      - ./pems:/pems:ro
+    networks:
+      - mictlanx
+    restart: unless-stopped
+
+  mictlanx-rm:
+    image: nachocode/mictlanx:rm-0.0.161a7
+    container_name: "mictlanx-rm"
+    environment:
+      MICTLANX_PEERS_PROTOCOL: "http"
+      PEERS: "mictlanx-peer-0:mictlanx-peer-0:25000 mictlanx-peer-1:mictlanx-peer-1:25001 mictlanx-peer-2:mictlanx-peer-2:25002"
+      MICTLANX_PORT: "5555"
+      MICTLANX_IP_ADDR: "*"
+      MICTLANX_PROTOCOL: "tcp"
+      MICTLANX_DEBUG: "0"
+      LOCAL_STORE_PATH: "/mictlanx/db/x.json"
+      STORAGE_PEER_MANAGER_SHOW_LOGS: "INFO"
+      DEFAULT_PEER_MEMORY: "2GB"
+      DEFAULT_PEER_DISK: "100GB"
+      DEFAULT_PEER_CPU: "1"
+      
+      SUMMONER_IP_ADDR: "mictlanx-summoner-0"
+      SUMMONER_PROTOCOL: "http"
+      SUMMONER_PORT: "15000"
+      SUMMONER_API_VERSION: "3"
+      # SPM
+      DAEMON_TICK_TIMEOUT: "10s"
+      # HANDSHAKE
+      MAX_TIMEOUT_PEERS_HANDSHAKE: "1m"
+      # Recover
+      RECOVER_TICK_TIMEOUT: "1m"
+      MAX_RECOVER_TIME_UNTIL_RESTART: "30s"
+      # Get stats
+      MAX_TIMEOUT_TO_GET_STATS: "1m"
+      ## useless 
+      TICK_PEERS_HANDSHAKE: "5s"
+      MAX_TIMEOUT_TO_RECOVER: "30s"
+
+      MAX_RETRIES: "2"
+      MAX_IDLE_TIME: "10s"
+      QUEUE_TICK_TIMEOUT: "5s"
+      SUMMONER_BASE_PORT: "25000"
+      SUMMONER_BASE_PROTOCOL: "http"
+      SUMMONER_PHYSICAL_NODES_INDEXES: "0,2,3,4,5,6,7,8,9"
+      DEBUG: "True"
+      SUMMONER_MODE: "docker"
+      PEERS_CONFIG_PATH: ""
+      MAX_TIMEOUT_TO_SAVE_PEER_CONFIG: "30min"
+      PEER_ELASTIC: "True"
+      SUMMONER_PEER_DOCKER_IMAGE: "nachocode/mictlanx:peer-0.0.161-alpha.0"
+      PEER_MIN_INTERVAL_TIME: "5"
+      PEER_MAX_INTERVAL_TIME: "20"
+      SUMMONER_NETWORK_ID: "mictlanx"
+    command: python3 main.py
+    ports:
+      - "5555:5555"
+    volumes:
+      - mictlanxrmdb:/mictlanx/db
+    networks:
+      - mictlanx
+
+  mictlanx-peer-0:
+    container_name: mictlanx-peer-0
+    image: "nachocode/mictlanx:peer-0.0.160-alpha.1"
+    hostname: mictlanx-peer-0
+    environment:
+      USER_ID: "6666"
+      GROUP_ID: "6666"
+      BIN_NAME: "peer"
+      NODE_ID: "mictlanx-peer-0"
+      NODE_PORT: "25000"
+      IP_ADDRESS: "mictlanx-peer-0"
+      SERVER_IP_ADDR: "0.0.0.0"
+      NODE_DISK_CAPACITY: "100000000000"
+      NODE_MEMORY_CAPACITY: "4294967296"
+      BASE_PATH: "/app/mictlanx"
+      LOCAL_PATH: "/app/mictlanx/local"
+      DATA_PATH: "/app/mictlanx/data"
+      LOG_PATH: "/app/mictlanx/log"
+      MIN_INTERVAL_TIME: "5"
+      MAX_INTERVAL_TIME: "20"
+      WORKERS: "4"
+      ELASTIC: "true"
+      NODE_IP_ADDR: "0.0.0.0"
+      PEERS: ""
+    ports:
+      - "25000:25000"
+    volumes:
+      - mictlanx-peer-0:/app/mictlanx
+    networks:
+      - mictlanx
+
+  mictlanx-peer-1:
+    container_name: mictlanx-peer-1
+    image: "nachocode/mictlanx:peer-0.0.160-alpha.1"
+    hostname: mictlanx-peer-1
+    environment:
+      USER_ID: "6666"
+      GROUP_ID: "6666"
+      BIN_NAME: "peer"
+      NODE_ID: "mictlanx-peer-1"
+      NODE_PORT: "25001"
+      IP_ADDRESS: "mictlanx-peer-1"
+      SERVER_IP_ADDR: "0.0.0.0"
+      NODE_DISK_CAPACITY: "100000000000"
+      NODE_MEMORY_CAPACITY: "4294967296"
+      BASE_PATH: "/app/mictlanx"
+      LOCAL_PATH: "/app/mictlanx/local"
+      DATA_PATH: "/app/mictlanx/data"
+      LOG_PATH: "/app/mictlanx/log"
+      MIN_INTERVAL_TIME: "5"
+      MAX_INTERVAL_TIME: "20"
+      WORKERS: "4"
+      ELASTIC: "true"
+      NODE_IP_ADDR: "0.0.0.0"
+      PEERS: ""
+    ports:
+      - "25001:25001"
+    volumes:
+      - mictlanx-peer-1:/app/mictlanx
+    networks:
+      - mictlanx
+
+
+  mictlanx-peer-2:
+    container_name: mictlanx-peer-2
+    image: "nachocode/mictlanx:peer-0.0.160-alpha.1"
+    hostname: mictlanx-peer-2
+    environment:
+      USER_ID: "6666"
+      GROUP_ID: "6666"
+      BIN_NAME: "peer"
+      NODE_ID: "mictlanx-peer-2"
+      NODE_PORT: "25002"
+      IP_ADDRESS: "mictlanx-peer-2"
+      SERVER_IP_ADDR: "0.0.0.0"
+      NODE_DISK_CAPACITY: "100000000000"
+      NODE_MEMORY_CAPACITY: "4294967296"
+      BASE_PATH: "/app/mictlanx"
+      LOCAL_PATH: "/app/mictlanx/local"
+      DATA_PATH: "/app/mictlanx/data"
+      LOG_PATH: "/app/mictlanx/log"
+      MIN_INTERVAL_TIME: "5"
+      MAX_INTERVAL_TIME: "20"
+      WORKERS: "4"
+      ELASTIC: "true"
+      NODE_IP_ADDR: "0.0.0.0"
+      PEERS: ""
+    ports:
+      - "25002:25002"
+    volumes:
+      - mictlanx-peer-2:/app/mictlanx
+    networks:
+      - mictlanx
+
+volumes:
+  mictlanx-router-0_logs:
+  mictlanx-peer-0:
+  mictlanx-peer-1:
+  mictlanx-peer-2:
+  mictlanx-summoner-0:
+  mictlanxrmdb: 
+
+networks:
+  mictlanx:
+    external: true

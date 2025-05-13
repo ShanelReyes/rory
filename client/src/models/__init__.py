@@ -1,5 +1,6 @@
 from pydantic import BaseModel,field_validator,model_validator
 from typing import Optional
+
 class ExperimentLogEntry(BaseModel):
     event:str
     experiment_id:str
@@ -15,6 +16,9 @@ class ExperimentLogEntry(BaseModel):
     iterations:Optional[int] =0
     security_level:Optional[int] = -1
     m:Optional[int] = 0
+    worker_time:Optional[float] = 0
+    client_time:Optional[float] = 0
+    manager_time:Optional[float] = 0
 
     @model_validator(mode='after')
     def compute_time(self) -> 'ExperimentLogEntry':

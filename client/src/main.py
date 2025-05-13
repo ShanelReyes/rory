@@ -73,16 +73,16 @@ MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2C
 MICTLANX_BUCKET_ID           = os.environ.get("MICTLANX_BUCKET_ID","rory") 
 MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
 
-STORAGE_CLIENT = Client(
-    client_id       = MICTLANX_CLIENT_ID,
-    bucket_id       = MICTLANX_BUCKET_ID,
-    routers         = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="http")),
-    max_workers     = MICTLANX_MAX_WORKERS,
-    lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-    debug           = MICTLANX_DISABLED_LOG,
-    log_output_path = MICTLANX_OUTPUT_PATH, 
+# STORAGE_CLIENT = Client(
+#     client_id       = MICTLANX_CLIENT_ID,
+#     bucket_id       = MICTLANX_BUCKET_ID,
+#     routers         = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="http")),
+#     max_workers     = MICTLANX_MAX_WORKERS,
+#     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
+#     debug           = MICTLANX_DISABLED_LOG,
+#     log_output_path = MICTLANX_OUTPUT_PATH, 
  
-)
+# )
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id=MICTLANX_CLIENT_ID,
     capacity_storage="200mb",
@@ -154,7 +154,7 @@ def create_app(*args):
         current_app.config["NODE_ID"]            = NODE_ID
         current_app.config["LOG_PATH"]           = LOG_PATH
         current_app.config["MAX_ITERATIONS"]     = MAX_ITERATIONS
-        current_app.config["STORAGE_CLIENT"]       = STORAGE_CLIENT
+        # current_app.config["STORAGE_CLIENT"]       = STORAGE_CLIENT
         current_app.config["ASYNC_STORAGE_CLIENT"] = ASYNC_STORAGE_CLIENT
         current_app.config["TESTING"]            = TESTING
         current_app.config["NUM_CHUNKS"]         = NUM_CHUNKS
@@ -194,5 +194,5 @@ if __name__ == 'main' or __name__ == "__main__":
             "msg":str(e)
         })
         executor.shutdown()
-        STORAGE_CLIENT.shutdown()
+        # STORAGE_CLIENT.shutdown()
         sys.exit(1)

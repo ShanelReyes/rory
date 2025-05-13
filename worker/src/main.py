@@ -37,38 +37,22 @@ except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID" "APP_ID")
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
+MICTLANX_ROUTERS             = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
-MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
-MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
-MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
-
+MICTLANX_PROTOCOL            = os.environ.get("MICTLANX_PROTOCOL","https")
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id=MICTLANX_CLIENT_ID,
     capacity_storage="200mb",
     debug=False,
     eviction_policy="LRU",
     max_workers= MICTLANX_MAX_WORKERS,
-    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="https")),
+    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
     verify=False
 )
-STORAGE_CLIENT  = Client(
-    client_id       = MICTLANX_CLIENT_ID,
-    routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
-    debug           = MICTLANX_DEBUG,
-    max_workers     = MICTLANX_MAX_WORKERS,
-    lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-    bucket_id       = os.environ.get("MICTLANX_BUCKET_ID","rory"),
-    log_output_path = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
-)
+
 
 def console_handler_filter(record:logging.LogRecord):
     if DEBUG:
@@ -103,7 +87,6 @@ def create_app():
         current_app.config["NODE_ID"]          = NODE_ID
         current_app.config["events"]           = {}
         current_app.config["LOG_PATH"]         = LOG_PATH
-        current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
         current_app.config["ASYNC_STORAGE_CLIENT"] = ASYNC_STORAGE_CLIENT
         current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
         current_app.config["DISTANCE"]         = DISTANCE

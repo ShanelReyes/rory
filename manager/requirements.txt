@@ -1,25 +1,8 @@
-numpy==1.23.2
-Flask==3.0.0
-
-# Pyfhel
-Pyfhel==3.4.2
-
-# MictlanX & Xolo
-durations==0.3.3
-ipaddress==1.0.23
-nanoid==2.0.0
-option==2.1.0
-python-dotenv==1.0.1
-requests==2.31.0
-retry==0.9.2
-humanfriendly==10.0
-cryptography==42.0.5
-pycryptodome==3.20.0
+Flask[async]==3.0.0
+scikit-learn==1.6.1
 gunicorn==21.2.0
-httpx==0.28.1
 
 --extra-index-url https://test.pypi.org/simple/ 
-xolo==0.0.8a12
-# mictlanx==0.0.138
-mictlanx @ https://test-files.pythonhosted.org/packages/0a/25/8c62215bee899f155f5cf9a280b958e08902501e30cd9b2e0f14c9f25e92/mictlanx-0.0.161a27.tar.gz#sha256=55224cf613e2d7d6a6e266faea37a8f6009101c4bd222912d91aed084a9c0514
-rory @ https://test-files.pythonhosted.org/packages/5e/26/6e980b51e4e864c4615486ad89b8dfe697297caaf2c7f133cc5742760e8b/rory-0.0.192.tar.gz
+mictlanx==0.0.161a29
+rory==0.0.202
+# roryclient==0.1.2

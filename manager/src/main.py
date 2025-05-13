@@ -102,6 +102,7 @@ if init_workers > 0:
         "routers":MICTLANX_ROUTERS,
         "swarm_nodes":",".join(SWARM_NODES)
     })
+    
     deploy_nodes_result = deploy_nodes(
         log= LOGGER,
         summoner                     = REPLICATOR,

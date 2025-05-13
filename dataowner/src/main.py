@@ -1,12 +1,12 @@
 import sys
 import os
-import requests 
+# import requests 
 import pandas as pd
 import logging
 import time
 import numpy as np
 from rory.core.interfaces.client_response import ClientResponse
-from rory.core.logger.Logger import create_logger
+# from rory.core.logger.Logger import create_logger
 from option import Some
 import numpy.typing as npt
 from dotenv import load_dotenv
@@ -21,8 +21,17 @@ import json
 from mictlanx.logger.log import Log
 import string
 from nanoid import generate as nanogenerate
+from roryclient.client import RoryClient
+import time as T
 
-load_dotenv()
+RORY_CLIENT_HOSTNAME = os.environ.get("RORY_CLIENT_HOSTNAME","localhost")
+RORY_CLIENT_PORT = int(os.environ.get("RORY_CLIENT_PORT","3001"))
+
+client = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT)
+
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/home/sreyes/rory/dataowner/envs/.env-kmeans") 
+if os.path.exists(ENV_FILE_PATH):
+    load_dotenv(ENV_FILE_PATH)
 
 NODE_ID                   = os.environ.get("NODE_ID","rory-dataowner-0") 
 CLIENT_ID                 = os.environ.get("CLIENT_ID","rory-client-0")
@@ -71,237 +80,119 @@ def write_to_file(filename:str, lv:npt.NDArray):
     except Exception as e:
         LOGGER.error(str(e))
 
-def client_request(row:pd.Series,url:str,headers:Dict[str,str], timeout:int = 300):
-    try:
-        response = requests.post(
-            url     = url,
-            headers = headers,
-            timeout = timeout
-        )
-        response.raise_for_status()
-        return response
-    except Exception as e:
-        raise e
-
-def clustering_experiment(row:pd.Series,current_experiment_iteration:int):
-    try:
-        arrival_time      = time.time()
-        id_nanoid         = nanogenerate(size=4,alphabet=string.ascii_lowercase)
-        plainTextMatrixId = str(row["DATASET_ID"])
-        sens              = row.get("SENS","0.00001")
-        max_iterations    = row.get("MAX_ITERATIONS","10")
-        k                 = row.get("K","2")
-        threshold         = row.get("THRESHOLD",-1)
-
-        LOGGER.debug({
-            "event":"CLUSTERING.STARTED",
-            "algorithm":ALGORITHM,
-            "operation_id": id_nanoid,
-            "matrix_id":plainTextMatrixId,
-            "clustering_max_iterations": max_iterations,
-            "k": k,
-            "sens":sens,
-            "current_iterations":current_experiment_iteration,
-            "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
-        })
-        
-        headers = {
-            "Plaintext-Matrix-Id": "{}{}".format(plainTextMatrixId,current_experiment_iteration),
-            "Plaintext-Matrix-Filename":plainTextMatrixId,
-            "K": str(k),
-            "Sens": str(sens),
-            "Extension": DATASET_EXTENSION,
-            "Client-Id": CLIENT_ID,
-            "Max-Iterations": str(max_iterations),
-            "Experiment-Iteration": str(current_experiment_iteration),
-            "Threshold":str(threshold)
-        }
-
-        url = "http://{}:{}/clustering/{}".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
-
-        _response   = client_request(
-            row     = row,
-            url     = url,
-            headers = headers, 
-            timeout = CLIENT_TIMEOUT
-        )
-        _response.raise_for_status()
-        label_vector_id = "{}{}{}".format(plainTextMatrixId,ALGORITHM,current_experiment_iteration)
-
-        stringClientResponse  = _response.content.decode("utf-8") #Response from worker
-        jsonClientResponse    = json.loads(stringClientResponse) #pass to json
-        labelVector             = jsonClientResponse["label_vector"]
-        service_time_manager    = jsonClientResponse["service_time_manager"]
-        service_time_worker     = jsonClientResponse["service_time_worker"]
-        service_time_client     = jsonClientResponse["service_time_client"]
-        service_time_clustering = jsonClientResponse["response_time_clustering"]
-        worker_id               = jsonClientResponse["worker_id"]
-        
-
-
-        write_to_file(label_vector_id,labelVector)
-        end_time       = time.time() # Get the time when it ends
-        response_time = end_time - arrival_time 
-
-        LOGGER.info({
-            "event":"CLUSTERING.COMPLETED",
-            "matrix_id":plainTextMatrixId,
-            "algorithm":ALGORITHM,
-            "arrival_time":arrival_time,
-            "end_time":end_time,
-            "response_time":response_time,
-            "worker_id":worker_id,
-            "current_iteration":current_experiment_iteration,
-            "max_iterations":max_iterations,
-            "service_time_manager":service_time_manager,
-            "service_time_worker":service_time_worker,
-            "service_time_client":service_time_client,
-            "response_time_client":service_time_clustering
-        })
-        
-        print("_"*40)
-        return Ok((row,_response,current_experiment_iteration))
-    except R.exceptions.RequestException as e:
-        LOGGER.error({
-            "msg":"Something went wrong with the request",
-            "detail":str(e)
-        })
-        return Err((row, e, current_experiment_iteration))
-    except Exception as e:
-        LOGGER.error({
-            "msg":"Uknown exception",
-            "detail":str(e)
-        })
-        return Err((row,e,current_experiment_iteration))
-
-def classification_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,Exception, int]]:
-    try:
-        arrivalTime         = time.time()
-        id_nanoid           = nanogenerate(size=4,alphabet=string.ascii_lowercase)
-        matrixId            = str(row["DATASET_ID"]) #fertility
-        modelId             = "{}{}{}".format(matrixId,current_experiment_iteration,id_nanoid) #fertility-0
-        modelFilename       = "{}model".format(matrixId) #fertility_model
-        modelLabelsFilename = "{}labels".format(modelFilename) #fertility_model_labels
-        recordsTestId       = "{}{}data{}".format(matrixId,current_experiment_iteration,id_nanoid) #fertility-0_data
-        recordsTestFilename = "{}data".format(matrixId) #fertility_data
-        
-        LOGGER.debug({
-            "event":"CLASSIFICATION.TRAIN.STARTED",
-            "algorithm":ALGORITHM,
-            "matrix_id":matrixId,
-            "model_id":modelId,
-            "model_filename":modelFilename,
-            "model-labels_filename":modelLabelsFilename,
-            "records_test_id":recordsTestId,
-            "records_test_filename":recordsTestFilename,
-            "current_experiment_iteration":current_experiment_iteration,
-            "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
-        })
-            
-        headers = {
-            "Model-Id": modelId,
-            "Model-Filename":modelFilename, #fertility_model
-            "Model-Labels-Filename":modelLabelsFilename,
-            "Extension": DATASET_EXTENSION,
-            "Client-Id": CLIENT_ID,
-            "Experiment-Iteration": str(current_experiment_iteration)
-        }
-
-        url_train = "http://{}:{}/classification/{}/train".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
-
-        _response   = client_request(
-            row     = row,
-            url     = url_train,
-            headers = headers, 
-            timeout = CLIENT_TIMEOUT
-        )
-        _response.raise_for_status()
-        stringClientResponse  = _response.content.decode("utf-8") #Response from worker
-        jsonClientResponse    = json.loads(stringClientResponse) #pass to json
-        encrypted_model_shape = jsonClientResponse.get("encrypted_model_shape",0)
-        encrypted_model_Dtype = jsonClientResponse.get("encrypted_model_dtype",0)
-        service_time_train    = jsonClientResponse.get("response_time",0)
-
-        LOGGER.debug({
-            "event":"CLASSIFICATION.PREDICT.STARTED",
-            "algorithm":ALGORITHM,
-            "matrix_id":matrixId,
-            "model_id":modelId,
-            "model_filename":modelFilename,
-            "model-labels_filename":modelLabelsFilename,
-            "records_test_id":recordsTestId,
-            "records_test_filename":recordsTestFilename,
-            "encrypted_model_shape":str(encrypted_model_shape),
-            "encrypted_model_dtype":str(encrypted_model_Dtype),
-            "current_experiment_iteration":current_experiment_iteration,
-            "experiment_max_iterations": MAX_EXPERIMENT_ITERATIONS,
-            "train_service_time":service_time_train
-        })
-        headers_pred = {
-            "Model-Id": modelId,
-            "Model-Filename":modelFilename,
-            "Model-Labels-Filename":modelLabelsFilename,
-            "Records-Test-Id": recordsTestId,
-            "Records-Test-Filename":recordsTestFilename,
-            "Extension": DATASET_EXTENSION,
-            "Client-Id": CLIENT_ID,
-            "Experiment-Iteration": str(current_experiment_iteration),
-            "Encrypted-Model-Shape": str(encrypted_model_shape),
-            "Encrypted-Model-Dtype": str(encrypted_model_Dtype)
-
-        }
-        url_predict = "http://{}:{}/classification/{}/predict".format(CLIENT_IP_ADDR,CLIENT_PORT,ALGORITHM.lower())
-        _response   = client_request(
-            row     = row,
-            url     = url_predict,
-            headers = headers_pred, 
-            timeout = CLIENT_TIMEOUT
-        )
-
-        stringClient2Response = _response.content.decode("utf-8") #Response from worker
-        jsonClient2Response   = json.loads(stringClient2Response) #pass to json
-        labelVectorId         = "{}{}{}".format(matrixId,ALGORITHM,current_experiment_iteration)
-        labelVector           = jsonClient2Response["label_vector"]
-        service_time_manager  = jsonClient2Response["service_time_manager"]
-        service_time_worker   = jsonClient2Response["service_time_worker"]
-        service_time_client   = jsonClient2Response["service_time_client"]
-        service_time_predict  = jsonClient2Response["service_time_predict"]
-        worker_id             = jsonClient2Response["worker_id"]
-        
-        write_to_file(labelVectorId,labelVector)
-        endTime       = time.time() # Get the time when it ends
-        response_time = endTime - arrivalTime 
-        
-        LOGGER.info({
-            "event":"CLASSIFICATION.COMPLETED",
-            "algorithm":ALGORITHM,
-            "matrix_id":matrixId,
-            "model_id":modelId,
-            "worker_id":worker_id,
-            "record_test_id":recordsTestId,
-            "experiment_iteration": current_experiment_iteration,
-            "arrival_time":arrivalTime,
-            "end_time":endTime,
-            "service_time_manager":service_time_manager,
-            "service_time_worker":service_time_worker,
-            "service_time_train":service_time_train,
-            "service_time_client_predict":service_time_client,
-            "service_time_predict":service_time_predict,
-            "response_time":response_time
-        })
-        print("_"*40)
-        return Ok((row, R.Response(),current_experiment_iteration))
-    except Exception as e:
-        LOGGER.error("DATAOWNER_ERROR "+str(e))
-        return Err((row,Exception,current_experiment_iteration))
-
 def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
-    algorithm = row["ALGORITHM"]
-    if algorithm == "KNN" or  algorithm =="SKNN":
-        return classification_experiment(row=row, current_experiment_iteration=current_experiment_iteration)
-    else:
-        return clustering_experiment(row=row, current_experiment_iteration=current_experiment_iteration)
 
+    algorithm           = row["ALGORITHM"]
+    TASK_ID             = os.environ.get("TASK_ID","CLUSTERING")
+    plaintext_matrix_id = row.get("DATASET_ID","")
+    model_id            = row.get("MODEL_ID","")
+    label_vector_id     = "{}{}{}".format( plaintext_matrix_id if TASK_ID == "CLUSTERING" else model_id ,algorithm,current_experiment_iteration)
+
+    if algorithm == "KMEANS":
+        result = client.kmeans(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            k                         = row["K"],
+            num_chunks                = row["NUM_CHUNKS"],   
+        )
+    elif algorithm == "SKMEANS":
+        result = client.skmeans(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            k                         = row["K"],
+            num_chunks                = row["NUM_CHUNKS"],
+            max_iterations            = row["MAX_ITERATIONS"],
+            experiment_iteration      = current_experiment_iteration,            
+        )
+    elif algorithm == "DBSKMEANS":
+        result = client.dbskmeans(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            k                         = row["K"],
+            num_chunks                = row["NUM_CHUNKS"],
+            max_iterations            = row["MAX_ITERATIONS"],
+            sens                      = row["SENS"],
+            experiment_iteration      = current_experiment_iteration,            
+        )
+    elif algorithm == "SKMEANSPQC":
+        result = client.skmeans_pqc(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            k                         = row["K"],
+            num_chunks                = row["NUM_CHUNKS"],
+            max_iterations            = row["MAX_ITERATIONS"],
+            experiment_iteration      = current_experiment_iteration,            
+        )
+    elif algorithm == "DBSKMEANSPQC":
+        result = client.dbskmeans_pqc(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            k                         = row["K"],
+            num_chunks                = row["NUM_CHUNKS"],
+            max_iterations            = row["MAX_ITERATIONS"],
+            sens                      = row["SENS"],
+            experiment_iteration      = current_experiment_iteration,            
+        )
+    elif algorithm == "NNC":
+        result = client.nnc(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            threshold                 = row["THRESHOLD"]          
+        )
+    elif algorithm == "DBSNNC":
+        result = client.dbsnnc(
+            plaintext_matrix_id       = plaintext_matrix_id,
+            plaintext_matrix_filename = row["DATASET_FILENAME"],
+            extension                 = row["EXTENSION"],
+            threshold                 = row["THRESHOLD"],
+            num_chunks                = row["NUM_CHUNKS"],
+            sens                      = row["SENS"],        
+        )
+    elif algorithm == "KNN":
+        result = client.knn(
+            model_id              = model_id,
+            model_filename        = row["MODEL_FILENAME"],
+            model_labels_filename = row["MODEL_LABELS_FILENAME"],
+            record_test_id        = row["record_test_id"],
+            record_test_filename  = row["record_test_filename"],
+            extension             = row["EXTENSION"],
+        )
+    elif algorithm == "SKNN":
+        result = client.sknn(
+            model_id              = model_id,
+            model_filename        = row["MODEL_FILENAME"],
+            model_labels_filename = row["MODEL_LABELS_FILENAME"],
+            record_test_id        = row["record_test_id"],
+            record_test_filename  = row["record_test_filename"],
+            num_chunks            = row["NUM_CHUNKS"],
+            extension             = row["EXTENSION"],
+        )
+    elif algorithm == "SKNNPQC":
+        result = client.sknn_pqc(
+            model_id              = model_id,
+            model_filename        = row["MODEL_FILENAME"],
+            model_labels_filename = row["MODEL_LABELS_FILENAME"],
+            record_test_id        = row["record_test_id"],
+            record_test_filename  = row["record_test_filename"],
+            num_chunks            = row["NUM_CHUNKS"],
+            extension             = row["EXTENSION"],
+        )
+    else:
+        print("UNKNOWN ALGORITM", algorithm)
+        return Err((row, Exception("Unknown algorithm"), current_experiment_iteration))
+    
+    if result.is_err:
+        return Err((row, result.unwrap_err(), current_experiment_iteration))
+    response    = result.unwrap()
+    labelVector = response.label_vector
+    write_to_file(label_vector_id,labelVector)    
+    return Ok((row, current_experiment_iteration))
 
 def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, pd.DataFrame]:
     failed_operations:List[pd.Series]  = [] # Lista de operaciones fallidas
@@ -309,14 +200,15 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor: # Configuracion de la THREADPOOL. 
             start_time = time.time() # Tiempo de inicio de la experimentacion.
             for index,row in trace_df.iterrows(): # Iteracion de los registros de la traza.
-                futures    = [] # Lista de futuros (operaciones asincronas/no bloqueantes)
+                futures = [] # Lista de futuros (operaciones asincronas/no bloqueantes)
+                
                 for experiment_iteration in range(max_experiment_iterations): # Cada registro se repetira EXPERIMENT_ITERATION veces
                     fut = executor.submit(run_experiment,row,experiment_iteration) # Lanzar la operacion a un thread utilizando la Thread Pool. 
                     futures.append(fut) # Añadir a la lista de futuros el nuevo futuro.
                     time.sleep(float(row["INTERARRIVAL_TIME"])) # Duerme el thread para esperar INTERARRIVAL_TIME
                 
                 for fut in as_completed(futures): # Espera para completar todos los EXPERIMENT_ITERATIONS 
-                    result:Result[Tuple[pd.Series,R.Response, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
+                    result:Result[Tuple[pd.Series, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
                     
                     if result.is_err: # Si falla                         
                         (failed_row, error_response, experiment_iteration) = result.unwrap_err() # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
@@ -330,7 +222,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                         print("_"*40)
                         failed_operations.append(failed_row) # Añadimos la fila a la lista de operaciones fallidas
                     else:
-                        (_row, _, experiment_iteration) = result.unwrap() # Extrae la parte buena con unwrap()
+                        (_row, experiment_iteration) = result.unwrap() # Extrae la parte buena con unwrap()
                         datasetId = _row["DATASET_ID"] # Mostramos informacion de la operacion exitosa.
                         LOGGER.debug({
                             "event":"DATASET.COMPLETED",
