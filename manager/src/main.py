@@ -65,6 +65,9 @@ MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",0)))
 MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
 MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0)))
+MICTLANX_LOG_PATH            = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
+MICTLANX_LOG_INTERVAL        = os.environ.get("MICTLANX_LOG_INTERVAL","24")
+MICTLANX_LOG_WHEN            = os.environ.get("MICTLANX_LOG_WHEN","h") 
 
 
 REPLICATOR = Summoner(

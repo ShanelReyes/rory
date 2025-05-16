@@ -43,14 +43,21 @@ MICTLANX_ROUTERS             = os.environ.get("MICTLANX_ROUTERS", "mictlanx-rout
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
 MICTLANX_PROTOCOL            = os.environ.get("MICTLANX_PROTOCOL","https")
+MICTLANX_LOG_PATH            = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
+MICTLANX_LOG_INTERVAL        = int(os.environ.get("MICTLANX_LOG_INTERVAL","24"))
+MICTLANX_LOG_WHEN            = os.environ.get("MICTLANX_LOG_WHEN","h") 
+
 ASYNC_STORAGE_CLIENT = AsyncClient(
-    client_id=MICTLANX_CLIENT_ID,
-    capacity_storage="200mb",
-    debug=False,
-    eviction_policy="LRU",
-    max_workers= MICTLANX_MAX_WORKERS,
-    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
-    verify=False
+    client_id        = MICTLANX_CLIENT_ID,
+    capacity_storage = "200mb",
+    debug            = False,
+    eviction_policy  = "LRU",
+    max_workers      = MICTLANX_MAX_WORKERS,
+    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
+    verify           = False,
+    log_output_path  = MICTLANX_LOG_PATH,
+    log_interval     = MICTLANX_LOG_INTERVAL,
+    log_when         = MICTLANX_LOG_WHEN
 )
 
 
@@ -60,8 +67,9 @@ def console_handler_filter(record:logging.LogRecord):
     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
         return True
     else:
-        return False
-    
+        return False   
+
+
 LOGGER = Log(
     name                   = NODE_ID,
     path                   = LOG_PATH,
@@ -69,6 +77,8 @@ LOGGER = Log(
     interval               = 24,
     when                   = "h"
 )
+
+
 
 """
 Description:

@@ -71,26 +71,21 @@ MICTLANX_DISABLED_LOG        = bool(int(os.environ.get("MICTLANX_DISABLED_LOG",0
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
 MICTLANX_BUCKET_ID           = os.environ.get("MICTLANX_BUCKET_ID","rory") 
-MICTLANX_OUTPUT_PATH         = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
+MICTLANX_LOG_PATH            = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
+MICTLANX_LOG_INTERVAL        = int(os.environ.get("MICTLANX_LOG_INTERVAL","24"))
+MICTLANX_LOG_WHEN            = os.environ.get("MICTLANX_LOG_WHEN","h") 
 
-# STORAGE_CLIENT = Client(
-#     client_id       = MICTLANX_CLIENT_ID,
-#     bucket_id       = MICTLANX_BUCKET_ID,
-#     routers         = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="http")),
-#     max_workers     = MICTLANX_MAX_WORKERS,
-#     lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-#     debug           = MICTLANX_DISABLED_LOG,
-#     log_output_path = MICTLANX_OUTPUT_PATH, 
- 
-# )
 ASYNC_STORAGE_CLIENT = AsyncClient(
-    client_id=MICTLANX_CLIENT_ID,
-    capacity_storage="200mb",
-    debug=False,
-    eviction_policy="LRU",
-    max_workers= MICTLANX_MAX_WORKERS,
-    routers=list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="https")),
-    verify=False
+    client_id        = MICTLANX_CLIENT_ID,
+    capacity_storage = "200mb",
+    debug            = False,
+    eviction_policy  = "LRU",
+    max_workers      = MICTLANX_MAX_WORKERS,
+    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol="https")),
+    verify           = False,
+    log_output_path  = MICTLANX_LOG_PATH,
+    log_interval     = MICTLANX_LOG_INTERVAL,
+    log_when         = MICTLANX_LOG_WHEN
 )
 
 MANAGER = RoryManager(
@@ -115,12 +110,12 @@ LOGGER = Log(
 )
 
 LIU  = Liu(
-    _round = LIU_ROUND,
-    decimals = LIU_DECIMALS,
-    secure_random= LIU_SECURE_RANDOM,
-    security_level=LIU_SECURITY_LEVEL,
-    seed= LIU_SEED,
-    use_np_random=LIU_USE_NP_RANDOM
+    _round         = LIU_ROUND,
+    decimals       = LIU_DECIMALS,
+    secure_random  = LIU_SECURE_RANDOM,
+    security_level = LIU_SECURITY_LEVEL,
+    seed           = LIU_SEED,
+    use_np_random  = LIU_USE_NP_RANDOM
 )
 DATAOWNER = DataOwner(
     # m             = M,
