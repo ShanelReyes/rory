@@ -34,19 +34,18 @@ if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
 NODE_ID                   = os.environ.get("NODE_ID","rory-dataowner-0") 
-CLIENT_ID                 = os.environ.get("CLIENT_ID","rory-client-0")
-CLIENT_INDEX              = os.environ.get("CLIENT_INDEX","0")
-CLIENT_PORT               = os.environ.get("CLIENT_PORT",3000)
-CLIENT_IP_ADDR            = os.environ.get("CLIENT_IP_ADDR","localhost")
+# CLIENT_INDEX              = os.environ.get("CLIENT_INDEX","0")
+# CLIENT_PORT               = os.environ.get("CLIENT_PORT",3000)
+# CLIENT_IP_ADDR            = os.environ.get("CLIENT_IP_ADDR","localhost")
 TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
-ALGORITHM                 = os.environ.get("ALGORITHM","KMEANS")
-BATCH_ID                  = os.environ.get("BATCH_ID",0)
-TRACE_ID                  = os.environ.get("TRACE_ID",ALGORITHM)
+# ALGORITHM                 = os.environ.get("ALGORITHM","KMEANS")
+# BATCH_ID                  = os.environ.get("BATCH_ID",0)
+TRACE_ID                  = os.environ.get("TRACE_ID","KMEANS")
 MAX_EXPERIMENT_ITERATIONS = int(os.environ.get("EXPERIMENT_ITERATION",31))
-BATCH_INDEX               = "batch_{}".format(BATCH_ID)
+# BATCH_INDEX               = "batch_{}".format(BATCH_ID)
 LOGGER_NAME               = NODE_ID
 MAX_RETRIES               = int(os.environ.get("MAX_RETRIES","10"))
-EXPERIMENT_ID             = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
+# EXPERIMENT_ID             = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
 MAX_THREADS               = int(os.environ.get("MAX_THREADS",1))
 TRACE_EXTENSION           = os.environ.get("TRACE_EXTENSION","csv")
 DATASET_EXTENSION         = os.environ.get("DATASET_EXTENSION","csv")
@@ -159,8 +158,8 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             model_id              = model_id,
             model_filename        = row["MODEL_FILENAME"],
             model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["record_test_id"],
-            record_test_filename  = row["record_test_filename"],
+            record_test_id        = row["RECORD_TEST_ID"],
+            record_test_filename  = row["RECORD_TEST_FILENAME"],
             extension             = row["EXTENSION"],
         )
     elif algorithm == "SKNN":
@@ -168,8 +167,8 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             model_id              = model_id,
             model_filename        = row["MODEL_FILENAME"],
             model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["record_test_id"],
-            record_test_filename  = row["record_test_filename"],
+            record_test_id        = row["RECORD_TEST_ID"],
+            record_test_filename  = row["RECORD_TEST_FILENAME"],
             num_chunks            = row["NUM_CHUNKS"],
             extension             = row["EXTENSION"],
         )
@@ -178,8 +177,8 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             model_id              = model_id,
             model_filename        = row["MODEL_FILENAME"],
             model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["record_test_id"],
-            record_test_filename  = row["record_test_filename"],
+            record_test_id        = row["RECORD_TEST_ID"],
+            record_test_filename  = row["RECORD_TEST_FILENAME"],
             num_chunks            = row["NUM_CHUNKS"],
             extension             = row["EXTENSION"],
         )
@@ -257,7 +256,6 @@ if __name__ =="__main__":
     LOGGER.debug({
         "event":"DATAOWNER.STARTED",
         "client_id":NODE_ID,
-        "algorithm":ALGORITHM,
         "max_threads":MAX_THREADS,
         "max_iterations":MAX_EXPERIMENT_ITERATIONS,
         "trace_path":TRACE_PATH,
@@ -278,11 +276,10 @@ if __name__ =="__main__":
         failed_rows_n = failed_rows.shape[0]
         sucess_percentage = ((n_trace_records - failed_rows_n ) / n_trace_records )*100
         error_percentage  = 100 - sucess_percentage
-        # LOGGER.error("{} completed with {} failed operations".format(EXPERIMENT_ID, failed_rows.shape[0]))
         event_name = "COMPLETED.WITH.ERRORS"if failed_rows_n >0 else "COMPLETED.SUCCESSFULLY" 
         LOGGER.debug({
             "event":event_name,
-            "completed": EXPERIMENT_ID,
+            "completed": TASK_ID,
             "failed": failed_rows.shape[0],
             "sucess_percentage":sucess_percentage,
             "failed_percentage":error_percentage
