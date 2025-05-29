@@ -270,9 +270,9 @@ async def sknn_predict():
         records_test_path       = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
         max_workers             = Utils.get_workers(num_chunks=num_chunks)
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",120))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         
         if _encrypted_model_dtype == -1:
             return Response("Encrypted-Model-Dtype", status=500)
@@ -972,13 +972,13 @@ async def sknn_pqc_train():
         model_labels_path     = "{}/{}.{}".format(SOURCE_PATH, model_labels_filename, extension)
         max_workers           = Utils.get_workers(num_chunks=num_chunks)
         experiment_id         = request_headers.get("Experiment-Id",uuid4().hex[:10])        
-        _round             = bool(int(os.environ.get("_round","0"))) #False
-        decimals           = int(os.environ.get("DECIMALS","2"))
-        path               = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        decimals           = int(current_app.config.get("DECIMALS","2"))
+        path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
 
         # _______________________________________________________________________________
@@ -1191,7 +1191,7 @@ async def sknn_pqc_predict():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
         _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
-        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        # max_workers                  = current_app.config.get("MAX_WORKERS",2)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -1221,18 +1221,18 @@ async def sknn_pqc_predict():
         if _encrypted_model_shape == -1 :
             return Response("Encrypted-Model-Shape header is required", status=500)
 
-        _round             = bool(int(os.environ.get("_round","0"))) #False
-        decimals           = int(os.environ.get("DECIMALS","2"))
-        path               = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        decimals           = int(current_app.config.get("DECIMALS","2"))
+        path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
 
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",120))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(

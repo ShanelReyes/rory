@@ -6,8 +6,6 @@ from rory.core.interfaces.worker import Worker
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload
 from utils.utils import Utils
-# from mictlanx.v3.interfaces.payloads import SummonContainerPayload
-# from mictlanx.v3.interfaces.errors import ApiError
 from option import Result
 
 lock = Lock()

@@ -45,26 +45,26 @@ Description:
     It stops where client interaction is required and writes the centroids and matrix S to disk.
 """
 async def skmeans_1(requestHeaders) -> Response:
-    arrival_time            = time.time() #Worker start time
-    logger                  = current_app.config["logger"]
-    worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+    arrival_time               = time.time() #Worker start time
+    logger                     = current_app.config["logger"]
+    worker_id                  = current_app.config["NODE_ID"] # Get the node_id from the global configuration
     STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-    status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
-    is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
-    k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
-    m                       = int(requestHeaders.get("M",3))
-    algorithm               = Constants.ClusteringAlgorithms.SKMEANS
-    plaintext_matrix_id     = requestHeaders.get("Plaintext-Matrix-Id")
-    encrypted_matrix_id     = requestHeaders.get("Encrypted-Matrix-Id",-1)
-    udm_id                  = "{}udm".format(plaintext_matrix_id) 
-    _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
-    _encrypted_matrix_dtype = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
-    experiment_id           = requestHeaders.get("Experiment-Id","")
-    MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
+    status                     = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
+    is_start_status            = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
+    k                          = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
+    m                          = int(requestHeaders.get("M",3))
+    algorithm                  = Constants.ClusteringAlgorithms.SKMEANS
+    plaintext_matrix_id        = requestHeaders.get("Plaintext-Matrix-Id")
+    encrypted_matrix_id        = requestHeaders.get("Encrypted-Matrix-Id",-1)
+    udm_id                     = "{}udm".format(plaintext_matrix_id) 
+    _encrypted_matrix_shape    = requestHeaders.get("Encrypted-Matrix-Shape",-1)
+    _encrypted_matrix_dtype    = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
+    experiment_id              = requestHeaders.get("Experiment-Id","")
+    MICTLANX_TIMEOUT           = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    MICTLANX_DELAY             = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR    = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES       = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
@@ -371,20 +371,20 @@ Description:
     If S is zero process ends
 """
 async def skmeans_2(requestHeaders):
-    local_start_time        = time.time()
-    logger                  = current_app.config["logger"]
-    worker_id               = current_app.config["NODE_ID"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    local_start_time           = time.time()
+    logger                     = current_app.config["logger"]
+    worker_id                  = current_app.config["NODE_ID"]
+    BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
     STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-    algorithm               = Constants.ClusteringAlgorithms.SKMEANS
-    status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
-    plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
-    encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
-    shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
-    k                       = int(requestHeaders.get("K",3))
-    m                       = int(requestHeaders.get("M",3))
-    iterations              = int(requestHeaders.get("Iterations",0))
-    experiment_id           = requestHeaders.get("Experiment-Id","")
+    algorithm                  = Constants.ClusteringAlgorithms.SKMEANS
+    status                     = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
+    plaintext_matrix_id        = requestHeaders["Plaintext-Matrix-Id"]
+    encrypted_matrix_id        = requestHeaders["Encrypted-Matrix-Id"]
+    shift_matrix_id            = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
+    k                          = int(requestHeaders.get("K",3))
+    m                          = int(requestHeaders.get("M",3))
+    iterations                 = int(requestHeaders.get("Iterations",0))
+    experiment_id              = requestHeaders.get("Experiment-Id","")
     
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
@@ -393,11 +393,11 @@ async def skmeans_2(requestHeaders):
     cent_i_id        = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
     cent_j_id        = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
     response_headers = {}
-    min_error               = float(os.environ.get("MIN_ERROR", 0.015))
+    min_error               = float(current_app.config.get("MIN_ERROR", 0.015))
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     try:
         get_UDM_start_time = time.time()
@@ -669,9 +669,9 @@ async def kmeans():
     k                       = int(filtered_headers.get("K",3))
     response_headers        = {}
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     try:
         t1 = time.time()
@@ -769,9 +769,9 @@ async def dbskmeans_1(requestHeaders) -> Response:
     max_iterations          = int(requestHeaders.get("Max-Iterations",0))
     experiment_id           = requestHeaders.get("Experiment-Id","")
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=400)
@@ -1139,7 +1139,7 @@ async def dbskmeans_2(requestHeaders):
     if _encrypted_udm_shape == -1 :
         return Response("Encrypted-UDM-Shape header is required", status=500)
 
-    min_error               = float(os.environ.get("MIN_ERROR", 0.015))
+    min_error               = float(current_app.config.get("MIN_ERROR", 0.015))
     encrypted_matrix_shape:tuple = eval(_encrypted_matrix_shape)
     encrypted_udm_shape:tuple    = eval(_encrypted_udm_shape)
     encrypted_udm_id             = "{}encryptedudm".format(plaintext_matrix_id)
@@ -1148,9 +1148,9 @@ async def dbskmeans_2(requestHeaders):
     response_headers             = {}
     
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
     
     try:
         get_merge_start_time = time.time()
@@ -1468,9 +1468,9 @@ async def dbsnnc():
     m                          = int(filtered_headers.get("M",3))
     experiment_id              = filtered_headers.get("Experiment-Id","")
     MICTLANX_TIMEOUT           = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY             = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR    = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES       = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY             = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR    = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES       = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     if _encrypted_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
@@ -1586,7 +1586,8 @@ async def dbsnnc():
             response = None,
             status   = 503,
             headers  = {"Error-Message":e})
-    
+
+
 @clustering.route("/nnc", methods = ["POST"])
 async def nnc():
     local_start_time           = time.time() #System startup time
@@ -1607,10 +1608,10 @@ async def nnc():
     dm_id                      = "{}dm".format(plaintext_matrix_id) 
     response_headers           = {}
     experiment_id              = filtered_headers.get("Experiment-Id","")
-    MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_TIMEOUT           = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    MICTLANX_DELAY             = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR    = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES       = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
     if _plaintext_matrix_dtype == -1:
         return Response("Encrypted-Matrix-Dtype", status=500)
@@ -1729,36 +1730,36 @@ async def nnc():
             response = None,
             status   = 503,
             headers  = {"Error-Message":e})
-    
+  
 
 async def pqc_skmeans_1(requestHeaders) -> Response:
     try:
-        arrival_time            = time.time() #Worker start time
-        logger                  = current_app.config["logger"]
-        worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
+        arrival_time               = time.time() #Worker start time
+        logger                     = current_app.config["logger"]
+        worker_id                  = current_app.config["NODE_ID"] # Get the node_id from the global configuration
         STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-        BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
-        status                  = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
-        is_start_status         = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
-        k                       = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
-        algorithm               = Constants.ClusteringAlgorithms.SKMEANS_PQC
-        plaintext_matrix_id     = requestHeaders.get("Plaintext-Matrix-Id")
-        encrypted_matrix_id     = requestHeaders.get("Encrypted-Matrix-Id",-1)
-        udm_id                  = "{}udm".format(plaintext_matrix_id) 
-        _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
-        _encrypted_matrix_dtype = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
-        experiment_id           = requestHeaders.get("Experiment-Id","")
-        _round                  = bool(int(os.environ.get("_round","0"))) #False
-        decimals                = int(os.environ.get("DECIMALS","2"))
-        path                    = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename            = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename         = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename      = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename       = os.environ.get("RELINKEY_FILENAME","relinkey")
-        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+        BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
+        status                     = int(requestHeaders.get("Clustering-Status", Constants.ClusteringStatus.START)) 
+        is_start_status            = status == Constants.ClusteringStatus.START #if status is start save it to isStartStatus
+        k                          = int(requestHeaders.get("K",3)) # It is passed to integer because the headers are strings
+        algorithm                  = Constants.ClusteringAlgorithms.SKMEANS_PQC
+        plaintext_matrix_id        = requestHeaders.get("Plaintext-Matrix-Id")
+        encrypted_matrix_id        = requestHeaders.get("Encrypted-Matrix-Id",-1)
+        udm_id                     = "{}udm".format(plaintext_matrix_id) 
+        _encrypted_matrix_shape    = requestHeaders.get("Encrypted-Matrix-Shape",-1)
+        _encrypted_matrix_dtype    = requestHeaders.get("Encrypted-Matrix-Dtype",-1)
+        experiment_id              = requestHeaders.get("Experiment-Id","")
+        _round                     = bool(int(current_app.config.get("_round","0"))) #False
+        decimals                   = int(current_app.config.get("DECIMALS","2"))
+        path                       = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename               = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename            = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename         = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename          = current_app.config.get("RELINKEY_FILENAME","relinkey")
+        MICTLANX_TIMEOUT           = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        MICTLANX_DELAY             = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR    = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES       = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
         if _encrypted_matrix_dtype == -1:
             return Response("Encrypted-Matrix-Dtype", status=500)
@@ -1774,8 +1775,8 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
-            _round   = _round,
-            decimals = decimals,
+            _round             = _round,
+            decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
@@ -2081,16 +2082,16 @@ async def pqc_skmeans_2(requestHeaders):
     init_sm_id              = "{}initsm".format(plaintext_matrix_id)
 
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
-    _round                  = bool(int(os.environ.get("_round","0"))) #False
-    decimals                = int(os.environ.get("DECIMALS","2"))
-    path                    = os.environ.get("KEYS_PATH","/rory/keys")
-    ctx_filename            = os.environ.get("CTX_FILENAME","ctx")
-    pubkey_filename         = os.environ.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename      = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename       = os.environ.get("RELINKEY_FILENAME","relinkey")
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
+    _round                  = bool(int(current_app.config.get("_round","0"))) #False
+    decimals                = int(current_app.config.get("DECIMALS","2"))
+    path                    = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename         = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
     
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
@@ -2313,7 +2314,7 @@ async def pqc_skmeans_2(requestHeaders):
     except Exception as e:
         logger.error("SKMEANS_2_ERROR: "+encrypted_matrix_id+" "+str(e))
         return Response(str(e),status = 503)
- 
+
 
 @clustering.route("/pqc/skmeans",methods = ["POST"])
 async def pqc_skmeans():
@@ -2334,7 +2335,8 @@ async def pqc_skmeans():
         return await pqc_skmeans_2(filteredHeaders)
     else:
         return response
-    
+
+
 async def pqc_dbskmeans_1(requestHeaders):
     try:
         arrival_time            = time.time() #Worker start time
@@ -2356,13 +2358,13 @@ async def pqc_dbskmeans_1(requestHeaders):
         iterations              = int(requestHeaders.get("Iterations",0))
         experiment_id           = requestHeaders.get("Experiment-Id","")
 
-        _round             = bool(int(os.environ.get("_round","0"))) #False
-        decimals           = int(os.environ.get("DECIMALS","2"))
-        path               = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        decimals           = int(current_app.config.get("DECIMALS","2"))
+        path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         
         if _encrypted_matrix_dtype == -1:
             return Response("Encrypted-Matrix-Dtype", status=400)
@@ -2386,9 +2388,9 @@ async def pqc_dbskmeans_1(requestHeaders):
         responseHeaders           = {}
 
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
@@ -2680,28 +2682,28 @@ async def pqc_dbskmeans_1(requestHeaders):
 
 
 async def pqc_dbskmeans_2(requestHeaders):
-    local_start_time        = time.time()
-    logger                  = current_app.config["logger"]
-    worker_id               = current_app.config["NODE_ID"]
-    BUCKET_ID:str           = current_app.config.get("BUCKET_ID","rory")
+    local_start_time           = time.time()
+    logger                     = current_app.config["logger"]
+    worker_id                  = current_app.config["NODE_ID"]
+    BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
     STORAGE_CLIENT:AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-    algorithm               = Constants.ClusteringAlgorithms.SKMEANS_PQC
-    status                  = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
-    plaintext_matrix_id     = requestHeaders["Plaintext-Matrix-Id"]
-    encrypted_matrix_id     = requestHeaders["Encrypted-Matrix-Id"]
-    shift_matrix_id         = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
-    k                       = int(requestHeaders.get("K",3))
-    isZero                  = bool(int(requestHeaders.get("Is-Zero")))
-    iterations              = int(requestHeaders.get("Iterations",0))
-    experiment_id           = requestHeaders.get("Experiment-Id","")
-    _round                  = bool(int(os.environ.get("_round","0"))) #False
-    decimals                = int(os.environ.get("DECIMALS","2"))
+    algorithm                  = Constants.ClusteringAlgorithms.SKMEANS_PQC
+    status                     = int(requestHeaders.get("Clustering-Status",Constants.ClusteringStatus.START))
+    plaintext_matrix_id        = requestHeaders["Plaintext-Matrix-Id"]
+    encrypted_matrix_id        = requestHeaders["Encrypted-Matrix-Id"]
+    shift_matrix_id            = requestHeaders.get("Shift-Matrix-Id","{}shiftmatrix".format(plaintext_matrix_id))
+    k                          = int(requestHeaders.get("K",3))
+    isZero                     = bool(int(requestHeaders.get("Is-Zero")))
+    iterations                 = int(requestHeaders.get("Iterations",0))
+    experiment_id              = requestHeaders.get("Experiment-Id","")
+    _round                     = bool(int(current_app.config.get("_round","0"))) #False
+    decimals                   = int(current_app.config.get("DECIMALS","2"))
 
-    path               = os.environ.get("KEYS_PATH","/rory/keys")
-    ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-    pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+    path               = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
     
     shift_matrix_ope_id     = requestHeaders.get("Shift-Matrix-Ope-Id","{}-shift-matrix-ope".format(plaintext_matrix_id))
     _encrypted_matrix_shape = requestHeaders.get("Encrypted-Matrix-Shape",-1)
@@ -2710,9 +2712,9 @@ async def pqc_dbskmeans_2(requestHeaders):
     _encrypted_udm_dtype    = requestHeaders.get("Encrypted-Udm-Dtype",-1)
     
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
     if encrypted_matrix_id == -1 or plaintext_matrix_id == -1:
         return Response("Either Encrypted-Matrix-Id or Plain-Matrix-Id is missing",status=500)
@@ -2948,7 +2950,6 @@ async def pqc_dbskmeans_2(requestHeaders):
     except Exception as e:
         logger.error("DBSKMEANS_2_ERROR: "+encrypted_matrix_id+" "+str(e))
         return Response(str(e),status = 503)
-
 
 
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])

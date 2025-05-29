@@ -263,9 +263,9 @@ async def skmeans():
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY            = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR   = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES      = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+        MICTLANX_DELAY            = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR   = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
         
         local_read_dataset_start_time = time.time()
         plaintext_matrix_result  = await RoryCommon.read_numpy_from(
@@ -748,9 +748,9 @@ async def dbskmeans():
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",3600))
         MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY            = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR   = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES      = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+        MICTLANX_DELAY            = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR   = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
         
         request_id                = "request{}".format(plaintext_matrix_id)
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
@@ -1312,9 +1312,9 @@ async def dbsnnc():
         cores                     = os.cpu_count()
         max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
-        WORKER_TIMEOUT   = int(current_app.config.get("WORKER_TIMEOUT",300))
-        MICTLANX_TIMEOUT = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
+        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
         local_read_dataset_start_time = time.time()
         plaintext_matrix_result  = await RoryCommon.read_numpy_from(
@@ -1636,7 +1636,7 @@ async def nnc():
         experiment_id             = request_headers.get("Experiment-Id",uuid4().hex[:10])
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_MAX_RETRIES      = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         local_read_dataset_start_time = time.time()
@@ -1899,21 +1899,21 @@ async def pqc_skmeans():
         cent_i_id = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
         cent_j_id = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
 
-        _round             = bool(int(os.environ.get("_round","0"))) #False
-        decimals           = int(os.environ.get("DECIMALS","2"))
-        path               = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        decimals           = int(current_app.config.get("DECIMALS","2"))
+        path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         max_workers        = Utils.get_workers(num_chunks=num_chunks)
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
@@ -2510,20 +2510,20 @@ async def pqc_dbskmeans():
         cent_j_id  = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
 
         max_workers        = Utils.get_workers(num_chunks=num_chunks)
-        _round             = bool(int(os.environ.get("_round","0"))) #False
-        decimals           = int(os.environ.get("DECIMALS","2"))
-        path               = os.environ.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-        pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        decimals           = int(current_app.config.get("DECIMALS","2"))
+        path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",3600))
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))        
+        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))        
         
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(

@@ -53,10 +53,10 @@ async def sknn_pedict_1(requestHeaders):
     distance:str             = current_app.config.get("DISTANCE","MANHATHAN")
     experiment_id            = requestHeaders.get("Experiment-Id","")
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))  
-    # print("",requestHeaders)
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))  
+    
     if _encrypted_model_dtype == -1:
         return Response("Encrypted-Model-Dtype", status=500)
     if _encrypted_model_shape == -1 :
@@ -223,9 +223,9 @@ async def sknn_predict_2(requestHeaders):
     algorithm               = Constants.ClassificationAlgorithms.SKNN_PREDICT
     experiment_id            = requestHeaders.get("Experiment-Id","")
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",120))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
     try:
         model_labels_get_start_time = time.time()
@@ -343,9 +343,9 @@ async def knn_predict():
     distance                = current_app.config["DISTANCE"]
     experiment_id            = filtered_headers.get("Experiment-Id","")
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
   
     _model_labels_shape     = filtered_headers.get("Model-Labels-Shape",-1)
     if _model_labels_shape == -1:
@@ -481,16 +481,16 @@ async def sknn_pqc_pedict_1(requestHeaders):
     _encrypted_model_dtype   = requestHeaders.get("Encrypted-Model-Dtype",-1)
     _encrypted_records_shape = requestHeaders.get("Encrypted-Records-Shape",-1)
     _encrypted_records_dtype = requestHeaders.get("Encrypted-Records-Dtype",-1)
-    _round                   = bool(int(os.environ.get("_round","0"))) #False
-    decimals                 = int(os.environ.get("DECIMALS","2"))
+    _round                   = bool(int(current_app.config.get("_round","0"))) #False
+    decimals                 = int(current_app.config.get("DECIMALS","2"))
     experiment_id            = requestHeaders.get("Experiment-Id","")
     MICTLANX_TIMEOUT         = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY           = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR  = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES     = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY           = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR  = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES     = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
-    MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
-    MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2"))
+    MICTLANX_CHUNK_SIZE        = current_app.config.get("MICTLANX_CHUNK_SIZE","256kb")
+    MICTLANX_MAX_PARALELL_GETS = int(current_app.config.get("MICTLANX_MAX_PARALELL_GETS","2"))
     
     if _encrypted_model_dtype == -1:
         return Response("Encrypted-Model-Dtype", status=500)
@@ -507,11 +507,11 @@ async def sknn_pqc_pedict_1(requestHeaders):
     num_chunks                    = int(requestHeaders.get("Num-Chunks",-1))
     response_headers              = {}
 
-    path               = os.environ.get("KEYS_PATH","/rory/keys")
-    ctx_filename       = os.environ.get("CTX_FILENAME","ctx")
-    pubkey_filename    = os.environ.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename  = os.environ.get("RELINKEY_FILENAME","relinkey")
+    path               = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
 
     # _______________________________________________________________________________
     ckks = Ckks.from_pyfhel(
@@ -684,12 +684,12 @@ async def sknn_pqc_predict_2(requestHeaders):
 
     experiment_id            = requestHeaders.get("Experiment-Id","")
     MICTLANX_TIMEOUT         = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY           = int(os.environ.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR  = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES     = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+    MICTLANX_DELAY           = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR  = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES     = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
 
-    MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
-    MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2"))
+    MICTLANX_CHUNK_SIZE        = current_app.config.get("MICTLANX_CHUNK_SIZE","256kb")
+    MICTLANX_MAX_PARALELL_GETS = int(current_app.config.get("MICTLANX_MAX_PARALELL_GETS","2"))
 
     try:
         model_labels_get_start_time = time.time()
