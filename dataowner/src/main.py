@@ -1,28 +1,17 @@
 import sys
 import os
-# import requests 
 import pandas as pd
 import logging
 import time
 import numpy as np
-from rory.core.interfaces.client_response import ClientResponse
-# from rory.core.logger.Logger import create_logger
-from option import Some
 import numpy.typing as npt
 from dotenv import load_dotenv
-from retry.api import retry_call
-from typing import Dict
-from concurrent.futures import ThreadPoolExecutor,wait,ALL_COMPLETED,as_completed
+from concurrent.futures import ThreadPoolExecutor,as_completed
 from typing import Tuple,List 
-import pandas._typing as pdt
 import requests as R
 from option import Result,Ok,Err
-import json
-from mictlanx.logger.log import Log
-import string
-from nanoid import generate as nanogenerate
+from log import Log
 from roryclient.client import RoryClient
-import time as T
 
 RORY_CLIENT_HOSTNAME = os.environ.get("RORY_CLIENT_HOSTNAME","localhost")
 RORY_CLIENT_PORT = int(os.environ.get("RORY_CLIENT_PORT","3001"))
@@ -34,21 +23,13 @@ if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
 NODE_ID                   = os.environ.get("NODE_ID","rory-dataowner-0") 
-# CLIENT_INDEX              = os.environ.get("CLIENT_INDEX","0")
-# CLIENT_PORT               = os.environ.get("CLIENT_PORT",3000)
-# CLIENT_IP_ADDR            = os.environ.get("CLIENT_IP_ADDR","localhost")
 TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
-# ALGORITHM                 = os.environ.get("ALGORITHM","KMEANS")
-# BATCH_ID                  = os.environ.get("BATCH_ID",0)
 TRACE_ID                  = os.environ.get("TRACE_ID","KMEANS")
 MAX_EXPERIMENT_ITERATIONS = int(os.environ.get("EXPERIMENT_ITERATION",31))
-# BATCH_INDEX               = "batch_{}".format(BATCH_ID)
 LOGGER_NAME               = NODE_ID
 MAX_RETRIES               = int(os.environ.get("MAX_RETRIES","10"))
-# EXPERIMENT_ID             = "{}_C{}".format(TASK_ID,CLIENT_INDEX)
 MAX_THREADS               = int(os.environ.get("MAX_THREADS",1))
 TRACE_EXTENSION           = os.environ.get("TRACE_EXTENSION","csv")
-DATASET_EXTENSION         = os.environ.get("DATASET_EXTENSION","csv")
 SOURCE_PATH               = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH                 = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH                  = os.environ.get("LOG_PATH","/rory/log")
@@ -80,7 +61,7 @@ def write_to_file(filename:str, lv:npt.NDArray):
         LOGGER.error(str(e))
 
 def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
-
+    arrival_time        = time.time()
     algorithm           = row["ALGORITHM"]
     TASK_ID             = os.environ.get("TASK_ID","CLUSTERING")
     plaintext_matrix_id = row.get("DATASET_ID","")
@@ -188,12 +169,44 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
     
     if result.is_err:
         return Err((row, result.unwrap_err(), current_experiment_iteration))
+    
     response    = result.unwrap()
     labelVector = response.label_vector
-    write_to_file(label_vector_id,labelVector)    
+    write_to_file(label_vector_id,labelVector)
+    response_time = time.time() - arrival_time
+
+    if TASK_ID=="CLUSTERING":
+        LOGGER.info({
+            "event":"COMPLETED",
+            "matrix_id":plaintext_matrix_id,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "response_time":response_time,
+            "worker_id":response.worker_id,
+            "current_iteration":current_experiment_iteration,
+            "service_time_manager":response.service_time_manager,
+            "service_time_worker":response.service_time_worker,
+            "service_time_client":response.service_time_client,
+            "response_time_clustering":response.response_time_clustering
+        })
+    elif TASK_ID=="CLASSIFICATION":
+        LOGGER.info({
+            "event":"COMPLETED",
+            "matrix_id":plaintext_matrix_id,
+            "model_id":model_id,
+            "algorithm":algorithm,
+            "response_time":response_time,
+            "worker_id":response.worker_id,
+            "current_iteration":current_experiment_iteration,
+            "service_time_manager":response.service_time_manager,
+            "service_time_worker":response.service_time_worker,
+            "service_time_client":response.service_time_client,
+            "service_time_predict":response.service_time_predict
+        })
     return Ok((row, current_experiment_iteration))
 
 def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, pd.DataFrame]:
+
     failed_operations:List[pd.Series]  = [] # Lista de operaciones fallidas
     try:
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor: # Configuracion de la THREADPOOL. 

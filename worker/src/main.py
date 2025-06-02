@@ -24,7 +24,7 @@ RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 DISTANCE             = os.environ.get("DISTANCE","MANHATHAN")
-MIN_ERROR            = int(os.environ.get("MIN_ERROR",0.015))
+MIN_ERROR            = float(os.environ.get("MIN_ERROR",0.015))
 
 CKKS_ROUND          = bool(int(os.environ.get("CKKS_ROUND",0)))
 CKKS_DECIMALS       = int(os.environ.get("CKKS_DECIMALS",2))

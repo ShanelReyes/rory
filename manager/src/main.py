@@ -36,10 +36,11 @@ WORKER_MEMORY      = os.environ.get("WORKER_MEMORY","1000000000")
 WORKER_CPU         = os.environ.get("WORKER_CPU",2)
 WORKER_TIMEOUT     = int(os.environ.get("WORKER_TIMEOUT",300))
 SWARM_NODES        = os.environ.get("SWARM_NODES","2,3,4,8").split(",")
+LIU_ROUND          = int(os.environ.get("LIU_ROUND","2"))
 
 DISTANCE            = os.environ.get("DISTANCE","MANHATHAN")
-MIN_ERROR           = int(os.environ.get("MIN_ERROR",0.015))
-CKKS_ROUND          = bool(int(os.environ.get("CKKS_ROUND",0)))
+MIN_ERROR           = float(os.environ.get("MIN_ERROR",0.015))
+CKKS_ROUND          = int(os.environ.get("CKKS_ROUND",0))
 CKKS_DECIMALS       = int(os.environ.get("CKKS_DECIMALS",2))
 CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
 PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
@@ -132,6 +133,7 @@ if init_workers > 0:
         MICTLANX_MAX_WORKERS       = MICTLANX_MAX_WORKERS,
         swarm_nodes                = SWARM_NODES,
         SERVER_IP_ADDR             = SERVER_IP_ADDR,
+        MAX_RETRIES                = MAX_RETRIES,
         DISTANCE                   = DISTANCE,
         MIN_ERROR                  = MIN_ERROR,
         CKKS_ROUND                 = CKKS_ROUND,
@@ -152,6 +154,7 @@ if init_workers > 0:
         MICTLANX_MAX_RETRIES       = MICTLANX_MAX_RETRIES,
         MICTLANX_CHUNK_SIZE        = MICTLANX_CHUNK_SIZE,
         MICTLANX_MAX_PARALELL_GETS = MICTLANX_MAX_PARALELL_GETS,
+        LIU_ROUND = LIU_ROUND
     )
     if deploy_nodes_result.is_err:
         LOGGER.error({

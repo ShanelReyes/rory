@@ -28,7 +28,7 @@ services:
       - LIU_DECIMALS=6
       - CKKS_ROUND=0
       - CKKS_DECIMALS=2
-      - CTX_FILENAME=ctxt
+      - CTX_FILENAME=ctx
       - PUBKEY_FILENAME=pubkey
       - SECRET_KEY_FILENAME=secretkey
       - RELINKEY_FILENAME=relinkey

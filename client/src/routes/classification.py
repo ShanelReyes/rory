@@ -979,7 +979,7 @@ async def sknn_pqc_train():
         pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
-        MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",120))
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(

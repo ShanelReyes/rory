@@ -86,7 +86,6 @@ async def kmeans():
             client     = STORAGE_CLIENT, 
             key        = plaintext_matrix_id, 
             matrix     = plaintextMatrix,
-            num_chunks = num_chunks, 
             tags       = {}, 
             bucket_id  = BUCKET_ID
         )

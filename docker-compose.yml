@@ -49,7 +49,7 @@ services:
       - LIU_ROUND=1
       - TESTING=0
       - MICTLANX_TIMEOUT=${MICTLANX_TIMEOUT:-120}
-      - MICTLANX_CLIENT_ID=${MICTLANX_CLIENT_ID:-${NODE_ID}_mictlanx}
+      - MICTLANX_CLIENT_ID=${MICTLANX_CLIENT_ID:-rory-client-0}
       - MICTLANX_API_VERSION=${MICTLANX_API_VERSION:-3}
       - MICTLANX_ROUTERS=${MICTLANX_ROUTERS:-mictlanx-router-0:mictlanx-router-0:60666}
       - MICTLANX_DEBUG=${MICTLANX_DEBUG:-0}
@@ -132,7 +132,7 @@ services:
         - SINK_PATH=/rory/sink
         - LOG_PATH=/rory/log
         - MICTLANX_TIMEOUT=${MICTLANX_TIMEOUT:-120}
-        - MICTLANX_CLIENT_ID=${MICTLANX_CLIENT_ID:-${NODE_ID}_mictlanx}
+        - MICTLANX_CLIENT_ID=${MICTLANX_CLIENT_ID:-rory-worker-0}
         - MICTLANX_API_VERSION=${MICTLANX_API_VERSION:-3}
         - MICTLANX_ROUTERS=${MICTLANX_ROUTERS:-mictlanx-router-0:mictlanx-router-0:60666}
         - MICTLANX_DEBUG=${MICTLANX_DEBUG:-0}

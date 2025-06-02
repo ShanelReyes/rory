@@ -66,7 +66,7 @@ except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
 MICTLANX_CLIENT_ID = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_TIMEOUT   = int(os.environ.get("MICTLANX_TIMEOUT",3600))
+MICTLANX_TIMEOUT   = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_ROUTERS   = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_MAX_WORKERS    = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_BUCKET_ID      = os.environ.get("MICTLANX_BUCKET_ID","rory")
