@@ -15,8 +15,8 @@ from roryclient.client import RoryClient
 
 RORY_CLIENT_HOSTNAME = os.environ.get("RORY_CLIENT_HOSTNAME","localhost")
 RORY_CLIENT_PORT = int(os.environ.get("RORY_CLIENT_PORT","3001"))
-
-client = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT)
+RORY_CLIENT_TIMEOUT = int(os.environ.get("RORY_CLIENT_TIMEOUT","120"))
+client = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT,timeout=RORY_CLIENT_TIMEOUT)
 
 ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/home/sreyes/rory/dataowner/envs/.env-kmeans") 
 if os.path.exists(ENV_FILE_PATH):
@@ -64,8 +64,10 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
     arrival_time        = time.time()
     algorithm           = row["ALGORITHM"]
     TASK_ID             = os.environ.get("TASK_ID","CLUSTERING")
-    plaintext_matrix_id = row.get("DATASET_ID","")
-    model_id            = row.get("MODEL_ID","")
+    dataset_id = row.get("DATASET_ID","")
+    model_id = row.get("MODEL_ID","")
+    plaintext_matrix_id = f"{dataset_id}-{current_experiment_iteration}"
+    model_id            = f"{model_id}-{current_experiment_iteration}"
     label_vector_id     = "{}{}{}".format( plaintext_matrix_id if TASK_ID == "CLUSTERING" else model_id ,algorithm,current_experiment_iteration)
 
     if algorithm == "KMEANS":
@@ -216,6 +218,13 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                 
                 for experiment_iteration in range(max_experiment_iterations): # Cada registro se repetira EXPERIMENT_ITERATION veces
                     fut = executor.submit(run_experiment,row,experiment_iteration) # Lanzar la operacion a un thread utilizando la Thread Pool. 
+                    LOGGER.debug({
+                        "event":"SUBMITTED",
+                        "index":index,
+                        "dataset_id":row["DATASET_ID"],
+                        "experiment_iteration":experiment_iteration
+
+                    })
                     futures.append(fut) # Añadir a la lista de futuros el nuevo futuro.
                     time.sleep(float(row["INTERARRIVAL_TIME"])) # Duerme el thread para esperar INTERARRIVAL_TIME
                 

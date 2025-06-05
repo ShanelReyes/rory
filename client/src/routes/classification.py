@@ -1131,6 +1131,10 @@ async def sknn_pqc_train():
                 }
             )
             if put_chunks_generator_results.is_err:
+                logger.error({
+                    "error":"Failed to put encrypted model",
+                    "experiment_id": experiment_id
+                })
                 return Response(status = 500, response="Failed to put encrypted model")
 
             put_encrypted_ptm_entry = ExperimentLogEntry(
