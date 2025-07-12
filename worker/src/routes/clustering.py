@@ -1940,7 +1940,7 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
             key        = cent_i_id,
             xs         = Cent_i,
             num_chunks = num_chunks)
-        
+        print("MAUBE_CENT_I", maybe_cent_i_chunks)
         if maybe_cent_i_chunks.is_none:
             return Response(status=500, response="Failed to create the Cent_i chunks")
 
@@ -1952,6 +1952,8 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
             timeout   = MICTLANX_TIMEOUT,
             max_tries = MICTLANX_MAX_RETRIES
         )
+        print("X",x)
+        logger.debug(str(x))
 
         put_cent_i_entry = ExperimentLogEntry(
             event          = "PUT",
@@ -1972,6 +1974,7 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
             xs         = Cent_j,
             num_chunks = num_chunks
         )
+        print(maybe_cent_j_chunks)
         if maybe_cent_j_chunks.is_none:
             return Response(status=500, response="Failed to create the Cent_j chunks")
         y = await RoryCommon.delete_and_put_chunks(
@@ -2002,6 +2005,7 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
             key        = encrypted_shift_matrix_id,
             num_chunks = num_chunks
         )
+        print(maybe_encrypted_shift_matrix_chunks)
         if maybe_encrypted_shift_matrix_chunks.is_none:
             return Response(status=500, response="Failed to create the encrypted shift matrix chunks")       
         S1_chunks = maybe_encrypted_shift_matrix_chunks.unwrap()

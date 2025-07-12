@@ -23,7 +23,6 @@ if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
 NODE_ID                   = os.environ.get("NODE_ID","rory-dataowner-0") 
-TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
 TRACE_ID                  = os.environ.get("TRACE_ID","KMEANS")
 MAX_EXPERIMENT_ITERATIONS = int(os.environ.get("EXPERIMENT_ITERATION",31))
 LOGGER_NAME               = NODE_ID
@@ -35,6 +34,22 @@ SINK_PATH                 = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH                  = os.environ.get("LOG_PATH","/rory/log")
 TRACE_PATH                = os.environ.get("TRACE_PATH","{}/{}.{}".format(SOURCE_PATH,TRACE_ID,TRACE_EXTENSION))
 CLIENT_TIMEOUT            = int(os.environ.get("CLIENT_TIMEOUT",300))
+
+ALGORITHM_MAP = {
+    "KMEANS":"CLUSTERING",
+    "SKMEANS":"CLUSTERING",
+    "DBSKMEANS":"CLUSTERING",
+    "SKMEANSPQC":"CLUSTERING",
+    "DBSKMEANSPQC":"CLUSTERING",
+    "NNC":"CLUSTERING",
+    "DBSNNC":"CLUSTERING",
+    "KNN":"CLASSIFICATION",
+    "SKNN":"CLASSIFICATION",
+    "SKNNPQC":"CLASSIFICATION",
+}
+# TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
+
+
 
 try:
     os.makedirs(SOURCE_PATH,exist_ok = True)
@@ -63,7 +78,11 @@ def write_to_file(filename:str, lv:npt.NDArray):
 def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
     arrival_time        = time.time()
     algorithm           = row["ALGORITHM"]
-    TASK_ID             = os.environ.get("TASK_ID","CLUSTERING")
+    TASK_ID             = ALGORITHM_MAP.get(algorithm,"")
+    if TASK_ID == "":
+        raise Exception("TASK_ID is empty...")
+    
+    # os.environ.get("TASK_ID","CLUSTERING")
     dataset_id = row.get("DATASET_ID","")
     model_id = row.get("MODEL_ID","")
     plaintext_matrix_id = f"{dataset_id}-{current_experiment_iteration}"
@@ -75,17 +94,17 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            k                         = row["K"],
-            num_chunks                = row["NUM_CHUNKS"],   
+            k                         = int(row["K"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),   
         )
     elif algorithm == "SKMEANS":
         result = client.skmeans(
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            k                         = row["K"],
-            num_chunks                = row["NUM_CHUNKS"],
-            max_iterations            = row["MAX_ITERATIONS"],
+            k                         = int(row["K"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),
+            max_iterations            = int(row["MAX_ITERATIONS"]),
             experiment_iteration      = current_experiment_iteration,            
         )
     elif algorithm == "DBSKMEANS":
@@ -93,10 +112,10 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            k                         = row["K"],
-            num_chunks                = row["NUM_CHUNKS"],
-            max_iterations            = row["MAX_ITERATIONS"],
-            sens                      = row["SENS"],
+            k                         = int(row["K"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),
+            max_iterations            = int(row["MAX_ITERATIONS"]),
+            sens                      = float(row["SENS"]),
             experiment_iteration      = current_experiment_iteration,            
         )
     elif algorithm == "SKMEANSPQC":
@@ -104,9 +123,9 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            k                         = row["K"],
-            num_chunks                = row["NUM_CHUNKS"],
-            max_iterations            = row["MAX_ITERATIONS"],
+            k                         = int(row["K"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),
+            max_iterations            = int(row["MAX_ITERATIONS"]),
             experiment_iteration      = current_experiment_iteration,            
         )
     elif algorithm == "DBSKMEANSPQC":
@@ -114,10 +133,10 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            k                         = row["K"],
-            num_chunks                = row["NUM_CHUNKS"],
-            max_iterations            = row["MAX_ITERATIONS"],
-            sens                      = row["SENS"],
+            k                         = int(row["K"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),
+            max_iterations            = int(row["MAX_ITERATIONS"]),
+            sens                      = float(row["SENS"]),
             experiment_iteration      = current_experiment_iteration,            
         )
     elif algorithm == "NNC":
@@ -132,9 +151,9 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             plaintext_matrix_id       = plaintext_matrix_id,
             plaintext_matrix_filename = row["DATASET_FILENAME"],
             extension                 = row["EXTENSION"],
-            threshold                 = row["THRESHOLD"],
-            num_chunks                = row["NUM_CHUNKS"],
-            sens                      = row["SENS"],        
+            threshold                 = float(row["THRESHOLD"]),
+            # num_chunks                = int(row["NUM_CHUNKS"]),
+            sens                      = float(row["SENS"]),        
         )
     elif algorithm == "KNN":
         result = client.knn(
@@ -152,7 +171,7 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             model_labels_filename = row["MODEL_LABELS_FILENAME"],
             record_test_id        = row["RECORD_TEST_ID"],
             record_test_filename  = row["RECORD_TEST_FILENAME"],
-            num_chunks            = row["NUM_CHUNKS"],
+            # num_chunks            = int(row["NUM_CHUNKS"]),
             extension             = row["EXTENSION"],
         )
     elif algorithm == "SKNNPQC":
@@ -162,7 +181,7 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             model_labels_filename = row["MODEL_LABELS_FILENAME"],
             record_test_id        = row["RECORD_TEST_ID"],
             record_test_filename  = row["RECORD_TEST_FILENAME"],
-            num_chunks            = row["NUM_CHUNKS"],
+            # num_chunks            = int(row["NUM_CHUNKS"]),
             extension             = row["EXTENSION"],
         )
     else:
@@ -301,7 +320,7 @@ if __name__ =="__main__":
         event_name = "COMPLETED.WITH.ERRORS"if failed_rows_n >0 else "COMPLETED.SUCCESSFULLY" 
         LOGGER.debug({
             "event":event_name,
-            "completed": TASK_ID,
+            # "completed": TASK_ID,
             "failed": failed_rows.shape[0],
             "sucess_percentage":sucess_percentage,
             "failed_percentage":error_percentage

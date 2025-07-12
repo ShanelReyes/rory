@@ -46,34 +46,34 @@ async def sknn_train():
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        algorithm             = Constants.ClassificationAlgorithms.SKNN_TRAIN
-        s                     = Session()
-        request_headers       = request.headers #Headers for the request
-        experiment_id         = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        model_id              = request_headers.get("Model-Id","matrix-0_model") #fertility-0_kjkk
-        model_filename        = request_headers.get("Model-Filename",model_id)   #fertility_model
-        model_labels_id       = "{}labels".format(model_id) #fertility_model_labels
-        model_labels_filename = request_headers.get("Model-Labels-Filename",model_labels_id)   #fertility_model_labels     
-        encrypted_model_id    = "encrypted{}".format(model_id) #encrypted-fertility_model
-        extension             = request_headers.get("Extension","npy")
-        m                     = dataowner.m
-        num_chunks            = int(request_headers.get("Num-Chunks",_num_chunks))
-        model_path            = "{}/{}.{}".format(SOURCE_PATH, model_filename, extension)
-        model_labels_path     = "{}/{}.{}".format(SOURCE_PATH, model_labels_filename, extension)
-        MICTLANX_TIMEOUT      = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        max_workers           = Utils.get_workers(num_chunks=num_chunks)
+        algorithm                = Constants.ClassificationAlgorithms.SKNN_TRAIN
+        s                        = Session()
+        request_headers          = request.headers #Headers for the request
+        experiment_id            = request_headers.get("Experiment-Id",uuid4().hex[:10])
+        model_id                 = request_headers.get("Model-Id","matrix-0_model") #fertility-0_kjkk
+        model_filename           = request_headers.get("Model-Filename",model_id)   #fertility_model
+        model_labels_id          = "{}labels".format(model_id) #fertility_model_labels
+        model_labels_filename    = request_headers.get("Model-Labels-Filename",model_labels_id)   #fertility_model_labels     
+        encrypted_model_id       = "encrypted{}".format(model_id) #encrypted-fertility_model
+        extension                = request_headers.get("Extension","npy")
+        m                        = dataowner.m
+        # num_chunks            = int(request_headers.get("Num-Chunks",_num_chunks))
+        model_path               = "{}/{}.{}".format(SOURCE_PATH, model_filename, extension)
+        model_labels_path        = "{}/{}.{}".format(SOURCE_PATH, model_labels_filename, extension)
+        MICTLANX_TIMEOUT         = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        # max_workers              = Utils.get_workers(num_chunks=num_chunks)
         model_path_exists        = os.path.exists(model_path) 
         model_path_labels_exists = os.path.exists(model_labels_path)
         if not model_path_exists or not model_path_labels_exists:
             return Response(response="Either model or label vector not found", status=500)
         else:
-            
             model_result = await RoryCommon.read_numpy_from(
                 path      = model_path,
                 extension = "npy"
@@ -181,7 +181,7 @@ async def sknn_train():
                 timeout   = MICTLANX_TIMEOUT,
                 tags      = {
                     "full_shape": str(encrypted_model_shape),
-                    "full_dtype":"float64"
+                    "full_dtype":"float32"
                 }
             )
             
@@ -220,7 +220,7 @@ async def sknn_train():
                 response = json.dumps({
                     "response_time": response_time,
                     "encrypted_model_shape":str(encrypted_model_shape),
-                    "encrypted_model_dtype":"float64",
+                    "encrypted_model_dtype":"float32",
                     "algorithm":algorithm,
                     "model_labels_shape":list(model_labels.shape)
                 }),
@@ -244,7 +244,8 @@ async def sknn_predict():
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         np_random:bool               = current_app.config.get("np_random",False)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -254,7 +255,7 @@ async def sknn_predict():
         algorithm                 = Constants.ClassificationAlgorithms.SKNN_PREDICT
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         model_id                  = request_headers.get("Model-Id","model0") ##fertility-0
         model_filename            = request_headers.get("Model-Filename",model_id) #fertility_model
         records_test_id           = request_headers.get("Records-Test-Id","matrix0data") #fertility_data
@@ -267,12 +268,12 @@ async def sknn_predict():
         _encrypted_model_dtype    = request_headers.get("Encrypted-Model-Dtype",-1)
         _model_labels_shape       = request_headers.get("Model-Labels-Shape",-1)
         experiment_id             = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        records_test_path       = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
-        max_workers             = Utils.get_workers(num_chunks=num_chunks)
-        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",120))
-        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
+        records_test_path         = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+        MICTLANX_DELAY            = int(current_app.config.get("MICTLANX_DELAY","2"))
+        MICTLANX_BACKOFF_FACTOR   = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+        MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         
         if _encrypted_model_dtype == -1:
             return Response("Encrypted-Model-Dtype", status=500)
@@ -347,7 +348,7 @@ async def sknn_predict():
             timeout   = MICTLANX_TIMEOUT,
             tags      = {
                 "full_shape": str(encrypted_records_shape),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         if put_chunks_generator_results.is_err:
@@ -413,7 +414,7 @@ async def sknn_predict():
             algorithm = algorithm,
         )
         
-        encrypted_records_dtype = "float64"
+        encrypted_records_dtype = "float32"
         run1_time = time.time()
         run1_headers = {
             "Step-Index"              : "1",
@@ -613,13 +614,15 @@ async def knn_train():
     BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
     SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
     STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
+    max_workers                  = current_app.config.get("MAX_WORKERS",2)
+    num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
     executor:ProcessPoolExecutor = current_app.config.get("executor")
     if executor == None:
         raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
     algorithm             = Constants.ClassificationAlgorithms.KNN_TRAIN
     s                     = Session()
     request_headers       = request.headers #Headers for the request
-    num_chunks            = int(request_headers.get("Num-Chunks",1))
+    # num_chunks            = int(request_headers.get("Num-Chunks",1))
     model_id              = request_headers.get("Model-Id","matrix0model")        
     model_filename        = request_headers.get("Model-Filename",model_id)        
     model_labels_id       = "{}labels".format(model_id)
@@ -770,6 +773,8 @@ async def knn_predict():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         WORKER_TIMEOUT               = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",120))
         if executor == None:
@@ -777,7 +782,7 @@ async def knn_predict():
         algorithm             = Constants.ClassificationAlgorithms.KNN_PREDICT
         s                     = Session()
         request_headers       = request.headers #Headers for the request
-        num_chunks            = int(request_headers.get("Num-Chunks",1))
+        # num_chunks            = int(request_headers.get("Num-Chunks",1))
         model_id              = request_headers.get("Model-Id","model-0") #iris
         records_test_id       = request_headers.get("Records-Test-Id","matrix0data")
         records_test_filename = request_headers.get("Records-Test-Filename",records_test_id)
@@ -785,7 +790,7 @@ async def knn_predict():
         experiment_id         = request_headers.get("Experiment-Id",uuid4().hex[:10])
         records_test_path     = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
         _model_labels_shape   = request_headers.get("Model-Labels-Shape",-1)
-        max_workers           = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers           = Utils.get_workers(num_chunks=num_chunks)
         
         if _model_labels_shape == -1:
             error ="Model-Labels-Shape header is required"
@@ -812,32 +817,38 @@ async def knn_predict():
             num_chunks     = num_chunks,
         )
         logger.info(local_read_entry.model_dump())
-     
-        put_records_start_time    = time.time()
-        maybe_records_test_chunks = Chunks.from_ndarray(
-            ndarray      = records_test,
-            group_id     = records_test_id,
-            chunk_prefix = Some(records_test_id),
-            num_chunks   = num_chunks,
-        )
+        try: 
+            put_records_start_time    = time.time()
+            maybe_records_test_chunks = Chunks.from_ndarray(
+                ndarray      = records_test,
+                group_id     = records_test_id,
+                chunk_prefix = Some(records_test_id),
+                num_chunks   = num_chunks,
+            )
 
-        if maybe_records_test_chunks.is_none:
-            return Response(status=500,response="something went wrong creating the chunks")
-        
-        put_records_test_result = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = records_test_id,
-            chunks    = maybe_records_test_chunks.unwrap(),
-            timeout   = MICTLANX_TIMEOUT,
-            tags      = {
-                "full_shape": str(records_test.shape),
-                "full_dtype": str(records_test.dtype)
-            }
-        )
+            if maybe_records_test_chunks.is_none:
+                logger.error({
+                    "error":"Failed to create chunks"
+                })
+                return Response(status=500,response="something went wrong creating the chunks")
+            
+            put_records_test_result = await RoryCommon.delete_and_put_chunks(
+                client    = STORAGE_CLIENT,
+                bucket_id = BUCKET_ID,
+                key       = records_test_id,
+                chunks    = maybe_records_test_chunks.unwrap(),
+                timeout   = MICTLANX_TIMEOUT,
+                tags      = {
+                    "full_shape": str(records_test.shape),
+                    "full_dtype": str(records_test.dtype)
+                }
+            )
 
-        if put_records_test_result.is_err:
-            return Response(status=500, response="Failed to put the records test")
+            if put_records_test_result.is_err:
+                logger.error(str(put_records_test_result.unwrap_err()))
+                return Response(status=500, response="Failed to put the records test")
+        except Exception as e:
+            logger.error(str(e))
 
         service_time_client_end = time.time()
         service_time_client = service_time_client_end - local_start_time
@@ -952,7 +963,8 @@ async def sknn_pqc_train():
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -967,19 +979,19 @@ async def sknn_pqc_train():
         model_labels_filename = request_headers.get("Model-Labels-Filename",model_labels_id)   #fertility_model_labels     
         encrypted_model_id    = "encrypted{}".format(model_id) #encrypted-fertility_model
         extension             = request_headers.get("Extension","npy")
-        num_chunks            = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks            = int(request_headers.get("Num-Chunks",_num_chunks))
         model_path            = "{}/{}.{}".format(SOURCE_PATH, model_filename, extension)
         model_labels_path     = "{}/{}.{}".format(SOURCE_PATH, model_labels_filename, extension)
-        max_workers           = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers           = Utils.get_workers(num_chunks=num_chunks)
         experiment_id         = request_headers.get("Experiment-Id",uuid4().hex[:10])        
-        _round             = bool(int(current_app.config.get("_round","0"))) #False
-        decimals           = int(current_app.config.get("DECIMALS","2"))
-        path               = current_app.config.get("KEYS_PATH","/rory/keys")
-        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
-        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
-        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
-        MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",120))
+        _round                = bool(int(current_app.config.get("_round","0"))) #False
+        decimals              = int(current_app.config.get("DECIMALS","2"))
+        path                  = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename          = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename       = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename    = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename     = current_app.config.get("RELINKEY_FILENAME","relinkey")
+        MICTLANX_TIMEOUT      = int(current_app.config.get("MICTLANX_TIMEOUT",120))
 
         # _______________________________________________________________________________
         ckks = Ckks.from_pyfhel(
@@ -1020,14 +1032,17 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 security_level = security_level,
                 workers        = max_workers,
+                description    = f"Read model from: {model_path}"
             )
             logger.info(local_read_entry.model_dump())                
           
             read_local_model_labels_start_time = time.time()
-            model_labels_result = await RoryCommon.read_numpy_from(
+            
+            model_labels_result                = await RoryCommon.read_numpy_from(
                 path      = model_labels_path,
                 extension = "npy"
             )
+
             if model_labels_result.is_err:
                 return Response(status= 500, response="Failed to read model labels")
             model_labels = model_labels_result.unwrap()
@@ -1044,6 +1059,7 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 security_level = security_level,
                 workers        = max_workers,
+                description    = f"Read model labels from: {model_labels_path}"
             )
             logger.info(local_read_entry.model_dump())   
 
@@ -1080,6 +1096,7 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 security_level = security_level,
                 workers        = max_workers,
+                description    = f"Put model labels using id: {model_labels_id}"
             )
             logger.info(put_encrypted_ptm_entry.model_dump())
             
@@ -1115,6 +1132,7 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 workers        = max_workers,
                 security_level = security_level,
+                description    = f"Segment and encryption model: {encrypted_model_id}"
             )
             logger.info(segment_encrypt_entry.model_dump())
 
@@ -1127,7 +1145,7 @@ async def sknn_pqc_train():
                 timeout   = MICTLANX_TIMEOUT,
                 tags      = {
                     "full_shape": str(encrypted_model_shape),
-                    "full_dtype":"float64"
+                    "full_dtype":"float32"
                 }
             )
             if put_chunks_generator_results.is_err:
@@ -1148,6 +1166,7 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 workers        = max_workers,
                 security_level = security_level,
+                description    = f"Put encrypted model: {encrypted_model_id}"
             )
             logger.info(put_encrypted_ptm_entry.model_dump())
 
@@ -1164,7 +1183,8 @@ async def sknn_pqc_train():
                 num_chunks     = num_chunks,
                 security_level = security_level,
                 workers        = max_workers,
-                time           = response_time
+                time           = response_time,
+                description    = "SKNN PQC TRAIN Completed Successfully"
             )
             logger.info(classification_completed_entry.model_dump())
 
@@ -1172,7 +1192,7 @@ async def sknn_pqc_train():
                 response = json.dumps({
                     "response_time": str(response_time),
                     "encrypted_model_shape":str(encrypted_model_shape),
-                    "encrypted_model_dtype":"float64",
+                    "encrypted_model_dtype":"float32",
                     "algorithm":algorithm,
                     "model_labels_shape":list(model_labels.shape)
                 }),
@@ -1194,7 +1214,8 @@ async def sknn_pqc_predict():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         # max_workers                  = current_app.config.get("MAX_WORKERS",2)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
@@ -1205,7 +1226,7 @@ async def sknn_pqc_predict():
         algorithm                 = Constants.ClassificationAlgorithms.SKNN_PQC_PREDICT
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         model_id                  = request_headers.get("Model-Id","model0") ##fertility-0
         model_filename            = request_headers.get("Model-Filename",model_id) #fertility_model
         records_test_id           = request_headers.get("Records-Test-Id","matrix0data") #fertility_data
@@ -1218,7 +1239,7 @@ async def sknn_pqc_predict():
         _encrypted_model_dtype    = request_headers.get("Encrypted-Model-Dtype",-1)
         experiment_id             = request_headers.get("Experiment-Id",uuid4().hex[:10])
         records_test_path         = "{}/{}.{}".format(SOURCE_PATH, records_test_filename, extension)
-        max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         if _encrypted_model_dtype == -1:
             return Response("Encrypted-Model-Dtype", status=500)
@@ -1318,7 +1339,7 @@ async def sknn_pqc_predict():
             timeout   = MICTLANX_TIMEOUT,
             tags      = {
                 "full_shape": str(encrypted_records_shape),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         if put_chunks_generator_results.is_err:
@@ -1385,7 +1406,7 @@ async def sknn_pqc_predict():
         )
         
         inner_interaction_arrival_time = time.time()
-        encrypted_records_dtype = "float64"
+        encrypted_records_dtype = "float32"
         run1_headers = {
             "Step-Index"              : "1",
             "Records-Test-Id"         : records_test_id,

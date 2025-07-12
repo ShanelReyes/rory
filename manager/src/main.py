@@ -23,6 +23,7 @@ IP_ADDR            = os.environ.get("NODE_IP_ADDR",NODE_ID)
 PORT               = int(os.environ.get("NODE_PORT",6000))
 SERVER_IP_ADDR     = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 NODE_PREFIX        = os.environ.get("NODE_PREFIX","rory-worker-")
+FOLDER_KEYS        = os.environ.get("FOLDER_KEYS","keys128")
 init_workers       = int(os.environ.get("INIT_WORKERS","0")) #worker iniciales que se levantan
 init_port          = int(os.environ.get("WORKER_INIT_PORT",9000))
 DOCKER_IMAGE_NAME  = os.environ.get("DOCKER_IMAGE_NAME","shanelreyes/rory")
@@ -37,6 +38,7 @@ WORKER_CPU         = os.environ.get("WORKER_CPU",2)
 WORKER_TIMEOUT     = int(os.environ.get("WORKER_TIMEOUT",300))
 SWARM_NODES        = os.environ.get("SWARM_NODES","2,3,4,8").split(",")
 LIU_ROUND          = int(os.environ.get("LIU_ROUND","2"))
+# NUM_CHUNKS         = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
 
 DISTANCE            = os.environ.get("DISTANCE","MANHATHAN")
 MIN_ERROR           = float(os.environ.get("MIN_ERROR",0.015))
@@ -125,6 +127,7 @@ if init_workers > 0:
         MICTLANX_SUMMONER_MODE     = MICTLANX_SUMMONER_MODE,
         init_workers               = init_workers,
         NODE_PREFIX                = NODE_PREFIX,
+        FOLDER_KEYS                = FOLDER_KEYS,
         init_port                  = init_port,
         WORKER_MEMORY              = WORKER_MEMORY,
         WORKER_CPU                 = WORKER_CPU,
@@ -134,6 +137,7 @@ if init_workers > 0:
         swarm_nodes                = SWARM_NODES,
         SERVER_IP_ADDR             = SERVER_IP_ADDR,
         MAX_RETRIES                = MAX_RETRIES,
+        # NUM_CHUNKS                 = NUM_CHUNKS,
         DISTANCE                   = DISTANCE,
         MIN_ERROR                  = MIN_ERROR,
         CKKS_ROUND                 = CKKS_ROUND,
@@ -154,7 +158,7 @@ if init_workers > 0:
         MICTLANX_MAX_RETRIES       = MICTLANX_MAX_RETRIES,
         MICTLANX_CHUNK_SIZE        = MICTLANX_CHUNK_SIZE,
         MICTLANX_MAX_PARALELL_GETS = MICTLANX_MAX_PARALELL_GETS,
-        LIU_ROUND = LIU_ROUND
+        LIU_ROUND                  = LIU_ROUND
     )
     if deploy_nodes_result.is_err:
         LOGGER.error({
@@ -169,9 +173,7 @@ if init_workers > 0:
             "init_workers":init_workers,
             "worker_memory":WORKER_MEMORY,
             "worker_cpu":WORKER_CPU,
-            # "worker_max_retries":WORKER_MAX_RETRIES,
-            # "worker_max_delay":WORKER_MAX_DELAY,
-            # "worker_jitter":WORKER_JITTER,
+            "folder_keys":FOLDER_KEYS,
             "init_port":init_port,
             "docker_image":DOCKER_IMAGE,
             "peers":MICTLANX_ROUTERS,
@@ -200,6 +202,7 @@ def create_app(*args):
         current_app.config["NODE_ID"]            = NODE_ID
         current_app.config["NODE_PORT"]          = PORT
         current_app.config["NODE_PREFIX"]        = NODE_PREFIX
+        current_app.config["FOLDER_KEYS"]        = FOLDER_KEYS
         current_app.config["DOCKER_IMAGE_NAME"]  = DOCKER_IMAGE_NAME
         current_app.config["DOCKER_IMAGE_TAG"]   = DOCKER_IMAGE_TAG
         current_app.config["DOCKER_IMAGE"]       = "{}:{}".format(DOCKER_IMAGE_NAME,DOCKER_IMAGE_TAG)

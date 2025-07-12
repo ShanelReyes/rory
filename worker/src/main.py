@@ -37,7 +37,7 @@ RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
-KEYS_PATH     = os.environ.get("KEYS_PATH","/rory/keys")
+KEYS_PATH        = os.environ.get("KEYS_PATH","/rory/keys")
 
 try:
     os.makedirs(SOURCE_PATH,exist_ok = True)
@@ -46,6 +46,7 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
+# NUM_CHUNKS                 = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
 MICTLANX_TIMEOUT           = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_ID         = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","3"))

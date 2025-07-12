@@ -167,7 +167,7 @@ async def sknn_pedict_1(requestHeaders):
             timeout   = MICTLANX_TIMEOUT,
             tags      = {
                 "full_shape":str(distances_shape),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         end_time     = time.time()

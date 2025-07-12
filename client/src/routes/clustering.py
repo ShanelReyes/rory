@@ -46,19 +46,18 @@ async def kmeans():
         STORAGE_CLIENT:AsyncClient = current_app.config.get("ASYNC_STORAGE_CLIENT")
         BUCKET_ID:str              = current_app.config.get("BUCKET_ID","rory")
         WORKER_TIMEOUT             = int(current_app.config.get("WORKER_TIMEOUT",300))
+        num_chunks                 = current_app.config.get("NUM_CHUNKS",4)
         algorithm                  = Constants.ClusteringAlgorithms.KMEANS
         s                          = Session()
         request_headers            = request.headers #Headers for the request
-        num_chunks                 = int(request_headers.get("Num-Chunks",1))
         plaintext_matrix_id        = request_headers.get("Plaintext-Matrix-Id","matrix-0")
         plaintext_matrix_filename  = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
         extension                  = request_headers.get("Extension","csv")
         k                          = request_headers.get("K","3")
         experiment_id              = request_headers.get("Experiment-Id",uuid4().hex[:10])
         plaintext_matrix_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
-
-        read_dataset_start_time = time.time()
-        plaintext_matrix_result = await RoryCommon.read_numpy_from(
+        read_dataset_start_time    = time.time()
+        plaintext_matrix_result    = await RoryCommon.read_numpy_from(
             path      = plaintext_matrix_path,
             extension = extension
         )
@@ -233,7 +232,8 @@ async def skmeans():
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         np_random:bool               = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
@@ -243,7 +243,7 @@ async def skmeans():
         algorithm                 = Constants.ClusteringAlgorithms.SKMEANS
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
@@ -257,7 +257,7 @@ async def skmeans():
         m                         = dataowner.m
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         cores                     = os.cpu_count()
-        max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -332,7 +332,7 @@ async def skmeans():
             chunks    = encrypted_ptm_chunks,
             tags      = {
                 "full_shape": str((r,a,m)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         if put_ptm_chunks_results.is_err:
@@ -476,8 +476,8 @@ async def skmeans():
                 "Request-Id"             : requestId,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
                 "K"                      : str(k),
@@ -623,7 +623,7 @@ async def skmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                "Encrypted-Matrix-Dtype" : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
                 "K"                      : str(k),
@@ -720,9 +720,10 @@ async def dbskmeans():
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         liu:Liu                      = current_app.config.get("liu")
         dataowner:DataOwner          = current_app.config.get("dataowner")
-        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor               == None:
@@ -730,7 +731,7 @@ async def dbskmeans():
         algorithm                 = Constants.ClusteringAlgorithms.DBSKMEANS
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         encrypted_udm_id          = "{}encryptedudm".format(plaintext_matrix_id) # The iudm id is built
@@ -742,7 +743,7 @@ async def dbskmeans():
         sens                      = float(request_headers.get("Sens","0.00000001"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0") 
         cores                     = os.cpu_count()
-        max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",3600))
@@ -824,7 +825,7 @@ async def dbskmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,a,m)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             },
         )
 
@@ -912,7 +913,7 @@ async def dbskmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,r,a)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             },
         )
 
@@ -1001,9 +1002,9 @@ async def dbskmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                "Encrypted-Matrix-Dtype" : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
                 "Encrypted-Udm-Shape"    : str(initial_encrypted_udm_shape),
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
                 "K"                      : str(k),
@@ -1181,8 +1182,8 @@ async def dbskmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Encrypted-Udm-Shape"    : str(initial_encrypted_udm_shape),
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
@@ -1284,8 +1285,9 @@ async def dbsnnc():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         dataowner:DataOwner          = current_app.config.get("dataowner")
-        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         np_random                    = current_app.config.get("np_random")
         securitylevel                = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -1294,7 +1296,7 @@ async def dbsnnc():
         algorithm                 = Constants.ClusteringAlgorithms.DBSNNC
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         dm_id                     = "{}dm".format(plaintext_matrix_id)
@@ -1309,7 +1311,7 @@ async def dbsnnc():
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
         cores                     = os.cpu_count()
-        max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
@@ -1383,7 +1385,7 @@ async def dbsnnc():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,a,m)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
 
@@ -1466,7 +1468,7 @@ async def dbsnnc():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,r)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
 
@@ -1539,7 +1541,7 @@ async def dbsnnc():
         dm_shape = (r,r)
 
         encrypted_matrix_shape = (r,a,m)
-        encrypted_matrix_dtype = "float64"
+        encrypted_matrix_dtype = "float32"
         run_headers = {
             "Plaintext-Matrix-Id"    : plaintext_matrix_id,
             "Request-Id"             : request_id,
@@ -1548,12 +1550,12 @@ async def dbsnnc():
             "Encrypted-Matrix-Dtype" : encrypted_matrix_dtype,
             "Encrypted-Dm-Id"        : encrypted_dm_id,
             "Encrypted-Dm-Shape"     : str(dm_shape),
-            "Encrypted-Dm-Dtype"     : "float64",
+            "Encrypted-Dm-Dtype"     : "float32",
             "Num-Chunks"             : str(num_chunks),
             "M"                      : str(m),
             "Encrypted-Threshold"    : str(encrypted_threshold),
             "Dm-Shape"               : str(dm_shape),
-            "Dm-Dtype"               : "float64",
+            "Dm-Dtype"               : "float32",
         }
 
         run1_response = worker.run(
@@ -1611,20 +1613,22 @@ async def dbsnnc():
 @clustering.route("/nnc", methods = ["POST"])
 async def nnc():
     try:
-        local_start_time          = time.time()
-        logger                    = current_app.config["logger"]
-        BUCKET_ID:str             = current_app.config.get("BUCKET_ID","rory")
-        TESTING                   = current_app.config.get("TESTING",True)
-        SOURCE_PATH               = current_app.config["SOURCE_PATH"]
-        dataowner:DataOwner       = current_app.config.get("dataowner")
-        STORAGE_CLIENT:V4Client   = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        local_start_time             = time.time()
+        logger                       = current_app.config["logger"]
+        BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
+        TESTING                      = current_app.config.get("TESTING",True)
+        SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
+        dataowner:DataOwner          = current_app.config.get("dataowner")
+        STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.NNC
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",1))
+        # num_chunks                = int(request_headers.get("Num-Chunks",1))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         dm_id                     = "{}dm".format(plaintext_matrix_id)
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix-0")
@@ -1636,7 +1640,7 @@ async def nnc():
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
         MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-        max_workers               = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
 
         local_read_dataset_start_time = time.time()
         plaintext_matrix_result = await RoryCommon.read_numpy_from( 
@@ -1872,8 +1876,9 @@ async def pqc_skmeans():
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
@@ -1883,7 +1888,7 @@ async def pqc_skmeans():
         algorithm                 = Constants.ClusteringAlgorithms.SKMEANS_PQC
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
@@ -1905,7 +1910,7 @@ async def pqc_skmeans():
         pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
-        max_workers        = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers        = Utils.get_workers(num_chunks=num_chunks)
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -1936,7 +1941,7 @@ async def pqc_skmeans():
             return Response(status=500, response="Failed to local read plain text matrix.")
         plaintext_matrix = plaintext_matrix_result.unwrap()
         
-        plaintext_matrix = plaintext_matrix.astype(np.float64)
+        plaintext_matrix = plaintext_matrix.astype(np.float32)
 
         r = plaintext_matrix.shape[0]
         a = plaintext_matrix.shape[1]
@@ -2001,7 +2006,7 @@ async def pqc_skmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,a)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         
@@ -2132,7 +2137,7 @@ async def pqc_skmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((k,a)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         if put_encrypted_matrix_result.is_err:
@@ -2213,8 +2218,8 @@ async def pqc_skmeans():
                 "Request-Id"             : requestId,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
-                "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
                 "K"                      : str(k),
@@ -2383,7 +2388,7 @@ async def pqc_skmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
-                "Encrypted-Matrix-Dtype" : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
                 "K"                      : str(k),
@@ -2478,12 +2483,12 @@ async def pqc_dbskmeans():
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
-        STORAGE_CLIENT:V4Client      = current_app.config.get("ASYNC_STORAGE_CLIENT")
+        STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
-        _num_chunks                  = current_app.config.get("NUM_CHUNKS",4)
+        max_workers                  = current_app.config.get("MAX_WORKERS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
         do_fdhope:DataOwner          = current_app.config.get("dataowner")
-
         if executor               == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.DBSKMEANS_PQC
@@ -2491,7 +2496,7 @@ async def pqc_dbskmeans():
         s                         = Session()
         security_level            = current_app.config.get("LIU_SECURITY_LEVEL",128)
         request_headers           = request.headers #Headers for the request
-        num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
+        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         encrypted_udm_id          = "{}encryptedudm".format(plaintext_matrix_id) # The iudm id is built
@@ -2508,7 +2513,7 @@ async def pqc_dbskmeans():
         cent_i_id  = "{}centi".format(plaintext_matrix_id) #Build the id of Cent_i
         cent_j_id  = "{}centj".format(plaintext_matrix_id) #Build the id of Cent_j
 
-        max_workers        = Utils.get_workers(num_chunks=num_chunks)
+        # max_workers        = Utils.get_workers(num_chunks=num_chunks)
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","2"))
         path               = current_app.config.get("KEYS_PATH","/rory/keys")
@@ -2547,7 +2552,7 @@ async def pqc_dbskmeans():
         else:
             raise plaintext_matrix_result.unwrap_err()
         
-        plaintext_matrix = plaintext_matrix.astype(np.float64)
+        plaintext_matrix = plaintext_matrix.astype(np.float32)
 
         r = plaintext_matrix.shape[0]
         a = plaintext_matrix.shape[1]
@@ -2611,7 +2616,7 @@ async def pqc_dbskmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,a)),
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             }
         )
         if put_chunks_generator_results.is_err:
@@ -2695,7 +2700,7 @@ async def pqc_dbskmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags      = {
                 "full_shape": str((r,r,a)), 
-                "full_dtype":"float64"
+                "full_dtype":"float32"
             },
         )
 
@@ -2768,7 +2773,7 @@ async def pqc_dbskmeans():
             max_tries = MICTLANX_MAX_RETRIES,
             tags = {
                 "shape": str((k,a)),
-                "dtype":"float64"
+                "dtype":"float32"
             }
         )
         if put_chunks_generator_results.is_err:
@@ -2847,8 +2852,8 @@ async def pqc_dbskmeans():
                 "Request-Id"             : request_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
-                "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Encrypted-Udm-Shape"    : str(initial_encrypted_udm_shape),
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),
@@ -3033,8 +3038,8 @@ async def pqc_dbskmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
                 "Encrypted-Matrix-Shape" : "({},{})".format(r,a),
-                "Encrypted-Matrix-Dtype" : "float64",
-                "Encrypted-Udm-Dtype"    : "float64",
+                "Encrypted-Matrix-Dtype" : "float32",
+                "Encrypted-Udm-Dtype"    : "float32",
                 "Encrypted-Udm-Shape"    : str(initial_encrypted_udm_shape),
                 "Num-Chunks"             : str(num_chunks),
                 "Iterations"             : str(iterations),

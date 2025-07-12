@@ -19,6 +19,7 @@ class ExperimentLogEntry(BaseModel):
     worker_time:Optional[float] = 0
     client_time:Optional[float] = 0
     manager_time:Optional[float] = 0
+    description:Optional[str] = ""
 
     @model_validator(mode='after')
     def compute_time(self) -> 'ExperimentLogEntry':

@@ -6,4 +6,4 @@ python-dotenv
 
 
 --extra-index-url https://test.pypi.org/simple/ 
-roryclient==0.1.4
+roryclient==0.1.6

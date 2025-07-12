@@ -30,6 +30,7 @@ SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
 MAX_WORKERS          = int(os.environ.get("MAX_WORKERS",2)) #Total of process for encryption
+NUM_CHUNKS           = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
 WORKER_TIMEOUT       = int(os.environ.get("WORKER_TIMEOUT",300))
 MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
 
@@ -65,9 +66,9 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-MICTLANX_CLIENT_ID = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_TIMEOUT   = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_ROUTERS   = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
+MICTLANX_CLIENT_ID      = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
+MICTLANX_TIMEOUT        = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_ROUTERS        = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_MAX_WORKERS    = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_BUCKET_ID      = os.environ.get("MICTLANX_BUCKET_ID","rory")
 MICTLANX_LOG_PATH       = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
@@ -154,7 +155,8 @@ def create_app(*args):
         current_app.config["MAX_ITERATIONS"]          = MAX_ITERATIONS
         current_app.config["ASYNC_STORAGE_CLIENT"]    = ASYNC_STORAGE_CLIENT
         current_app.config["TESTING"]                 = TESTING
-        current_app.config["MAX_WORKES"]              = max_workers
+        current_app.config["MAX_WORKERS"]             = max_workers
+        current_app.config["NUM_CHUNKS"]              = NUM_CHUNKS
         current_app.config["executor"]                = executor
         current_app.config["WORKER_TIMEOUT"]          = WORKER_TIMEOUT
         current_app.config["np_random"]               = NP_RANDOM
@@ -189,7 +191,7 @@ if __name__ == 'main' or __name__ == "__main__":
             "debug":DEBUG,
             "max_iterations":MAX_ITERATIONS,
             "testing":TESTING,
-            # "num_chunks":NUM_CHUNKS,
+            "num_chunks":NUM_CHUNKS,
             "mictlanx_timeout":MICTLANX_TIMEOUT,
             "worker_timeout":WORKER_TIMEOUT 
         })

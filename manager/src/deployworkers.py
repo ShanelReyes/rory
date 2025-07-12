@@ -3,9 +3,7 @@ from option import NONE,Some,Result,Ok,Err
 from mictlanx.logger.log import Log
 from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload,ExposedPort
 from mictlanx.interfaces.payloads import MountX
-
 from typing import List
-
 
 def deploy_nodes(
         log:Log,
@@ -39,20 +37,22 @@ def deploy_nodes(
         MICTLANX_MAX_RETRIES:int,
         MICTLANX_CHUNK_SIZE:str,
         MICTLANX_MAX_PARALELL_GETS:int,
-        LIU_ROUND:int = 2, 
-        MICTLANX_SUMMONER_MODE:str       ="docker",
-        init_workers:int                 = 1,
-        NODE_PREFIX:str                  ="rory-worker-",
-        init_port:int                    = 3000,
-        WORKER_MEMORY:str                = "1000000000",
-        WORKER_CPU:int                   = 2,
-        WORKER_MICTLANX_ROUTERS:str        = "mictlanx-peer-0:localhost:7000",
-        MICTLANX_MAX_WORKERS:int         = 12,
-        swarm_nodes:List[str]            = ["2","3","4","8"]
+        LIU_ROUND:int               = 2, 
+        MICTLANX_SUMMONER_MODE:str  = "docker",
+        init_workers:int            = 1,
+        NODE_PREFIX:str             = "rory-worker-",
+        FOLDER_KEYS:str             = "keys128",
+        init_port:int               = 3000,
+        WORKER_MEMORY:str           = "1000000000",
+        WORKER_CPU:int              = 2,
+        WORKER_MICTLANX_ROUTERS:str = "mictlanx-peer-0:localhost:7000",
+        MICTLANX_MAX_WORKERS:int    = 12,
+        swarm_nodes:List[str]       = ["2","3","4","8"]
 )->Result[bool, Exception]:
 
     try:
         WORKER_BASE_PATH = os.environ.get("WORKER_BASE_PATH","/rory")
+        WORKER_KEYS_BASE_PATH = os.environ.get("WORKER_KEYS_BASE_PATH","/rory")
         N = len(swarm_nodes)
         for i in range(init_workers): 
             container_id     = "{}{}".format(NODE_PREFIX,i)
@@ -70,28 +70,29 @@ def deploy_nodes(
             
             mounts = [
                 MountX(
-                    source="{}-source".format(container_id),
-                    target=CONTAINER_SOURCE_PATH,
+                    source = "{}-source".format(container_id),
+                    target = CONTAINER_SOURCE_PATH,
                     mount_type=1
                 ),
                 MountX(
-                    source="{}-sink".format(container_id),
-                    target=CONTAINER_SINK_PATH,
+                    source = "{}-sink".format(container_id),
+                    target = CONTAINER_SINK_PATH,
                     mount_type=1
                 ),
                 MountX(
-                    source="{}-log".format(container_id),
-                    target=CONTAINER_LOG_PATH,
+                    source = "{}-log".format(container_id),
+                    target = CONTAINER_LOG_PATH,
                     mount_type=1
                 ),
                 MountX(
-                    source="{}-mictlanx".format(container_id),
-                    target=CONTAINER_MICTLANX_CLIENT_PATH,
+                    source = "{}-mictlanx".format(container_id),
+                    target = CONTAINER_MICTLANX_CLIENT_PATH,
                     mount_type=1
                 ),
                 MountX(
-                    source="/rory/{}/keys".format(container_id),
-                    target=CONTAINER_KEYS_PATH,
+                    #/rory/rory-worker-0/keys/keys128
+                    source = "{}/{}/keys/{}".format(WORKER_KEYS_BASE_PATH,container_id,FOLDER_KEYS),
+                    target = CONTAINER_KEYS_PATH,
                     mount_type=0
                 )
             ]
