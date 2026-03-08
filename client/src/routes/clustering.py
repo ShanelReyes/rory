@@ -25,6 +25,23 @@ clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
 @clustering.route("/test",methods=["GET","POST"])
 def test():
+    """Health check and component identification endpoint.
+
+    This method serves as a simple diagnostic tool to verify the availability 
+    of the Client component and confirm its role within the Rory platform 
+    architecture. It is used during deployment and orchestration to ensure 
+    proper network connectivity between nodes.
+
+    Returns:
+        Response: A Flask Response object containing a JSON payload:
+            component_type (str): Identifies this node as "client".
+            
+        Headers:
+            Component-Type: "client"
+            
+        Status Code:
+            200: If the service is running and reachable.
+    """
     return Response(
         response = json.dumps({
             "component_type":"client"
@@ -38,6 +55,40 @@ def test():
 # KMEANS
 @clustering.route("/kmeans",methods = ["POST"])
 async def kmeans():
+    """
+    This method handles the lifecycle of a clustering task by reading a local plaintext dataset, 
+    externalizing it to the Cloud Storage System (CSS), requesting an available execution 
+    node (Worker) from the Manager, and finally triggering the privacy-preserving 
+    mining process.
+    The method also tracks and logs performance metrics (service times) for the Client, 
+    Manager, and Worker interactions to facilitate experimental auditing.
+
+    Note:
+    **Protocol Initiation**: All execution parameters for this algorithm are passed exclusively 
+    via **HTTP Headers**. The request body must remain empty.
+    
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique identifier for the matrix in CSS. Defaults to "matrix-0".
+        Plaintext-Matrix-Filename (str): Name of the local file (without extension). Defaults to "matrix-0".
+        Extension (str): File extension of the local dataset (e.g., "csv", "npy"). Defaults to "csv".
+        K (int): The number of clusters to form. Defaults to "3".
+        Experiment-Id (str): A unique identifier for the execution trace. Defaults to a hex UUID.
+
+    Returns:
+        label_vector (list): The cluster assignment for each dataset point.
+        iterations (int): Total iterations performed by the algorithm.
+        algorithm (str): The name of the algorithm executed (kmeans).
+        worker_id (str): Identifier of the worker node that processed the task.
+        service_time_manager (float): Time spent coordinating with the Manager.
+        service_time_worker (float): Time spent during Worker execution.
+        service_time_client (float): Time spent in local data preparation/reading.
+        response_time_clustering (float): Total end-to-end execution time.
+
+    Raises:
+        Exception: Captures and logs any failure during local I/O, CSS communication, 
+            or Manager/Worker interaction, returning a 500 status code with the 
+            error details in the headers.
+    """
     try:
         arrivalTime                = time.time()
         logger                     = current_app.config["logger"]
@@ -223,6 +274,39 @@ async def kmeans():
 #SKMEANS
 @clustering.route("/skmeans",methods = ["POST"])
 async def skmeans():
+    """
+    This method implements an interactive, privacy-preserving K-Means clustering protocol 
+    powered by Liu's homomorphic encryption scheme. The workflow is designed for 
+    Privacy-Preserving Data Mining as a Service (PPDMaaS), where the Client (Data Owner) 
+    remains the only entity capable of decrypting intermediate computations.
+
+    Note:
+    **Interactive Protocol**: This endpoint initiates the secure clustering flow. All parameters, 
+    including cryptographic metadata, must be passed via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local filename for data reading. Defaults to "matrix0".
+        Extension (str): File extension of the dataset. Defaults to "csv".
+        K (int): Number of clusters to identify. **Required**.
+        Max-Iterations (int): Maximum number of protocol rounds. Defaults to 10.
+        Experiment-Id (str): Tracking ID for performance auditing.
+        Experiment-Iteration (str): Current loop index of the experiment.
+
+    Returns:
+        label_vector (list): Final cluster assignments for the dataset.
+        iterations (int): Actual number of iterations performed.
+        algorithm (str): "skmeans".
+        worker_id (str): ID of the node that performed the secure computations.
+        service_time_manager (float): Time spent in Worker allocation.
+        service_time_worker (float): Cumulative time of remote computation.
+        service_time_client (float): Total local time (Encryption/Decryption/IO).
+        response_time_clustering (float): End-to-end execution time.
+
+    Raises:
+        Exception: Returns a 500 status code if the process executor is missing, 
+            or if failures occur during encryption, CSS I/O, or Worker interaction.
+    """
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -712,6 +796,40 @@ async def skmeans():
 #DBSKMEANS
 @clustering.route("/dbskmeans", methods = ["POST"])
 async def dbskmeans():
+    """
+    This method implements a privacy-preserving protocol that ensures 
+    both the Worker and the Manager remain "blind" to the underlying data. It 
+    leverages a hybrid encryption approach, using Liu's homomorphic scheme for 
+    initial data protection and the FDHOPE scheme for secure operations on distance 
+    metrics.
+
+    Note:
+    **Multi-Party Security**: Parameters for the double-blind execution are handled via **HTTP Headers**. 
+    Ensure the correct 'Experiment-Id' is provided for session tracking.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local file to be processed. Defaults to "matrix0".
+        K (int): Number of clusters. Defaults to "3".
+        Sens (float): Sensitivity parameter for the FDHOPE scheme. Defaults to 0.00000001.
+        Max-Iterations (int): Maximum protocol rounds. Defaults to 10.
+        Experiment-Id (str): Tracking ID for performance auditing.
+
+    Returns:
+        label_vector (list): Final cluster assignments.
+        iterations (int): Total rounds performed.
+        algorithm (str): "dbskmeans".
+        worker_id (str): ID of the node that performed the secure computations.
+        service_time_manager (float): Time spent in Worker allocation.
+        service_time_worker (float): Cumulative time of remote computation.
+        service_time_client (float): Total local time (Encryption/Decryption/IO).
+        response_time_clustering (float): End-to-end execution time.
+
+    Raises:
+        Exception: Returns a 500 status code if the process executor is unavailable, 
+            or if failures occur during the hybrid encryption/decryption chain 
+            or CSS communication.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -731,7 +849,6 @@ async def dbskmeans():
         algorithm                 = Constants.ClusteringAlgorithms.DBSKMEANS
         s                         = Session()
         request_headers           = request.headers #Headers for the request
-        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks ) )
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
         encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
         encrypted_udm_id          = "{}encryptedudm".format(plaintext_matrix_id) # The iudm id is built
@@ -1278,6 +1395,35 @@ async def dbskmeans():
 #DBSNNC
 @clustering.route("/dbsnnc", methods      = ["POST"])
 async def dbsnnc():
+    """
+    This method implements a non-iterative, privacy-preserving clustering protocol 
+    based on nearest neighbors. It utilizes a Double-Blind Secure (DBS) approach 
+    where sensitive data and distance metrics are protected using a combination of 
+    Liu's homomorphic encryption and the FDHOPE scheme.
+
+    Note:
+    All identifiers for the input matrices and distance metrics are extracted from **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local file to be processed. Defaults to "matrix-0".
+        Sens (float): Sensitivity parameter for FDHOPE encryption. Defaults to 0.00000001.
+        Threshold (float): Distance threshold for clustering. If -1, it is calculated 
+            automatically from the dataset.
+        Experiment-Id (str): Tracking ID for performance auditing.
+
+    Returns:
+        label_vector (list): The resulting cluster assignments.
+        algorithm (str): "dbsnnc".
+        worker_id (str): ID of the node that performed the secure computations.
+        service_time_manager (float): Time spent in Worker allocation.
+        service_time_worker (float): Cumulative time of remote computation.
+        service_time_client (float): Total local time (Encryption/Decryption/IO).
+        response_time_clustering (float): End-to-end execution time.
+    Raises:
+        Exception: Returns a 500 status code if the process executor is missing, 
+            or if errors occur during encryption, CSS communication, or Worker execution.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -1612,6 +1758,39 @@ async def dbsnnc():
 #NNC
 @clustering.route("/nnc", methods = ["POST"])
 async def nnc():
+    """
+    This method implements a distributed version of the Nearest Neighbor Clustering 
+    algorithm. Unlike its secure counterpart (DBSNNC), this version operates on 
+    plaintext data externalized to the Cloud Storage System (CSS), focusing on 
+    performance and orchestration within the Rory platform architecture.
+
+    Note:
+    All identifiers for the input matrices and distance metrics are extracted from **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique identifier for the matrix in CSS. 
+            Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local filename (without extension). 
+            Defaults to "matrix-0".
+        Extension (str): Dataset file extension (e.g., "csv"). Defaults to "csv".
+        Threshold (float): Distance limit for clustering. If -1, it is calculated 
+            dynamically using platform utilities.
+        Experiment-Id (str): Unique ID for performance tracking and logging.
+
+    Returns:
+        label_vector (list): Final cluster assignments for each data point.
+        algorithm (str): "nnc".
+        worker_id (str): ID of the worker node that processed the task.
+        service_time_manager (float): Time spent coordinating with the Manager.
+        service_time_worker (float): Time spent during Worker execution.
+        service_time_client (float): Time spent in local data preparation and IO.
+        response_time_clustering (float): Total end-to-end execution time.
+
+    Raises:
+        Exception: Returns a 500 status code if the process executor is missing, 
+            or if failures occur during local I/O, CSS communication, or 
+            Worker interaction.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -1870,6 +2049,39 @@ async def nnc():
 #PCQ-SKMEANS
 @clustering.route("/pqc/skmeans",methods = ["POST"])
 async def pqc_skmeans():
+    """
+    This method implements a clustering protocol using the 
+    CKKS homomorphic encryption scheme. It is specifically designed 
+    for Post-Quantum Privacy-Preserving Data Mining as a Service (PPDMaaS), allowing 
+    complex floating-point computations on encrypted data while the Client 
+    retains the secret key.
+
+    Note:
+    **Post-Quantum Parameters**: Security levels and CKKS-specific metadata are passed via **HTTP Headers**. 
+    Body content will be ignored.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local file to be processed. Defaults to "matrix0".
+        K (int): Number of clusters. **Required**.
+        Max-Iterations (int): Maximum protocol rounds. Defaults to 10.
+        Experiment-Id (str): Tracking ID for performance auditing.
+
+    Returns:
+        label_vector (list): Final cluster assignments for the dataset.
+        iterations (int): Actual number of iterations performed.
+        algorithm (str): "skmeans pqc".
+        worker_id (str): ID of the node that performed the secure computations.
+        service_time_manager (float): Time spent in Worker allocation.
+        service_time_worker (float): Cumulative time of remote computation.
+        service_time_client (float): Total local time (Encryption/Decryption/IO).
+        response_time_clustering (float): End-to-end execution time.
+        
+
+    Raises:
+        Exception: Returns a 500 status code if the process executor is missing, 
+            CKKS context fails, or communication errors occur.
+    """
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -2477,6 +2689,36 @@ async def pqc_skmeans():
 #PCQ-DBSKMEANS
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])
 async def pqc_dbskmeans():
+    """
+    This method achieves a "Double-Blind" state by combining CKKS for data protection and FDHOPE for secure 
+    distance matrix updates.
+
+    Note:
+    **Hybrid Secure Protocol**: Combines post-quantum security with double-blind logic.
+     Mandatory parameters are required in the **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique ID for CSS storage. Defaults to "matrix0".
+        Plaintext-Matrix-Filename (str): Local dataset name. Defaults to "matrix0".
+        K (int): Number of clusters. **Required**.
+        Sens (float): Sensitivity for FDHOPE. Defaults to 0.00000001.
+        Max-Iterations (int): Maximum protocol rounds. Defaults to 10.
+        Experiment-Id (str): Tracking ID for performance auditing.
+
+    Returns:
+        label_vector (list): Final cluster assignments for the dataset.
+        iterations (int): Actual number of iterations performed.
+        algorithm (str): "dbskmeans pqc".
+        worker_id (str): ID of the node that performed the secure computations.
+        service_time_manager (float): Time spent in Worker allocation.
+        service_time_worker (float): Cumulative time of remote computation.
+        service_time_client (float): Total local time (Encryption/Decryption/IO).
+        response_time_clustering (float): End-to-end execution time.
+
+    Raises:
+        Exception: Returns a 500 status code if failures occur in the hybrid 
+            encryption chain (CKKS/FDHOPE), CSS I/O, or Worker orchestration.
+    """
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]

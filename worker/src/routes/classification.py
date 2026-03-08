@@ -23,6 +23,19 @@ classification = Blueprint("classification",__name__,url_prefix = "/classificati
 
 @classification.route("/test",methods=["GET","POST"])
 def test():
+    """Health check and role verification endpoint for the Worker's Classification module.
+    This method acts as a diagnostic heartbeat, allowing the Rory Manager to verify that the Classification blueprint is correctly registered and the node is ready to process KNN or PQC-based inference tasks. It returns the component type in both the JSON payload and the HTTP response headers for automated service discovery and configuration auditing.
+
+    Note:
+        **Service Availability**: This endpoint provides a zero-overhead way to test the connectivity between the Manager and the Worker node without requiring cryptographic keys or session identifiers.
+
+    Returns:
+        Response: A Flask Response object with a 200 status containing a JSON payload with:
+            component_type (str): The identification string "worker".
+        
+        Headers:
+            Component-Type (str): Functional metadata indicating the node's classification role.
+    """
     return Response(
         response = json.dumps({
             "component_type":"worker"
@@ -34,6 +47,36 @@ def test():
     )
 
 async def sknn_pedict_1(requestHeaders):
+    """
+    First interactive phase of the Secure K-Nearest Neighbors (SKNN) prediction protocol within the Worker node.
+    This method orchestrates the retrieval of encrypted models and test records from the CSS. It performs the 
+    privacy-preserving distance calculation between the target records and the model's training set using the 
+    specified metric (e.g., Manhattan or Euclidean). The resulting secure distance matrix is segmented and 
+    persisted back to storage, awaiting the Client's interaction to resolve the k-nearest labels in the 
+    subsequent protocol round.
+
+    Note:
+        **Secure Inference Phase 1**: This step operates exclusively on ciphertext to maintain data confidentiality. All identifiers, shapes, and cryptographic metadata must be provided via **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Root identifier used to locate the encrypted training model.
+        Records-Test-Id (str): Storage key for the encrypted records to be classified.
+        Encrypted-Model-Shape (str): Tuple string representing the dimensions of the encrypted model.
+        Encrypted-Model-Dtype (str): Data type of the encrypted model elements.
+        Encrypted-Records-Shape (str): Tuple string representing the dimensions of the encrypted test records.
+        Encrypted-Records-Dtype (str): Data type of the encrypted record elements.
+        Num-Chunks (int): Number of storage fragments for matrix retrieval and persistence.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing within Rory.
+
+    Returns:
+        distances_id (str): Storage key for the calculated secure distance matrix.
+        distances_shape (str): Dimensions of the resulting distance matrix.
+        distances_dtype (str): Data type of the distance elements.
+        service_time (float): Total time elapsed during this worker phase.
+
+    Raises:
+        Exception: If mandatory headers are missing, CSS retrieval fails, or errors occur during the secure distance computation or chunk persistence.
+    """
     local_start_time         = time.time() #Worker start time
     headers                  = request.headers
     logger                   = current_app.config["logger"]
@@ -206,6 +249,29 @@ async def sknn_pedict_1(requestHeaders):
 
 
 async def sknn_predict_2(requestHeaders):
+    """
+    Final interactive phase of the Secure K-Nearest Neighbors (SKNN) prediction protocol within the Worker node.
+    This method completes the secure classification process by retrieving the resolved nearest-neighbor 
+    indices from the CSS (previously computed and uploaded by the Client). It then maps these indices to 
+    their corresponding model labels to generate the final classification vector. The process concludes 
+    by logging cumulative performance metrics and the total service time for the interactive inference session.
+
+    Note:
+        **Secure Inference Phase 2**: This step acts as the final label resolution. All identifiers and shape metadata for the labels and indices must be provided via **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Root identifier used to locate the associated model labels.
+        Model-Labels-Shape (str): Tuple string representing the dimensions of the model labels (Mandatory).
+        Records-Test-Id (str): Storage key used to derive the identifier for the resolved distance indices.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing within the Rory platform.
+
+    Returns:
+        label_vector (list): The final predicted class labels for the test records.
+        service_time (float): Total execution time for this specific worker phase.
+
+    Raises:
+        Exception: If the 'Model-Labels-Shape' header is missing, CSS retrieval of labels or indices fails, or errors occur during the label mapping logic.
+    """
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     logger                  = current_app.config["logger"]
@@ -311,6 +377,29 @@ async def sknn_predict_2(requestHeaders):
 
 @classification.route("/sknn/predict",methods = ["POST"])
 async def sknn_predict():
+    """
+    Main routing endpoint for the Secure K-Nearest Neighbors (SKNN) interactive prediction protocol within 
+    the Worker node. 
+    This method manages the multi-round secure inference process by evaluating the protocol's state via a 
+    step index. It coordinates the transition between the encrypted distance calculation and the final 
+    label assignment, ensuring that the Worker performs heavy computations on ciphertext (using the FDHOPE scheme) 
+    while delegating specific decryption tasks to the Client to maintain end-to-end privacy.
+
+    Note:
+        **Interactive Inference Control**: The execution flow and state transitions are managed exclusively via the 'Step-Index' attribute passed in the **HTTP Headers**. The request body is not utilized.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive SKNN protocol. Use "1" for the initial secure distance calculation and "2" for processing client-aided label resolution. Defaults to "1".
+        Model-Id (str): Identifier for the encrypted model stored in the CSS to be used for prediction.
+        Experiment-Id (str): A unique identifier for execution tracing and performance auditing within the Rory platform.
+
+    Returns:
+        An object forwarded from the corresponding sub-routine (sknn_predict_1 or sknn_predict_2), 
+        containing either intermediate secure scores or the final classification results.
+
+    Raises:
+        Exception: If the Step-Index is invalid or if the sub-routines encounter failures during CSS retrieval or cryptographic processing.
+        """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
@@ -326,6 +415,31 @@ async def sknn_predict():
 
 @classification.route("/knn/predict",methods = ["POST"])
 async def knn_predict():
+    """
+    Asynchronous endpoint for the Worker node to execute K-Nearest Neighbors (KNN) classification on 
+    plaintext data.
+    This method retrieves a pre-trained model, its associated labels, and the target test records from the CSS. 
+    It performs the classification logic using the distance metric configured in the global system settings 
+    (e.g., Euclidean or Manhattan) and returns the resulting label vector. Detailed performance metrics for 
+    each retrieval and computation step are logged to support experimental analysis within the PPDMaaS platform.
+
+    Note:
+        **Standard Classification**: All required identifiers for models and datasets must be passed exclusively via **HTTP Headers**. The request body is not utilized.
+
+    Attributes:
+        Model-Id (str): Unique identifier for the trained KNN model stored in the CSS. Defaults to "model0".
+        Model-Labels-Shape (str): Tuple string representing the dimensions of the model labels (Mandatory).
+        Records-Test-Id (str): Storage key for the dataset records to be classified. Defaults to "matrix0".
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+
+    Returns:
+        label_vector (list): The predicted class assignments for the test records.
+        service_time (float): Total time elapsed during the worker's processing flow.
+
+    Raises:
+        Exception: If the 'Model-Labels-Shape' header is missing, CSS retrieval fails, or errors occur during the KNN prediction logic.
+    """
+
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     headers                 = request.headers
@@ -464,6 +578,38 @@ async def knn_predict():
         )
     
 async def sknn_pqc_pedict_1(requestHeaders):
+    """
+    First interactive phase of the Post-Quantum Secure K-Nearest Neighbors (PQC SKNN) prediction protocol 
+    within the Worker node.
+    This method utilizes the CKKS homomorphic encryption scheme to process ciphertexts. 
+    It orchestrates the retrieval and merging of the encrypted model and test records from the CSS, performs 
+    the privacy-preserving distance calculation directly on the PQC ciphertexts, and persists the resulting 
+    secure distance matrix back to storage. The process pauses here, awaiting the Client's refresh or partial 
+    decryption of the CKKS distances to identify the k-nearest neighbors in the next round.
+
+    Note:
+        **Post-Quantum Inference Phase 1**: This step operates exclusively on CKKS ciphertexts. 
+        All identifiers, parameters, and matrix shapes must be provided via **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Root identifier used to locate the CKKS-encrypted training model.
+        Records-Test-Id (str): Storage key for the CKKS-encrypted records to be classified.
+        Encrypted-Model-Shape (str): Tuple string representing the dimensions of the PQC-encrypted model.
+        Encrypted-Model-Dtype (str): Data type of the encrypted model elements.
+        Encrypted-Records-Shape (str): Tuple string representing the dimensions of the encrypted test records.
+        Encrypted-Records-Dtype (str): Data type of the encrypted record elements.
+        Num-Chunks (int): Number of storage fragments for matrix retrieval and persistence.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing within the Rory platform.
+
+    Returns:
+        distances_id (str): Storage key for the calculated CKKS-encrypted distance matrix.
+        distances_shape (str): Dimensions of the resulting PQC distance matrix.
+        distances_dtype (str): Data type of the PQC distance elements.
+        service_time (float): Total time elapsed during this worker phase.
+
+    Raises:
+        Exception: If mandatory headers are missing, CKKS key initialization fails, or errors arise during the retrieval or persistence of lattice-based ciphertext chunks.
+    """
     local_start_time         = time.time() #Worker start time
     headers                  = request.headers
     logger                   = current_app.config["logger"]
@@ -669,7 +815,31 @@ async def sknn_pqc_pedict_1(requestHeaders):
             headers  = {"Error-Message":str(e)}
         )
 
+
 async def sknn_pqc_predict_2(requestHeaders):
+    """
+    Final interactive phase of the Post-Quantum Secure K-Nearest Neighbors (PQC SKNN) prediction protocol 
+    within the Worker node.
+    This method completes the secure classification lifecycle by retrieving the model labels and the resolved 
+    nearest-neighbor indices (previously refreshed or decrypted by the Client) from the CSS. It maps these 
+    indices to the corresponding class labels to produce the final classification vector. 
+
+    Note:
+        **Post-Quantum Inference Phase 2**: This step acts as the final label mapping. 
+        All required identifiers for models, labels, and indices must be provided via **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Root identifier used to locate the model labels and trained parameters.
+        Records-Test-Id (str): Storage key used to identify the resolved distance indices.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing within the Rory platform.
+
+    Returns:
+        label_vector (list): The final predicted class assignments for the test dataset.
+        service_time (float): Total execution time for this specific worker phase.
+
+    Raises:
+        Exception: If CSS retrieval for labels or indices fails, or if errors arise during the final label vector construction.
+        """
     local_start_time        = time.time() #Worker start time
     headers                 = request.headers
     logger                  = current_app.config["logger"]
@@ -778,6 +948,30 @@ async def sknn_pqc_predict_2(requestHeaders):
 
 @classification.route("/pqc/sknn/predict",methods = ["POST"])
 async def sknn_pqc_predict():
+    """
+    Main routing endpoint for the Post-Quantum Secure K-Nearest Neighbors (PQC SKNN) interactive prediction 
+    protocol within the Worker node. 
+    This method manages the secure inference lifecycle using CKKS scheme. It acts as 
+    an orchestrator that evaluates the protocol's state via a step index, delegating tasks to either the 
+    initial PQC-encrypted distance calculation (Step 1) or the final label resolution based on client-aided 
+    results (Step 2). This ensures that the classification of sensitive records remains confidential against 
+    both classical and quantum-era threats.
+
+    Note:
+        **Post-Quantum Protocol Control**: The execution flow and state transitions are managed exclusively via the 'Step-Index' attribute passed in the **HTTP Headers**. The request body is not utilized.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive PQC SKNN protocol. Use "1" for the initial CKKS-encrypted distance calculations and "2" for final label assignment. Defaults to "1".
+        Model-Id (str): Identifier for the CKKS-encrypted model stored in the CSS.
+        Experiment-Id (str): A unique identifier for performance auditing and execution tracing within the Rory platform.
+
+    Returns:
+        An object forwarded from the corresponding sub-routine (sknn_pqc_predict_1 or sknn_pqc_predict_2), 
+        containing either intermediate PQC secure scores or the final classification results.
+
+    Raises:
+        Exception: If the Step-Index is invalid or if the sub-routines encounter failures during CKKS key initialization or CSS retrieval.
+        """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
@@ -789,3 +983,4 @@ async def sknn_pqc_predict():
         return await sknn_pqc_predict_2(filteredHeaders)
     else:
         return response
+    

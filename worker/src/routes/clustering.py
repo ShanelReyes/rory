@@ -29,6 +29,21 @@ clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
 
 @clustering.route("/test",methods=["GET","POST"])
 def test():
+    """Health check and component identification endpoint for the Worker node.
+    This method serves as a heartbeat signal for the Rory Manager, allowing the orchestrator to confirm 
+    the node's availability and its specific role within the PPDMaaS ecosystem. It returns the component 
+    type both in the JSON payload and the HTTP response headers to facilitate automated discovery and 
+    load balancing.
+
+    Note:
+        **Infrastructure Check**: This endpoint does not require cryptographic parameters or session identifiers, making it the primary tool for connectivity troubleshooting.
+
+    Returns:
+        component_type (str): The identification string "worker".
+        
+        Headers:
+            Component-Type (str): Metadata indicating the node's functional role.
+    """
     return Response(
         response = json.dumps({
             "component_type":"worker"
@@ -39,12 +54,39 @@ def test():
         }
     )
 
-"""
-Description:
-    First part of the skmeans process. 
-    It stops where client interaction is required and writes the centroids and matrix S to disk.
-"""
 async def skmeans_1(requestHeaders) -> Response:
+    """
+    First interactive phase of the Secure K-Means protocol (Liu scheme) within the Worker node. 
+    This method orchestrates the retrieval of encrypted datasets and UDM matrices from the CSS, 
+    performs the initial privacy-preserving distance calculations (Run 1), and persists the resulting 
+    intermediate shift matrices and centroids back to storage. 
+    The process intentionally pauses at this stage, awaiting Client interaction to resolve secure updates 
+    before proceeding to subsequent rounds of the iterative clustering lifecycle.
+
+    Note:
+        **State Management**: This step handles both the initial 'START' status and subsequent 'WORK_IN_PROGRESS' states, requiring specific cryptographic metadata via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to derive storage keys for centroids and shift matrices.
+        Encrypted-Matrix-Id (str): Storage key for the primary encrypted dataset in the CSS.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted matrix.
+        Encrypted-Matrix-Dtype (str): Data type of the encrypted matrix elements.
+        K (int): The number of clusters to form. Defaults to "3".
+        M (int): Encryption scheme multiplier parameter. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments the matrices are divided into.
+        Clustering-Status (int): Current state of the algorithm (Start=0, Progress=1).
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+        Iterations (int): Current count of completed protocol cycles.
+
+    Returns:
+        label_vector (list): Intermediate cluster assignments for the dataset points.
+        service_time (float): Total execution time for the Step 1 operations.
+        n_iterations (int): Incremented count of total protocol iterations.
+        encrypted_shift_matrix_id (str): Identifier for the generated matrix S stored in the CSS.
+
+    Raises:
+        Exception: Occurs if mandatory headers (Shape/Dtype) are missing, CSS retrieval fails, or errors arise during the persistence of intermediate chunks.
+    """
     arrival_time               = time.time() #Worker start time
     logger                     = current_app.config["logger"]
     worker_id                  = current_app.config["NODE_ID"] # Get the node_id from the global configuration
@@ -364,13 +406,37 @@ async def skmeans_1(requestHeaders) -> Response:
         return Response(str(e),status = 500)
 
 
-"""
-Description:
-    Second part of the skmeans process. 
-    It starts when it receives S (decrypted matrix) from the client.
-    If S is zero process ends
-"""
 async def skmeans_2(requestHeaders):
+    """Second interactive phase of the Secure K-Means protocol (Liu scheme). 
+    This method processes the decrypted shift matrix returned by the Client to determine protocol convergence. 
+    If the error is within the permissible threshold, the clustering is marked as completed; otherwise, 
+    it triggers 'Run 2' to update the encrypted UDM matrices and persists them to the CSS, 
+    preparing the system for the next iterative cycle of the privacy-preserving mining process.
+
+    Note:
+        **Iterative Control**: This endpoint manages the transition between 'WORK_IN_PROGRESS' and 'COMPLETED' 
+        states based on the convergence criteria evaluated from **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier for deriving storage keys (UDM, centroids).
+        Encrypted-Matrix-Id (str): Identifier for the encrypted dataset in the CSS.
+        Shift-Matrix-Id (str): Storage key for the decrypted shift matrix provided by the client.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted data.
+        K (int): The number of clusters to form. Defaults to "3".
+        M (int): Encryption scheme multiplier parameter. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for matrix persistence.
+        Iterations (int): The current count of protocol cycles completed.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+
+    Returns:
+        Clustering-Status (int): The updated state (1 for In Progress, 2 for Completed).
+        Service-Time (float): Execution time for this specific step.
+        Total-Service-Time (float): Cumulative time if the algorithm has reached completion.
+
+    Raises:
+        Exception: If mandatory identifiers are missing, storage retrieval fails, or errors occur during the persistence of updated UDM chunks.
+        """
+    
     local_start_time           = time.time()
     logger                     = current_app.config["logger"]
     worker_id                  = current_app.config["NODE_ID"]
@@ -641,6 +707,23 @@ async def skmeans_2(requestHeaders):
 
 @clustering.route("/skmeans",methods = ["POST"])
 async def skmeans():
+    """ 
+    This method evaluates the protocol's state via a step index to coordinate the privacy-preserving mining 
+    process, ensuring that intermediate computations are handled by the appropriate sub-routine 
+    (Step 1 or Step 2) to maintain data confidentiality throughout the clustering lifecycle.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive protocol. Use "1" for distance calculation and "2" for centroid and label updates. Defaults to "1".
+        Experiment-Id (str): A unique identifier for the execution trace and performance auditing.
+        Plaintext-Matrix-Id (str): Identifier for the encrypted matrix stored in the CSS.
+
+    Returns:
+        An object forwarded from the corresponding sub-step (skmeans_1 or skmeans_2), 
+        typically containing encrypted intermediate results or final labels.
+
+    Raises:
+        Exception: If the Step-Index is outside the valid range (1-2) or if the sub-routines encounter communication failures with the storage system.
+    """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
@@ -655,6 +738,27 @@ async def skmeans():
 
 @clustering.route("/kmeans",methods = ["POST"])
 async def kmeans():
+    """
+    This method retrieves a plaintext matrix from the Cloud Storage System (CSS) using asynchronous clients, 
+    performs the clustering logic locally, and logs detailed performance metrics—including retrieval and 
+    execution times—to support experimental auditing and service time analysis within the distributed platform.
+
+    Note:
+        **Execution Parameters**: All attributes listed below must be passed exclusively via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Unique identifier for the matrix stored in the CSS/Bucket.
+        K (int): The number of clusters to form. Defaults to "3".
+        Experiment-Id (str): A unique identifier for the execution trace and logging.
+
+    Returns:
+        label_vector (list): The final cluster assignment for each data point.
+        iterations (int): Total number of iterations performed until convergence.
+        service_time (float): Total time elapsed during the worker's execution flow.
+
+    Raises:
+        Exception: Captures and logs failures during CSS matrix retrieval, MictlanX communication timeouts, or clustering computation errors.
+    """
     local_start_time        = time.time() #System startup time
     headers                 = request.headers
     to_remove_headers       = ["User-Agent","Accept-Encoding","Connection"]
@@ -743,12 +847,41 @@ async def kmeans():
         )
 
 
-"""
-Description:
-    First part of the dbskmeans process. 
-    It stops where client interaction is required and writes the centroids and matrix S to disk.
-"""
 async def dbskmeans_1(requestHeaders) -> Response:
+    """
+    First interactive phase of the Double-Blind Secure K-Means (DBS K-Means) protocol within the Worker node. 
+    This method orchestrates the retrieval and merging of encrypted data matrices and encrypted UDM matrices 
+    from the CSS. It performs the initial privacy-preserving distance calculations ('Run 1') using the 
+    double-blind scheme, generates the intermediate encrypted shift matrix, and persists the updated
+    centroids and state back to storage. The execution pauses after this step, awaiting the Client to perform 
+    the necessary partial decryption of the shift matrix.
+
+    Note:
+        **Double-Blind Execution**: This protocol requires both the data and the UDM to be in an encrypted state. All cryptographic metadata and identifiers must be provided via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier for deriving storage keys for centroids and UDM.
+        Encrypted-Matrix-Id (str): Storage key for the primary encrypted dataset.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the dataset.
+        Encrypted-Matrix-Dtype (str): Data type of the encrypted dataset elements.
+        Encrypted-Udm-Shape (str): Tuple string representing the dimensions of the encrypted UDM.
+        Encrypted-Udm-Dtype (str): Data type of the encrypted UDM elements.
+        K (int): The number of clusters to form. Defaults to "3".
+        M (int): Encryption scheme multiplier parameter. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for matrix persistence.
+        Clustering-Status (int): Current state of the algorithm (Start=0, Progress=1).
+        Iterations (int): Current count of completed protocol cycles.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+
+    Returns:
+        label_vector (list): Intermediate cluster assignments.
+        encrypted_shift_matrix_id (str): Identifier for the generated matrix S1 stored in the CSS.
+        n_iterations (int): The current iteration count.
+        service_time (float): Total time elapsed during this worker phase.
+
+    Raises:
+        Exception: If mandatory headers (Shape/Dtype) are missing, CSS retrieval fails, or errors arise during the persistence of intermediate encrypted chunks.
+        """
     arrival_time            = time.time() #System startup time
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"] # Get the node_id from the global configuration
@@ -1097,13 +1230,40 @@ async def dbskmeans_1(requestHeaders) -> Response:
         logger.error("DBSKMEANS_1_ERROR: "+encrypted_matrix_id+" "+str(e) )
         return Response(str(e),status = 503)
 
-"""
-Description:
-    Second part of the dbskmeans process. 
-    It starts when it receives S (decrypted matrix) from the client.
-    If S is zero process ends
-"""
+
 async def dbskmeans_2(requestHeaders):
+    """Second interactive phase of the Double-Blind Secure K-Means (DBS K-Means) protocol in the Worker node. 
+    This method processes the decrypted shift matrix provided by the Client to evaluate the algorithm's 
+    convergence based on a mean error threshold. If the error is within limits, the process terminates and 
+    returns cumulative performance metrics. Otherwise, it executes the 'Run 2' logic to update the encrypted 
+    UDM matrices, segments them into chunks, and persists them back to the CSS to enable the next iteration 
+    of the privacy-preserving mining cycle.
+
+    Note:
+        **Iterative Control**: The protocol's state transition (Progress vs. Completion) and all cryptographic metadata are managed exclusively via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier for locating centroids and encrypted UDM fragments.
+        Encrypted-Matrix-Id (str): Storage key for the primary encrypted dataset.
+        Shift-Matrix-Ope-Id (str): Identifier for the decrypted shift matrix returned by the client.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted data.
+        Encrypted-Udm-Shape (str): Tuple string representing the dimensions of the encrypted UDM.
+        K (int): The number of clusters to form. Defaults to "3".
+        M (int): Encryption scheme multiplier parameter. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for matrix persistence. Defaults to "4".
+        Start-Time (str): Global start timestamp used to calculate total response time upon completion.
+        Iterations (int): The current count of completed protocol cycles.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+
+    Returns:
+        response_time (str): Cumulative time since the global start (only on completion).
+        service_time (float): Execution time for this specific worker phase.
+        encrypted_udm_shape (str): The shape of the updated UDM matrix.
+        encrypted_udm_dtype (str): The data type of the updated UDM matrix.
+
+    Raises:
+        Exception: If mandatory identifiers are missing, CSS retrieval fails, or errors occur during the segmentation and persistence of updated encrypted UDM chunks.
+        """
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
@@ -1426,12 +1586,32 @@ async def dbskmeans_2(requestHeaders):
         })
         return Response(str(e),status = 503)
 
-"""
-Description:
-    DBSKMEANS algorithm
-"""
+
 @clustering.route("/dbskmeans", methods = ["POST"])
 async def dbskmeans():
+    """Main routing endpoint for the Double-Blind Secure K-Means (DBS K-Means) interactive protocol 
+    within the Worker node. 
+    This method manages the multi-party privacy-preserving lifecycle by evaluating the protocol's state 
+    through a step index. It ensures that encrypted computations are correctly delegated to either the 
+    initial distance calculation phase (Step 1) or the final convergence and centroid update phase (Step 2), 
+    maintaining the double-blind security guarantees throughout the distributed execution.
+
+    Note:
+        **Interactive Protocol Control**: The execution flow and state transition are managed exclusively 
+        via the 'Step-Index' attribute passed in the **HTTP Headers**.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive protocol. Use "1" for the initial distance and shift matrix calculation, and "2" for convergence verification and label assignment. Defaults to "1".
+        Experiment-Id (str): A unique identifier used for performance auditing and execution tracing within the Rory platform.
+        Plaintext-Matrix-Id (str): The root identifier used to locate the encrypted dataset and its associated cryptographic metadata in the CSS.
+
+    Returns:
+        An object forwarded from the corresponding sub-routine (dbskmeans_1 or dbskmeans_2), 
+        containing either intermediate ciphertexts or final clustering results.
+
+    Raises:
+        Exception: If the Step-Index is invalid or if the internal sub-routines encounter failures during CSS retrieval or cryptographic processing.
+    """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     logger          = current_app.config["logger"]
@@ -1448,6 +1628,35 @@ async def dbskmeans():
 
 @clustering.route("/dbsnnc", methods = ["POST"])
 async def dbsnnc():
+    """
+    Asynchronous endpoint for the Worker node to execute the Double-Blind Secure Nearest Neighbor Clustering 
+    (DBSNNC) algorithm.
+    This method performs a privacy-preserving clustering operation by retrieving both the encrypted data 
+    matrix and the encrypted distance matrix from the CSS. It executes the DBSNNC logic directly on the 
+    ciphertext using a secure threshold comparison, effectively grouping data points based on their proximity 
+    without exposing the underlying plaintext or the actual distances to the cloud environment.
+
+    Note:
+        **Single-Round Execution**: Unlike SK-Means, this protocol is non-interactive at the worker level. All cryptographic identifiers and threshold values must be provided via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier for deriving keys and session logging.
+        Encrypted-Matrix-Id (str): Storage key for the primary encrypted dataset.
+        Encrypted-Dm-Id (str): Storage key for the pre-calculated encrypted distance matrix.
+        Encrypted-Threshold (float): The secure distance limit used to determine neighborhood connectivity.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the data matrix.
+        Encrypted-Dm-Shape (str): Tuple string representing the dimensions of the distance matrix.
+        M (int): Encryption scheme multiplier parameter. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for the input matrices.
+        Experiment-Id (str): Unique identifier for performance auditing and tracing.
+
+    Returns:
+        label_vector (list): The final cluster assignment for each data point.
+        service_time (float): Total time elapsed during the worker's execution flow.
+
+    Raises:
+        Exception: If mandatory headers (Shape/Dtype) are missing, CSS retrieval fails, or errors arise during the secure clustering computation.
+        """
     local_start_time           = time.time() #System startup time
     headers                    = request.headers
     to_remove_headers          = ["User-Agent","Accept-Encoding","Connection"]
@@ -1590,6 +1799,34 @@ async def dbsnnc():
 
 @clustering.route("/nnc", methods = ["POST"])
 async def nnc():
+    """
+    Asynchronous endpoint for the Worker node to execute the standard Nearest Neighbor Clustering (NNC) 
+    algorithm on plaintext data.
+    This method retrieves the plaintext data matrix and its corresponding distance matrix from the CSS 
+    using asynchronous operations. It then executes the NNC logic to group data points based on a provided 
+    distance threshold, returning the resulting labels and logging performance metrics for auditing and 
+    benchmarking against secure variants.
+
+    Note:
+        **Plaintext Execution**: All required parameters and matrix identifiers must be provided exclusively via **HTTP Headers**. The request body is not utilized.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to locate the data matrix and the pre-calculated distance matrix.
+        Threshold (float): The distance limit used to establish connectivity between neighboring data points.
+        Plaintext-Matrix-Shape (str): Tuple string representing the dimensions of the data matrix.
+        Plaintext-Matrix-Dtype (str): Data type of the data matrix elements.
+        Dm-Shape (str): Tuple string representing the dimensions of the distance matrix.
+        Dm-Dtype (str): Data type of the distance matrix elements.
+        Num-Chunks (int): Number of storage fragments for the input matrices.
+        Experiment-Id (str): Unique identifier for performance auditing and execution tracing.
+
+    Returns:
+        label_vector (list): The final cluster assignment for each data point.
+        service_time (float): Total execution time for the worker's processing flow.
+
+    Raises:
+        Exception: If mandatory headers (Shape/Dtype) are missing, CSS retrieval fails, or errors occur during the clustering computation.
+        """
     local_start_time           = time.time() #System startup time
     headers                    = request.headers
     to_remove_headers          = ["User-Agent","Accept-Encoding","Connection"]
@@ -1733,6 +1970,38 @@ async def nnc():
   
 
 async def pqc_skmeans_1(requestHeaders) -> Response:
+    """
+    First interactive phase of the Post-Quantum Secure K-Means (PQC SK-Means) protocol within the Worker node.
+    This method implements the CKKS homomorphic encryption scheme to process encrypted datasets, retrieving 
+    ciphertexts and UDM matrices from the CSS. It performs the initial privacy-preserving 
+    distance calculations (Run 1) in a post-quantum secure domain, persisting intermediate shift matrices 
+    and centroids as encrypted fragments. The process halts after this phase, requiring the Client to perform 
+    secure refreshes or partial decryptions of the CKKS ciphertexts before the next iteration.
+
+    Note:
+        **Post-Quantum Execution**: All execution parameters, including CKKS metadata and matrix identifiers, must be provided exclusively via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to derive storage keys for CKKS-encrypted centroids and shift matrices.
+        Encrypted-Matrix-Id (str): Storage key for the primary CKKS-encrypted dataset in the CSS.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted matrix.
+        Encrypted-Matrix-Dtype (str): Data type of the encrypted matrix elements.
+        K (int): The number of clusters to form. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments the ciphertexts are divided into.
+        Clustering-Status (int): Current state of the algorithm (Start=0, Progress=1).
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+        Iterations (int): Current count of completed PQC protocol cycles.
+
+    Returns:
+        label_vector (list): Intermediate cluster assignments derived from the PQC computation.
+        service_time (float): Total execution time for the Step 1 PQC operations.
+        n_iterations (int): Incremented count of total PQC protocol iterations.
+        encrypted_shift_matrix_id (str): Identifier for the generated CKKS shift matrix stored in the CSS.
+
+    Raises:
+        Exception: Occurs if CKKS key initialization fails, mandatory headers are missing, 
+        or errors arise during the retrieval or persistence of ciphertexts.
+        """
     try:
         arrival_time               = time.time() #Worker start time
         logger                     = current_app.config["logger"]
@@ -2069,6 +2338,37 @@ async def pqc_skmeans_1(requestHeaders) -> Response:
 
 
 async def pqc_skmeans_2(requestHeaders):
+    """
+    Second interactive phase of the Post-Quantum Secure K-Means (PQC SK-Means) protocol using the CKKS scheme.
+    This method evaluates the convergence signal ('Is-Zero') provided by the Client. 
+    If the algorithm has converged, it finalizes the process and logs cumulative performance metrics. 
+    If convergence is not reached, it retrieves the refreshed/decrypted shift matrix from the Client and the 
+    initial parameters to execute 'Run 2', updating the encrypted UDM matrices and persisting 
+    them back to the CSS to enable the next iteration of the post-quantum mining lifecycle.
+
+    Note:
+        **Quantum-Resistant Iteration**: The protocol state and convergence flow are managed exclusively via **HTTP Headers**, ensuring that the Worker operates in a zero-knowledge state regarding the underlying plaintext.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to derive storage keys for CKKS-encrypted UDM and centroids.
+        Encrypted-Matrix-Id (str): Storage key for the primary CKKS-encrypted dataset in the CSS.
+        Shift-Matrix-Id (str): Identifier for the decrypted or refreshed shift matrix provided by the Client.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the dataset.
+        Is-Zero (int): Convergence flag provided by the Client (1 if converged, 0 otherwise).
+        K (int): The number of clusters to form. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for matrix persistence.
+        Iterations (int): The current count of completed PQC protocol cycles.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing within Rory.
+
+    Returns:
+        Clustering-Status (int): The updated state (1 for In Progress, 2 for Completed).
+        Service-Time (float): Execution time for this specific PQC worker phase.
+        Total-Service-Time (float): Cumulative time if the algorithm has reached completion.
+
+    Raises:
+        Exception: If mandatory identifiers are missing, CKKS key initialization fails, 
+        or errors occur during the retrieval or persistence of ciphertext chunks.
+        """
     local_start_time        = time.time()
     logger                  = current_app.config["logger"]
     worker_id               = current_app.config["NODE_ID"]
@@ -2322,6 +2622,32 @@ async def pqc_skmeans_2(requestHeaders):
 
 @clustering.route("/pqc/skmeans",methods = ["POST"])
 async def pqc_skmeans():
+    """
+    Main routing endpoint for the Post-Quantum Secure K-Means (PQC SK-Means) interactive protocol 
+    within the Worker node. 
+    This method manages the lifecycle of clustering operations resilient to quantum computing threats 
+    by utilizing the CKKS homomorphic encryption scheme. It acts as an orchestrator that evaluates 
+    the protocol's state via a step index, delegating tasks to either the initial distance calculation 
+    phase (Step 1) or the final centroid update and convergence phase (Step 2), ensuring a secure 
+    multi-round communication flow with the Client.
+
+    Note:
+        **Post-Quantum Protocol Control**: The execution flow and state transitions are managed 
+        exclusively via the 'Step-Index' attribute passed in the **HTTP Headers**. The request 
+        body is not utilized.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive PQC protocol. Use "1" for initial encrypted distance calculations and "2" for processing decrypted updates from the Client. Defaults to "1".
+        Experiment-Id (str): A unique identifier for performance auditing and execution tracing within the Rory platform.
+        Plaintext-Matrix-Id (str): The root identifier used to locate the encrypted dataset and associated CKKS cryptographic metadata in the CSS.
+
+    Returns:
+        An object forwarded from the corresponding sub-routine (pqc_skmeans_1 or pqc_skmeans_2), 
+        containing intermediate PQC ciphertexts or final clustering results.
+
+    Raises:
+        Exception: If the Step-Index is invalid or if the internal sub-routines encounter failures during CSS retrieval or CKKS-based processing.
+    """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))
@@ -2342,6 +2668,41 @@ async def pqc_skmeans():
 
 
 async def pqc_dbskmeans_1(requestHeaders):
+    """
+    First interactive phase of the Post-Quantum Double-Blind Secure K-Means (PQC DBS K-Means) protocol 
+    within the Worker node.
+    This method implements a hybrid privacy-preserving approach by combining  CKKS scheme 
+    with double-blind logic. It retrieves PQC-encrypted data matrices and encrypted UDM fragments from the CSS, 
+    performing the initial distance calculations (Run 1) directly on the ciphertexts. The resulting encrypted 
+    shift matrices and intermediate centroids are persisted back to storage, pausing the execution to allow 
+    the Client to perform secure refreshes or partial decryptions of the ciphertexts before 
+    the next iteration.
+
+    Note:
+        **Hybrid Secure Execution**: This protocol requires both CKKS parameters and double-blind metadata. 
+        All identifiers and cryptographic configurations must be provided exclusively via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to derive storage keys for CKKS-encrypted centroids and shift matrices.
+        Encrypted-Matrix-Id (str): Storage key for the primary CKKS-encrypted dataset in the CSS.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted matrix.
+        Encrypted-Udm-Shape (str): Tuple string representing the dimensions of the encrypted UDM.
+        K (int): The number of clusters to form. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments the ciphertexts are divided into.
+        Clustering-Status (int): Current state of the algorithm (Start=0, Progress=1).
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+        Iterations (int): Current count of completed PQC double-blind protocol cycles.
+
+    Returns:
+        label_vector (list): Intermediate cluster assignments derived from the PQC double-blind computation.
+        service_time (float): Total execution time for the Step 1 hybrid operations.
+        n_iterations (int): Incremented count of total protocol iterations.
+        encrypted_shift_matrix_id (str): Identifier for the generated CKKS shift matrix stored in the CSS.
+
+    Raises:
+        Exception: Occurs if CKKS initialization fails, mandatory headers are missing, 
+        or errors arise during the retrieval or persistence of ciphertext chunks.
+        """
     try:
         arrival_time            = time.time() #Worker start time
         logger                  = current_app.config["logger"]
@@ -2686,6 +3047,39 @@ async def pqc_dbskmeans_1(requestHeaders):
 
 
 async def pqc_dbskmeans_2(requestHeaders):
+    """
+    Second interactive phase of the Post-Quantum Double-Blind Secure K-Means (PQC DBS K-Means) protocol.
+    This method evaluates the convergence signal ('Is-Zero') provided by the Client after the partial decryption 
+    of the shift matrix. If convergence is reached, it marks the experiment as completed and logs final metrics. 
+    If not, it retrieves the refreshed shift matrix and the previous encrypted UDM from the CSS to execute 
+    'Run 2' within the CKKS domain. The resulting updated UDM matrix is then segmented into chunks and persisted 
+    back to the storage system to enable the next iterative cycle of the hybrid secure mining process.
+
+    Note:
+        **Hybrid Secure Convergence**: This step manages the transition between protocol states using 
+        cryptographic parameters. All control signals and identifiers must be provided via **HTTP Headers**.
+
+    Attributes:
+        Plaintext-Matrix-Id (str): Root identifier used to locate CKKS-encrypted UDM, centroids, and initial shift matrices.
+        Encrypted-Matrix-Id (str): Storage key for the primary CKKS-encrypted dataset in the CSS.
+        Shift-Matrix-Ope-Id (str): Identifier for the decrypted/refreshed shift matrix returned by the Client.
+        Encrypted-Matrix-Shape (str): Tuple string representing the dimensions of the encrypted dataset.
+        Encrypted-Udm-Shape (str): Tuple string representing the dimensions of the encrypted UDM.
+        Is-Zero (int): Convergence flag provided by the Client (1 if converged, 0 otherwise).
+        K (int): The number of clusters to form. Defaults to "3".
+        Num-Chunks (int): Number of storage fragments for matrix persistence. Defaults to "-1".
+        Iterations (int): The current count of completed protocol cycles.
+        Experiment-Id (str): Unique identifier for execution tracing and auditing.
+
+    Returns:
+        Clustering-Status (int): Updated state (1 for In Progress, 2 for Completed).
+        Service-Time (float): Execution time for this specific hybrid worker phase.
+        Total-Service-Time (float): Cumulative time if the algorithm has reached completion.
+
+    Raises:
+        Exception: If mandatory identifiers are missing, CKKS key initialization fails, 
+        or errors arise during the retrieval or persistence of updated ciphertext chunks.
+        """
     local_start_time           = time.time()
     logger                     = current_app.config["logger"]
     worker_id                  = current_app.config["NODE_ID"]
@@ -2958,6 +3352,31 @@ async def pqc_dbskmeans_2(requestHeaders):
 
 @clustering.route("/pqc/dbskmeans",methods = ["POST"])
 async def pqc_dbskmeans():
+    """
+    Main routing endpoint for the Post-Quantum Double-Blind Secure K-Means (PQC DBS K-Means) interactive 
+    protocol within the Worker node. 
+    This method orchestrates a multi-party privacy-preserving clustering flow that is resilient to quantum 
+    computing attacks by utilizing CKKS scheme. It manages the protocol state via a 
+    step index to coordinate the complex interaction between encrypted data matrices and encrypted UDM 
+    matrices, ensuring that the cloud environment operates in a "zero-knowledge" state while delegating 
+    specific cryptographic refreshes to the Client.
+
+    Note:
+        **Hybrid Secure Protocol**: This execution combines post-quantum security with double-blind logic. 
+        All control parameters and cryptographic identifiers must be passed exclusively via **HTTP Headers**.
+
+    Attributes:
+        Step-Index (int): The current round of the interactive PQC double-blind protocol. Use "1" for the initial distance and shift matrix calculation, and "2" for convergence verification and UDM updates. Defaults to "1".
+        Experiment-Id (str): A unique identifier used for performance auditing and execution tracing within the Rory platform.
+        Plaintext-Matrix-Id (str): The root identifier used to locate the CKKS-encrypted dataset and associated double-blind metadata in the CSS.
+
+    Returns:
+        An object forwarded from the corresponding sub-routine (pqc_dbskmeans_1 or pqc_dbskmeans_2), 
+        containing either intermediate PQC-encrypted shift matrices or final clustering results.
+
+    Raises:
+        Exception: If the Step-Index is invalid or if the internal sub-routines encounter failures during ciphertext retrieval or processing.
+        """
     headers         = request.headers
     head            = ["User-Agent","Accept-Encoding","Connection"]
     filteredHeaders = dict(list(filter(lambda x: not x[0] in head, headers.items())))

@@ -108,10 +108,6 @@ class Utils:
         xx = [PyCtxt(None, scheme, None, x, "FRACTIONAL") for x in xs ]
         return xx
 
-
-
-
-
     #  Segmentation
 
     @staticmethod

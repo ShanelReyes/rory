@@ -13,7 +13,6 @@ from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.utils.constants import Constants
 from rorycommon import Common as RoryCommon
-# from mictlanx.v4.client import Client  as V4Client
 from mictlanx import AsyncClient
 from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor
@@ -26,6 +25,24 @@ classification = Blueprint("classification",__name__,url_prefix = "/classificati
 
 @classification.route("/test",methods=["GET","POST"])
 def test():
+    """Diagnostic and health check endpoint for the classification component.
+
+    This method provides a simple mechanism to verify that the 
+    classification routes are active and reachable. It is primarily used 
+    by the Rory platform's orchestration layer to identify the node type 
+    and ensure proper network synchronization before initiating machine 
+    learning workflows.
+
+    Returns:
+        Response: A Flask Response object containing a JSON payload:
+            component_type (str): "client".
+            
+        Headers:
+            Component-Type: "client"
+            
+        Status Code:
+            200: If the classification service is operational.
+    """
     return Response(
         response = json.dumps({
             "component_type":"client"
@@ -38,6 +55,39 @@ def test():
 
 @classification.route("/sknn/train",methods = ["POST"])
 async def sknn_train():
+    """
+    This method manages the "training" phase for the privacy-preserving KNN algorithm. 
+    Unlike the standard KNN preparation, this workflow incorporates Liu's 
+    homomorphic encryption scheme to protect the model's feature matrix. The Client 
+    performs local encryption using a ProcessPoolExecutor before segmenting and 
+    secure uploading it to the Cloud Storage System (CSS).
+
+    Note:
+    **Model Generation**: Configuration for model training, including target storage IDs, 
+    must be provided through **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Unique identifier for the model and its labels. 
+            Defaults to "matrix-0_model".
+        Model-Filename (str): Local name of the feature matrix file.
+        Model-Labels-Filename (str): Local name of the labels vector file.
+        Experiment-Id (str): Unique ID for performance tracking.
+        Extension (str): Source data file extension. Defaults to "npy".
+
+    Returns:
+        response_time (float): Total end-to-end preparation time.
+        encrypted_model_shape (str): The 3D shape of the Liu-encrypted matrix 
+            (Rows, Attributes, security parameter M).
+        encrypted_model_dtype (str): Data type of the encrypted matrix.
+        algorithm (str): The specific constant for sknn_train.
+        model_labels_shape (list): Dimensions of the uploaded labels matrix.
+
+    Raises:
+        Response (500): If the ProcessPoolExecutor is missing or if the model/label 
+            files are not found in the local source path.
+        Response (500): If any error occurs during the encryption chain, 
+            chunking process, or CSS communication.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -235,6 +285,37 @@ async def sknn_train():
 
 @classification.route("/sknn/predict",methods = ["POST"])
 async def sknn_predict():
+    """
+    This method orchestrates a privacy-preserving K-Nearest Neighbors prediction 
+    using Liu's homomorphic encryption scheme. It follows a protocol where the Worker 
+    performs heavy computations on encrypted data, and 
+    the Client acts as a decryption oracle to identify the nearest neighbors 
+    without revealing plaintext information to the remote nodes.
+
+    Note:
+    **Secure Inference**: This method manages the transition between encryption domains. 
+    All required keys and IDs must be in the **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): ID of the encrypted model in CSS. Defaults to "model0".
+        Records-Test-Id (str): ID for the encrypted test records.
+        Encrypted-Model-Shape (str): The 3D shape of the model (r, a, m).
+        Encrypted-Model-Dtype (str): Data type of the encrypted model.
+        Model-Labels-Shape (str): The shape of the labels vector.
+        Experiment-Id (str): Tracking ID for performance auditing.
+
+    Returns:
+        label_vector (list): The final predicted classes.
+        worker_id (str): ID of the node that handled the encrypted computation.
+        service_time_metrics: Timing data for Client, Manager, and Worker.
+        algorithm (str): The specific constant for sknn_predict.
+
+    Raises:
+        Response (500): If the process executor is missing or if mandatory 
+            headers (Shape/Dtype) are not provided.
+        Response (500): If errors occur during the interactive encryption/decryption 
+            chain or during Worker orchestration.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -609,6 +690,36 @@ async def sknn_predict():
 
 @classification.route("/knn/train", methods = ["POST"])
 async def knn_train():
+    """
+    This method handles the "training" phase of the KNN algorithm within the Rory 
+    platform's distributed architecture. Since KNN is a lazy learner, this phase 
+    focuses on reading the reference dataset (features and labels) from local 
+    storage, segmenting them into chunks, and uploading them to the Cloud Storage 
+    System (CSS). This ensures that execution nodes (Workers) can access the 
+    model data for future prediction tasks.
+
+    Note:
+    **Model Generation**: Configuration for model training, including target storage IDs, 
+    must be provided through **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): Unique identifier for the model. Defaults to "matrix0model".
+        Model-Filename (str): Local name of the feature matrix file (without extension).
+        Model-Labels-Filename (str): Local name of the labels file (without extension).
+        Extension (str): File extension of the source data. Defaults to "npy".
+        Experiment-Id (str): Unique tracking ID for auditing and benchmarking.
+
+    Returns:
+        response_time (float): Total time taken for the preparation and upload.
+        algorithm (str): The specific algorithm constant (knn_train).
+        model_labels_shape (list): The final dimensions of the uploaded labels matrix.
+
+    Raises:
+        Response (500): If the process pool executor is not available in the 
+            app configuration.
+        Response (500): If local file reading fails or if errors occur during 
+            the chunking and upload process to the CSS.
+    """
     local_start_time             = time.time()
     logger                       = current_app.config["logger"]
     BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
@@ -765,6 +876,40 @@ async def knn_train():
 
 @classification.route("/knn/predict",methods = ["POST"])
 async def knn_predict():
+    """
+    This method orchestrates the classification of new data points using a 
+    previously "trained" (externalized) KNN model. The Client reads the test 
+    records locally, uploads them to the Cloud Storage System (CSS), and then 
+    communicates with the Manager and a designated Worker to perform the 
+    distributed nearest neighbor search.
+
+    Note:
+    **Plaintext Inference**: Input record identifiers and model mapping parameters 
+    are passed exclusively via **HTTP Headers**.
+
+    Attributes:
+        Model-Id (str): ID of the pre-trained model stored in CSS. Defaults to "model-0".
+        Records-Test-Id (str): Unique ID for the test records to be stored in CSS.
+        Records-Test-Filename (str): Local filename for the test dataset.
+        Model-Labels-Shape (str): The shape of the model's labels (Required for 
+            distributed distance calculations).
+        Extension (str): File extension of the source data. Defaults to "npy".
+        Experiment-Id (str): Tracking ID for performance benchmarking.
+
+    Returns:
+        label_vector (list): The predicted class for each test record.
+        worker_id (str): ID of the worker node that performed the prediction.
+        service_time_manager (float): Latency introduced by the Manager interaction.
+        service_time_worker (float): Time spent in remote computation.
+        service_time_client (float): Time spent in local I/O and data preparation.
+        service_time_predict (float): Total end-to-end prediction time.
+        algorithm (str): The specific algorithm constant (knn_predict).
+
+    Raises:
+        Response (500): If the "Model-Labels-Shape" header is missing, if the 
+            process executor is not configured, or if any error occurs during 
+            CSS interaction or Worker communication.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -957,6 +1102,37 @@ async def knn_predict():
     
 @classification.route("/pqc/sknn/train", methods = ["POST"])
 async def sknn_pqc_train():
+    """
+    This method manages the "training" phase for the PQC-enabled Secure K-Nearest Neighbors 
+    algorithm. It utilizes the CKKS homomorphic encryption scheme to protect 
+    the model's feature matrix, allowing for complex arithmetic operations on encrypted 
+    floating-point data. The Client handles the local encryption and segmentation before 
+    externalizing the secure artifacts to the Cloud Storage System (CSS).
+
+    Note:
+    **Post-Quantum Classification**: CKKS parameters and model identifiers are 
+    strictly handled via **HTTP Headers** to ensure protocol integrity.
+    
+    Attributes:
+        Model-Id (str): Unique identifier for the model. Defaults to "matrix-0_model".
+        Model-Filename (str): Local filename for the feature matrix.
+        Model-Labels-Filename (str): Local filename for the label vector.
+        Experiment-Id (str): Tracking ID for performance auditing.
+        Extension (str): Source file extension. Defaults to "npy".
+
+    Returns:
+        response_time (str): Total execution time for the preparation phase.
+        encrypted_model_shape (str): The dimensions of the CKKS-encrypted matrix.
+        encrypted_model_dtype (str): Data type (float32).
+        algorithm (str): The SKNN_PQC_TRAIN constant.
+        model_labels_shape (list): Dimensions of the uploaded labels matrix.
+
+    Raises:
+        Response (500): If the ProcessPoolExecutor is unavailable or if model/label 
+            files are missing from the source path.
+        Response (500): If errors occur during CKKS encryption, chunking, or 
+            asynchronous upload to the CSS.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -1207,6 +1383,37 @@ async def sknn_pqc_train():
 
 @classification.route("/pqc/sknn/predict", methods = ["POST"])
 async def sknn_pqc_predict():
+    """
+    This method orchestrates a privacy-preserving K-Nearest Neighbors prediction 
+    leveraging the CKKS homomorphic encryption scheme. It follows a 
+    Double-Blind interactive protocol where the Client acts as a decryption oracle, 
+    allowing the distributed Rory architecture to identify nearest neighbors and 
+    assign labels without exposing plaintext data to the cloud infrastructure.
+
+    Note:
+    **Post-Quantum Classification**: CKKS parameters and model identifiers are 
+    strictly handled via **HTTP Headers** to ensure protocol integrity.
+
+    Attributes:
+        Model-Id (str): ID of the pre-trained PQC model in CSS. Defaults to "model0".
+        Records-Test-Id (str): Unique ID for the test records.
+        Encrypted-Model-Shape (str): Dimensions of the CKKS model matrix.
+        Encrypted-Model-Dtype (str): Data type of the encrypted model.
+        Experiment-Id (str): Tracking ID for performance auditing.
+        Records-Test-Extension (str): File extension (e.g., "npy").
+
+    Returns:
+        label_vector (list): The predicted class assignments.
+        worker_id (str): ID of the worker node that processed the task.
+        service_time_metrics: Timing data for Client, Manager, and Worker.
+        algorithm (str): The SKNN_PQC_PREDICT constant.
+
+    Raises:
+        Response (500): If mandatory headers (Shape/Dtype) are missing or if the 
+            process executor is not available.
+        Response (500): If failures occur during CKKS decryption, chunking, 
+            or multi-node orchestration.
+    """
     try:
         local_start_time             = time.time()
         logger                       = current_app.config["logger"]
@@ -1606,3 +1813,6 @@ async def sknn_pqc_predict():
             "msg":str(e)
         })
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
+    
+
+
