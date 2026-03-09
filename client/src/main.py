@@ -1,17 +1,14 @@
 import os, logging, sys
 from flask import Flask,current_app
-from option import Some
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
-from mictlanx.utils.index import Utils
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
-from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
 from mictlanx.logger.log import Log
-from mictlanx import Client,AsyncClient
+from mictlanx import AsyncClient
 
 app = Flask(__name__)
 
@@ -77,15 +74,18 @@ MICTLANX_LOG_WHEN       = os.environ.get("MICTLANX_LOG_WHEN","h")
 MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
 MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
 MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
-MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","https")
+MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","http")
+MICTLANX_API_VERSION    = int(os.environ.get("MICTLANX_API_VERSION","4"))
+
+MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id        = MICTLANX_CLIENT_ID,
+    uri              = MICTLANX_URI,
     capacity_storage = "200mb",
     debug            = False,
     eviction_policy  = "LRU",
     max_workers      = MICTLANX_MAX_WORKERS,
-    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
