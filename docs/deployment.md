@@ -1,3 +1,0 @@
-```bash
-./deploy.sh
-```

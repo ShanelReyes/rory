@@ -13,14 +13,15 @@ from routes.classification import classification
 from mictlanx.logger.log import Log
 from mictlanx import Client,AsyncClient
 
+
 app = Flask(__name__)
 
 
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/rory/envs/.client.env")
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH",".env.dev")
 STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
 DEBUG         = bool(int(STR_DEBUG))
-
-if DEBUG:
+print("Env file path:", ENV_FILE_PATH)
+if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
 NODE_ID              = os.environ.get("NODE_ID","rory-client-0")

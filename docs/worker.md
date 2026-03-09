@@ -1,3 +1,7 @@
+---
+icon: lucide/cpu
+---
+
 # Rory Worker
 
 The **Rory Worker** is responsible for executing data mining tasks, such as secure clustering and classification, while interacting directly with the CSS (Cloud Storage Service) to retrieve and store encrypted data chunks.
@@ -70,7 +74,7 @@ Before starting the service, ensure you have the following:
 * **Python 3.11+** installed.
 * **Virtual Environment** tool (`venv` or `virtualenv`).
 * **Mictlanx (CSS)**: The storage layer must be running (usually via Docker) as the Client attempts to initialize an `AsyncStorageClient` on startup.
-* **Path Definition:** Set the environment variable for your client location:
+* **Path Definition:** Set the environment variable for your worker location:
 ```bash
 export WORKER_PATH=/home/<user>/rory
 ```
@@ -100,7 +104,7 @@ export WORKER_PATH=/home/<user>/rory
 The worker expects a specific filesystem organization for data persistence and logging. Create the following directories:
 
 ```bash
-# Using default paths for node: rory-client-0
+# Using default paths for node: rory-worker-0
 mkdir -p /rory/rory-worker-0/source
 mkdir -p /rory/rory-worker-0/sink
 mkdir -p /rory/rory-worker-0/log
@@ -121,7 +125,7 @@ mkdir -p /rory/keys
     # ./run.sh
     ```
 
-2. **Run using Gunicorn:** Once the storage is ready, navigate back to the client source and start the service:
+2. **Run using Gunicorn:** Once the storage is ready, navigate back to the worker source and start the service:
 
     ```bash
     cd ../worker/src
@@ -136,7 +140,7 @@ mkdir -p /rory/keys
 
 ### Health Check & Verification
 
-Once the service is running, verify the node's status and its identified role (Client) by performing a health check:
+Once the service is running, verify the node's status and its identified role (worker) by performing a health check:
 
   ```bash
   curl -X GET http://localhost:9000/clustering/test
@@ -148,4 +152,149 @@ Once the service is running, verify the node's status and its identified role (C
   "component_type": "worker",
   "status": "ready"
 }
+```
+
+
+
+## Docker Containerization
+
+The system is designed to run in containerized environments using Docker, ensuring that the complex cryptographic dependencies remain consistent across different nodes in the distributed network.
+
+### Dockerfile Architecture
+
+The Worker includes a dedicated `Dockerfile` located in its root directory (`/worker/Dockerfile`). The container has been created using a multi-layer approach to improve performance and deployment. Below is a breakdown of the environment configuration:
+
+* **Base Image**: python:3.11-bullseye (chosen for its stability and support for complex C++ extensions).
+* **Working Directory**: /app
+* **Dependency Management**: Uses a high-timeout installation (1800s) to accommodate the compilation of heavy cryptographic libraries.
+
+
+### Manual Image Construction
+
+To build the Worker image manually, you must navigate to the worker's directory. The build process uses the local context to package the source code and configuration:
+
+```bash
+# Navigate to the worker directory
+cd /rory/worker
+
+# Build the image using the local Dockerfile
+docker build -t rory:worker -f Dockerfile .
+```
+
+`-t`: Defines the repository name and tag (e.g., `rory:worker`).
+
+`-f`: Specifies the `Dockerfile` located within the current directory.
+
+`.`: Sets the build context to the current folder to include the `src` and `requirements.txt`.
+
+### Automated Build Script
+
+For a standardized deployment, the `build.sh` script automates the process by targeting the worker folder structure dynamically.
+
+```bash title="build.sh"
+#!/bin/bash
+readonly BASE_PATH=${1:-/rory}
+readonly IMAGE=${2:-rory:worker}
+
+# The script targets the worker component folder specifically
+docker build -t ${IMAGE} ${BASE_PATH}/worker/
+```
+
+**Usage Instructions**
+
+The script accepts two optional positional arguments to generalize the construction:
+
+* `BASE_PATH`: The root directory where the Rory project is located.
+* `IMAGE`: The full name and tag for the resulting Docker image.
+
+```bash
+# Build the worker image using default values (rory:worker)
+./build.sh
+
+# Build with a custom image name and project path
+./build.sh /home/sreyes/rory shanelreyes/rory:worker-prod
+```
+
+### Orchestration with Docker Compose
+
+The Worker node can be orchestrated using `docker-compose.yml` to manage network identities, volumes for keys/logs, and environment variables.
+
+**Network Dependency**
+
+The Worker requires the external mictlanx network to communicate with the CSS layer:
+```bash
+docker network create mictlanx
+```
+
+**Service Definition**
+
+```yaml title="docker-compose.yml"
+services:
+  rory-worker-0:
+    image: shanelreyes/rory:worker
+    container_name: rory-worker-0
+    hostname: rory-worker-0
+    ports:
+      - 3000:3000
+    environment:
+      - NODE_ID=rory-worker-0
+      - RORY_MANAGER_IP_ADDR=rory-manager-0
+    volumes:
+      - /rory/rory-worker-0/source:/rory/source
+      - /rory/rory-worker-0/keys:/rory/keys
+      - /rory/rory-worker-0/log:/rory/log
+    networks:
+      - mictlanx
+```
+
+### Deployment Commands
+The `deploy.sh` script simplifies the container lifecycle by managing environment files, build modes, and detached flags.
+
+
+```bash title="deploy.sh"
+#!/bin/bash
+readonly COMPOSE_FILE=${4:-docker-compose.yml}
+readonly ENV_FILE_PATH=${3:-.env.dev}
+readonly BUILD_MODE=${1:-0}
+readonly DETACHED_MODE=${2:-0}
+readonly detached_flag=$([ "$DETACHED_MODE" -eq 1 ] && echo "-d" || echo "")
+
+if [ "$BUILD_MODE" -eq 1 ]; then
+    echo "Building Docker images..."
+    docker compose --env-file ${ENV_FILE_PATH} -f ./${COMPOSE_FILE} up ${detached_flag} --build 
+else
+    docker compose --env-file ${ENV_FILE_PATH} -f ./${COMPOSE_FILE} up ${detached_flag}
+fi
+```
+
+**Usage Instructions**
+The script uses four positional arguments for deployment control:
+
+* `BUILD_MODE ($1)`: Set to `1` to force image rebuilding, `0` to use existing images.
+* `DETACHED_MODE ($2)`: Set to `1` to run in the background (detached), `0` for interactive mode.
+* `ENV_FILE_PATH ($3)`: Path to the environment variables file (Default: `.env.dev`).
+* `COMPOSE_FILE ($4)`: Filename of the target compose manifest (Default: `docker-compose.yml`).
+
+```bash title="Examples"
+# Standard deployment (Interactive, no build, using .env.dev)
+./deploy.sh
+
+# Rebuild images and run in detached mode
+./deploy.sh 1 1
+
+# Run in background using a specific production environment file
+./deploy.sh 0 1 .env.prod
+```
+
+
+### Verification
+
+Verify that the Worker image and container are correctly initialized in the Docker engine:
+
+```bash
+# Check worker image
+docker images | grep rory:worker
+
+# Check running worker container
+docker ps | grep rory-worker-0
 ```
