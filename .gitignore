@@ -8,3 +8,4 @@ rory-env/**
 ./**/*.pyc
 rorycommon/dist
 site/
+mictlanx/profiler
