@@ -2,7 +2,7 @@ import os, sys
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
-from mictlanx.v4.summoner.summoner import Summoner
+from mictlanx.services.summoner.summoner import Summoner
 from load_balancing.round_robin import RoundRobin
 from load_balancing.two_choices import TwoChoices
 from load_balancing.random import  Random
