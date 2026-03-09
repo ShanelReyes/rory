@@ -98,7 +98,7 @@ The following prerequisites must be met in order to use the software correctly.
 
 
 
-## Local use of the system
+## Local use of the system with virtual enviroment
 
 1. Turn on virtual environment
   ```sh
@@ -146,8 +146,13 @@ The following prerequisites must be met in order to use the software correctly.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
+## Local use of the system with virtual enviroment
+gunicorn --config ./gunicorn_config.py main:app --reload
 
 ## Use of the system with docker
+docker run -p 3001:3001 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-client  -d  shanelreyes/rory:client
+docker run -p 6000:6000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-manager  -d  shanelreyes/rory:manager
+docker run -p 9000:9000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-worker -d  shanelreyes/rory:worker
 
 ## Use of the system in servers
 1. Hacer la construccion de la imagen de contenedor de los componentes del sistema con `build_all.sh`

@@ -6,14 +6,30 @@ from rory.core.interfaces.worker import Worker
 from rory.core.interfaces.logger_metrics import LoggerMetrics
 from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload
 from utils.utils import Utils
-# from mictlanx.v3.interfaces.payloads import SummonContainerPayload
-# from mictlanx.v3.interfaces.errors import ApiError
 from option import Result
 
 lock = Lock()
 workers =   Blueprint("workers",__name__,url_prefix = "/workers")
 @workers.route("/started", methods = ["POST","GET"])
 def started():
+    """Endpoint to register a new Worker node in the Manager's global registry once its service becomes active.
+    This method performs a thread-safe update to the internal worker collection, capturing the node's network 
+    identity to make it available for upcoming privacy-preserving data mining tasks within the PPDMaaS ecosystem.
+
+    Note:
+        **Registration Parameters**: All attributes listed below must be passed exclusively via **HTTP Headers**.
+        
+    Attributes:
+        Worker-Id (str): Unique identifier for the registering worker node.
+        Worker-Port (int): The network port where the worker service is listening for instructions.
+
+    Returns:
+        Object with a 204 status code indicating the worker was successfully added to the registry.
+
+    Raises:
+        KeyError: If mandatory headers (Worker-Id or Worker-Port) are missing from the request.
+        Exception: If an error occurs during the concurrent update of the global worker configuration.
+    """
     lock.acquire()
     logger      = current_app.config["logger"]
     arrivalTime = time.time()
@@ -44,6 +60,28 @@ def started():
 #GET /workers/
 @workers.route("", methods = ["GET"])
 def getAll():
+    """
+    Endpoint to retrieve a complete snapshot of all Worker nodes currently registered and active within the 
+    Manager orchestrator.  This method facilitates monitoring of the entire system by returning metadata 
+    for the entire distributed pool, while also logging internal performance metrics to track the Manager's 
+    response efficiency  during administrative queries.
+
+    Note:
+        **Query Execution**: This endpoint does not require specific execution headers but logs the arrival 
+        and service time for auditing purposes.
+
+    Attributes:
+        None: This request does not currently extract parameters from HTTP headers.
+
+    Returns:
+        workerId (str): The unique identifier of the node.
+        port (int): The network port assigned to the worker service.
+        isStarted (bool): Current operational status of the worker.
+
+    Raises:
+        Exception: If the internal registry is inaccessible or an error occurs during the dictionary serialization process.
+    """
+    
     arrivalTime    = time.time()
     logger         = current_app.config["logger"]
     workers        = current_app.config["workers"]
@@ -62,6 +100,29 @@ def getAll():
 
 @workers.route("/deploy", methods = ["POST"])
 def deploy_worker():
+    """Orchestrates the dynamic deployment of a new Worker container within the Rory platform's infrastructure, 
+    facilitating on-demand scaling for privacy-preserving computations. This method utilizes the Replicator 
+    to spawn a containerized node, configuring its network identity, resource limits, and environment 
+    variables—including MictlanX and Liu scheme parameters—to ensure seamless integration into the 
+    distributed cluster. 
+
+    Attributes:
+        Host-Port (str): The network port on the host machine assigned to the worker.
+        Container-Id (str): The unique name or identifier for the Docker container.
+        Container-Port (str): The internal port where the worker service resides.
+        Worker-Memory (str): Memory resource limit for the container in bytes.
+        Worker-Cpu (str): CPU resource quota assigned to the worker.
+        Source-Path (str): Local path for dataset access within the container.
+        Max-Iterations (str): Limit for iterative mining algorithms like K-Means.
+        Max-Threads (str): Maximum concurrent threads for worker internal processing.
+
+    Returns:
+        container_id (str): The unique identifier of the deployed container.
+        port (str): The assigned host port for the new service.
+
+    Raises:
+        Exception: If the Replicator fails to summon the container or an internal configuration error occurs.
+    """
     arrival_time                 = time.time()
     headers                      = request.headers
     replicator:Summoner          = current_app.config["replicator"]
