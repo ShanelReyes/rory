@@ -1,8 +1,7 @@
 import time, json
 import numpy as np
 import numpy.typing as npt
-import os
-from typing import Awaitable,List,Tuple
+from typing import List,Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.clustering.kmeans import kmeans as kMeans
 from rory.core.clustering.secure.conventional.dbsnnc import Dbsnnc
@@ -14,14 +13,10 @@ from rory.core.clustering.secure.conventional.dbskmeans import DBSKMeans
 from rory.core.clustering.secure.pqc.skmeans import Skmeans as SkmeansPQC
 from rory.core.clustering.secure.pqc.dbskmeans import DBSKMeans as DbskmeansPQC
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
-from mictlanx.v4.client import Client as V4Client
 from mictlanx import AsyncClient
-from mictlanx.utils.index import Utils as MictlanXUtils
 from option import Result, Some
 from mictlanx.utils.segmentation import Chunks
-from mictlanx.v4.interfaces.responses import GetNDArrayResponse,PutResponse
 from option import Option,Some,NONE
-from utils.utils import Utils as LocalUtils
 from rorycommon import Common as RoryCommon
 from Pyfhel import PyCtxt,Pyfhel
 from models import ExperimentLogEntry
@@ -2860,11 +2855,12 @@ async def pqc_dbskmeans_1(requestHeaders):
             __Cent_j = init_shiftmatrix #There is no Cent_j
         else: 
             cent_j_start_time = time.time()
-            __Cent_j = LocalUtils.get_pyctxt_with_retry(
-                STORAGE_CLIENT = STORAGE_CLIENT, 
+            __Cent_j = await RoryCommon.get_pyctxt(
+            # __Cent_j = RoryCommon.get_pyctxt_with_retry(
+                client = STORAGE_CLIENT, 
                 bucket_id      = BUCKET_ID, 
-                num_chunks     = num_chunks,
                 key            = cent_i_id, 
+                # num_chunks     = num_chunks,
                 ckks           = ckks
             )
             status = Constants.ClusteringStatus.WORK_IN_PROGRESS

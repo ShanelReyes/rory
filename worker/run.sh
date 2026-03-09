@@ -1,7 +1,7 @@
 #!/bin/bash
 
-export BASE_PATH=/home/sreyes/rory
-export MANAGER_PATH=$BASE_PATH/manager
-export MANAGER_GUNICORN_CONFIG_FILE=$MANAGER_PATH/src/gunicorn_config.py
+export BASE_PATH=${1:-/home/sreyes/rory}
+export WORKER_PATH=$BASE_PATH/worker
+export WORKER_GUNICORN_CONFIG_FILE=$WORKER_PATH/src/gunicorn_config.py
 
-gunicorn --chdir "$MANAGER_PATH/src" --config $MANAGER_GUNICORN_CONFIG_FILE main:app
+gunicorn --chdir "$WORKER_PATH/src" --config $WORKER_GUNICORN_CONFIG_FILE main:app

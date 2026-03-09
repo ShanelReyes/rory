@@ -5,15 +5,10 @@ from rory.core.classification.secure.distributed.sknn import SecureKNearestNeigh
 from rory.core.classification.secure.pqc.sknn import SecureKNearestNeighbors as SKNNPQC
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.classification.knn import KNearestNeighbors as KNN
-# from mictlanx.v4.client import Client as V4Client
 from mictlanx import AsyncClient
-from rory.core.interfaces.logger_metrics import LoggerMetrics
-# from mictlanx.utils.index import Utils as MictlanXUtils
-from utils.utils import Utils
-# from mictlanx.v4.interfaces.responses import GetNDArrayResponse
 from mictlanx.utils.segmentation import Chunks
 import numpy.typing as npt
-from option import Result, Some
+from option import Some
 from models import ExperimentLogEntry
 from rorycommon import Common as RoryCommon
 
