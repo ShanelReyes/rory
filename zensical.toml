@@ -1,0 +1,73 @@
+
+[project]
+site_url="https://shanelreyes.github.io/rory/"
+nav = [
+    { "Home" = "index.md" },
+    { "Client" = "client.md" },
+    { "Manager" = "manager.md" },
+    { "Worker" = "worker.md" },
+    {"API Reference" = "api-reference.md"}
+]
+
+site_name = "Rory"
+site_description = "A new project generated from the default template project."
+
+site_author = "ShanelReyes"
+extra_css = ["stylesheets/extra.css"]
+
+
+copyright = """
+Copyright &copy; 2026 Shanel - Rory project
+"""
+
+[project.theme]
+
+
+
+language = "en"
+variant = "classic"
+logo = "images/logo_rory_gray.svg"
+favicon = "images/logo_rory_sf.svg"
+
+features = [
+    "announce.dismiss",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    "navigation.path",
+    "navigation.sections",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+]
+
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "deep-purple"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "deep-purple"
+accent = "deep-purple"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+
+[project.plugins.mkdocstrings.handlers.python]
+inventories = ["https://docs.python.org/3/objects.inv"]
+paths = ["rory"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+inherited_members = true
+show_source = false

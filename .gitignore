@@ -6,3 +6,5 @@ rory-env/**
 .ipynb_checkpoints/
 **/__pycache__
 ./**/*.pyc
+rorycommon/dist
+site/

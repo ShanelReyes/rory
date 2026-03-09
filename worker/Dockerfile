@@ -1,29 +1,14 @@
-FROM python:3.9-slim
-WORKDIR /app
-RUN apt update
-RUN apt-get update && apt-get install -y \
-    git \ 
-    g++ \
-    gcc \
-    cmake \
-    make \
-    python3-dev \
-    gfortran \
-    musl-dev \
-    libssl-dev \
-    libgmp-dev \
-    && rm -rf /var/lib/apt/lists/*
-# RUN apt install -y git
-# RUN apt install -y gcc
-# RUN apt install -y python3-dev
-# RUN apt install -y gfortran
-# RUN apt install -y musl-dev
-# RUN apt install -y libmagic-dev
-RUN python -m pip install --upgrade pip
+FROM python:3.11-bullseye
+#FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 ENV FLASK_APP="main"
 ENV FLASK_ENV="production"
+
+WORKDIR /app
+
 COPY ./requirements.txt .
 RUN pip install --default-timeout=1800 -r requirements.txt
-COPY ./src/ .
-#CMD [ "python","-u","/app/main.py"]
+
+COPY ./src .
 CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]

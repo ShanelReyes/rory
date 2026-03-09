@@ -1,0 +1,146 @@
+services:
+  rory-client-0:
+    image: shanelreyes/rory:client
+    hostname: rory-client-0
+    ports:
+      - 3001:3001
+    environment:
+      - NODE_ID=rory-client-0
+      - NODE_PORT=3001
+      - NODE_IP_ADDR=rory-client-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - RORY_MANAGER_IP_ADDR=rory-manager-0
+      - RORY_MANAGER_PORT=6000
+      - LOGGER_NAME=rory-client-0
+      - WORKER_TIMEOUT=300
+      - MAX_ITERATIONS=10
+      - MAX_WORKERS=2
+      - RORY_DEBUG=0
+      - RELOAD=0
+      - TESTING=0
+      - NP_RANDOM=1
+      - LIU_SECURITY_LEVEL=128
+      - LIU_SECURE_RANDOM=0
+      - LIU_ROUND=1
+      - LIU_SEED=123
+      - LIU_USE_NP_RANDOM=0
+      - LIU_ROUND=0
+      - LIU_DECIMALS=6
+      - CKKS_ROUND=0
+      - CKKS_DECIMALS=2
+      - CTX_FILENAME=ctx
+      - PUBKEY_FILENAME=pubkey
+      - SECRET_KEY_FILENAME=secretkey
+      - RELINKEY_FILENAME=relinkey
+      - SOURCE_PATH=/rory/source
+      - SINK_PATH=/rory/sink
+      - LOG_PATH=/rory/log
+      - KEYS_PATH=/rory/keys
+      - MICTLANX_CLIENT_ID=${MICTLANX_CLIENT_ID:-rory_client}
+      - MICTLANX_TIMEOUT=${MICTLANX_TIMEOUT:-120}
+      - MICTLANX_ROUTERS=${MICTLANX_ROUTERS:-mictlanx-router-0:mictlanx-router-0xx:60668}
+      - MICTLANX_MAX_WORKERS=${MICTLANX_MAX_WORKERS:-4}
+      - MICTLANX_BUCKET_ID=${MICTLANX_BUCKET_ID:-rory}
+      - MICTLANX_LOG_PATH=/rory/mictlanx
+      - MICTLANX_LOG_INTERVAL=${MICTLANX_LOG_INTERVAL:-24}
+      - MICTLANX_LOG_WHEN=${MICTLANX_LOG_WHEN:-h}
+      - MICTLANX_DELAY=${MICTLANX_DELAY:-2}
+      - MICTLANX_BACKOFF_FACTOR=${MICTLANX_BACKOFF_FACTOR:-0.5}
+      - MICTLANX_MAX_RETRIES=${MICTLANX_MAX_RETRIES:-10}
+      - MICTLANX_PROTOCOL=${MICTLANX_PROTOCOL:-https} 
+    volumes:
+      - /rory/rory-client-0/source:/rory/source
+      - /rory/rory-client-0/sink:/rory/sink
+      - /rory/rory-client-0/log:/rory/log
+      - /rory/rory-client-0/mictlanx:/rory/mictlanx
+      - /rory/rory-client-0//keys:/rory/keys
+    networks:
+      - mictlanx
+    deploy:
+      restart_policy:
+        condition: none
+          #labels:
+          #target: "rory"
+      resources:
+        limits:
+          cpus: "64"
+          memory: "128GB"
+      placement:
+        constraints:
+          - "node.labels.index==14"
+
+  rory-manager-0:
+    image: shanelreyes/rory:manager
+    hostname: rory-manager-0
+    ports:
+      - 6000:6000
+    environment:
+      - NODE_ID=rory-manager-0
+      - NODE_PORT=6000
+      - NODE_IP_ADDR=rory-manager-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - NODE_PREFIX=rory-worker-
+      - INIT_WORKERS=${INIT_WORKERS:-1}
+      - WORKER_INIT_PORT=41000
+      - DOCKER_IMAGE_NAME=shanelreyes/rory
+      - DOCKER_IMAGE_TAG=worker
+      - DOCKER_NETWORK_ID=mictlanx
+      - RORY_DEBUG=0
+      - MAX_RETRIES=10
+      - LOAD_BALANCING=0
+      - WORKER_MAX_THREADS=2
+      - WORKER_MEMORY=2000000000
+      - WORKER_CPU=2
+      - DISTANCE=MANHATHAN
+      - MIN_ERROR=0.015
+      - CKKS_ROUND=0
+      - CKKS_DECIMALS=2
+      - CTX_FILENAME=ctx
+      - PUBKEY_FILENAME=pubkey
+      - SECRET_KEY_FILENAME=secretkey
+      - RELINKEY_FILENAME=relinkey
+      - MICTLANX_SUMMONER_IP_ADDR=mictlanx-summoner-0xx
+      - MICTLANX_SUMMONER_PORT=15001
+      - MICTLANX_SUMMONER_MODE=swarm
+      - MICTLANX_SUMMONER_API_VERSION=2
+      - MICTLANX_CLIENT_ID=rory-manager-0
+      - MICTLANX_ROUTERS=mictlanx-router-0:mictlanx-router-0xx:60668
+      - MICTLANX_TIMEOUT=300
+      - MICTLANX_MAX_WORKERS=12
+      - MICTLANX_DEBUG=0
+      - MICTLANX_LOG_PATH=/rory/mictlanx
+      - MICTLANX_LOG_INTERVAL=24
+      - MICTLANX_LOG_WHEN=h
+      - MICTLANX_PROTOCOL=https
+      - MICTLANX_BUCKET_ID=rory
+      - MICTLANX_DELAY=2
+      - MICTLANX_BACKOFF_FACTOR=0.5
+      - MICTLANX_MAX_RETRIES=10
+      - MICTLANX_CHUNK_SIZE=256kb
+      - MICTLANX_MAX_PARALELL_GETS=2
+      - SWARM_NODES=1,2,3,4,7,8,11,12
+      - SOURCE_PATH=/rory/source
+      - SINK_PATH=/rory/sink
+      - LOG_PATH=/rory/log
+      - FOLDER_KEYS=keys128
+    volumes:
+      - /rory/rory-manager-0/source:/rory/source
+      - /rory/rory-manager-0/sink:/rory/sink
+      - /rory/rory-manager-0/log:/rory/log
+    networks:
+      - mictlanx
+    deploy:
+      restart_policy:
+        condition: none
+          #labels:
+        #target: "rory"
+      resources:
+        limits:
+          cpus: "2"
+          memory: "16GB"
+      placement:
+        constraints:
+          - "node.labels.index==6"
+networks:
+  mictlanx:
+    external: true

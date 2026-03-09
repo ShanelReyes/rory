@@ -1,6 +1,0 @@
-pytest
-
---extra-index-url https://test.pypi.org/simple/ 
-xolo==0.0.7
-mictlanx==0.0.160a3
-rory==0.0.182

@@ -3,7 +3,7 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.classification import classification
-from mictlanx.v4.client import Client
+from mictlanx import Client,AsyncClient
 from mictlanx.utils.index import Utils
 from dotenv import load_dotenv
 from retry.api import retry_call
@@ -23,12 +23,22 @@ RELOAD               = bool(int(os.environ.get("RELOAD",0)))
 RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
 IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
 SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
-DISTANCE             = os.environ.get("DISTANCE","EUCLIDEAN")
+DISTANCE             = os.environ.get("DISTANCE","MANHATHAN")
+MIN_ERROR            = float(os.environ.get("MIN_ERROR",0.015))
+
+CKKS_ROUND          = bool(int(os.environ.get("CKKS_ROUND",0)))
+CKKS_DECIMALS       = int(os.environ.get("CKKS_DECIMALS",2))
+CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
+PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
+SECRET_KEY_FILENAME = os.environ.get("SECRET_KEY_FILENAME","secretkey")
+RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
 
 #CREAR FOLDERS
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
 SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
 LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
+KEYS_PATH        = os.environ.get("KEYS_PATH","/rory/keys")
+
 try:
     os.makedirs(SOURCE_PATH,exist_ok = True)
     os.makedirs(SINK_PATH,  exist_ok = True)
@@ -36,30 +46,38 @@ try:
 except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
-MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_APP_ID              = os.environ.get("MICTLANX_APP_ID" "APP_ID")
-MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_SECRET              = os.environ.get("MICTLANX_SECRET","SECRET")
-MICTLANX_XOLO_IP_ADDR        = os.environ.get("MICTLANX_XOLO_IP_ADDR","localhost")
-MICTLANX_XOLO_PORT           = int(os.environ.get("MICTLANX_XOLO_PORT","10000"))
-MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_EXPIRES_IN          = os.environ.get("MICTLANX_EXPIRES_IN","15d")
-MICTLANX_ROUTERS               = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
-MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
-MICTLANX_DAEMON              = bool(int(os.environ.get("MICTLANX_DAEMON",1)))
-MICTLANX_SHOW_METRICS        = bool(int(os.environ.get("MICTLANX_SHOW_METRICS",0)))
-MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
-MICTLANX_CLIENT_LB_ALGORITHM = os.environ.get("MICTLANX_CLIENT_LB_ALGORITHM","2CHOICES_UF")
+# NUM_CHUNKS                 = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
+MICTLANX_TIMEOUT           = int(os.environ.get("MICTLANX_TIMEOUT",120))
+MICTLANX_CLIENT_ID         = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
+MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","3"))
+MICTLANX_ROUTERS           = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
+MICTLANX_DEBUG             = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
+MICTLANX_MAX_WORKERS       = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
+MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","https")
+MICTLANX_LOG_PATH          = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
+MICTLANX_LOG_INTERVAL      = int(os.environ.get("MICTLANX_LOG_INTERVAL","24"))
+MICTLANX_LOG_WHEN          = os.environ.get("MICTLANX_LOG_WHEN","h") 
+MICTLANX_BUCKET_ID         = os.environ.get("MICTLANX_BUCKET_ID","rory") 
+MICTLANX_DELAY             = int(os.environ.get("MICTLANX_DELAY","2"))
+MICTLANX_BACKOFF_FACTOR    = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+MICTLANX_MAX_RETRIES       = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
+MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
+MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
 
-STORAGE_CLIENT  = Client(
-    client_id       = MICTLANX_CLIENT_ID,
-    routers         = list(Utils.routers_from_str(MICTLANX_ROUTERS)),
-    debug           = MICTLANX_DEBUG,
-    max_workers     = MICTLANX_MAX_WORKERS,
-    lb_algorithm    = MICTLANX_CLIENT_LB_ALGORITHM,
-    bucket_id       = os.environ.get("MICTLANX_BUCKET_ID","rory"),
-    log_output_path = os.environ.get("MICTLANX_OUTPUT_PATH","/rory/mictlanx")
+
+ASYNC_STORAGE_CLIENT = AsyncClient(
+    client_id        = MICTLANX_CLIENT_ID,
+    capacity_storage = "200mb",
+    debug            = False,
+    eviction_policy  = "LRU",
+    max_workers      = MICTLANX_MAX_WORKERS,
+    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
+    verify           = False,
+    log_output_path  = MICTLANX_LOG_PATH,
+    log_interval     = MICTLANX_LOG_INTERVAL,
+    log_when         = MICTLANX_LOG_WHEN
 )
+
 
 def console_handler_filter(record:logging.LogRecord):
     if DEBUG:
@@ -67,8 +85,9 @@ def console_handler_filter(record:logging.LogRecord):
     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
         return True
     else:
-        return False
-    
+        return False   
+
+
 LOGGER = Log(
     name                   = NODE_ID,
     path                   = LOG_PATH,
@@ -76,6 +95,7 @@ LOGGER = Log(
     interval               = 24,
     when                   = "h"
 )
+
 
 """
 Description:
@@ -86,18 +106,29 @@ def create_app():
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     app.register_blueprint(classification)
     with app.app_context():
-        current_app.config["request_counter"]  = 0
-        current_app.config["NODE_PORT"]        = PORT
-        current_app.config["SINK_PATH"]        = SINK_PATH
-        current_app.config["SOURCE_PATH"]      = SOURCE_PATH
-        current_app.config["logger"]           = LOGGER
-        current_app.config["NODE_ID"]          = NODE_ID
-        current_app.config["events"]           = {}
-        current_app.config["LOG_PATH"]         = LOG_PATH
-        current_app.config["STORAGE_CLIENT"]   = STORAGE_CLIENT
-        current_app.config["MICTLANX_TIMEOUT"] = MICTLANX_TIMEOUT
-        current_app.config["DISTANCE"]         = DISTANCE
-
+        current_app.config["request_counter"]         = 0
+        current_app.config["logger"]                  = LOGGER
+        current_app.config["NODE_PORT"]               = PORT
+        current_app.config["SINK_PATH"]               = SINK_PATH
+        current_app.config["SOURCE_PATH"]             = SOURCE_PATH
+        current_app.config["NODE_ID"]                 = NODE_ID
+        current_app.config["events"]                  = {}
+        current_app.config["LOG_PATH"]                = LOG_PATH
+        current_app.config["ASYNC_STORAGE_CLIENT"]    = ASYNC_STORAGE_CLIENT
+        current_app.config["DISTANCE"]                = DISTANCE
+        current_app.config["MIN_ERROR"]               = MIN_ERROR
+        current_app.config["BUCKET_ID"]               = MICTLANX_BUCKET_ID
+        current_app.config["MICTLANX_TIMEOUT"]        = MICTLANX_TIMEOUT
+        current_app.config["MICTLANX_DELAY"]          = MICTLANX_DELAY
+        current_app.config["MICTLANX_BACKOFF_FACTOR"] = MICTLANX_BACKOFF_FACTOR
+        current_app.config["MICTLANX_MAX_RETRIES"]    = MICTLANX_MAX_RETRIES
+        current_app.config["_round"]                  = CKKS_ROUND
+        current_app.config["DECIMALS"]                = CKKS_DECIMALS
+        current_app.config["KEYS_PATH"]               = KEYS_PATH
+        current_app.config["CTX_FILENAME"]            = CTX_FILENAME
+        current_app.config["PUBKEY_FILENAME"]         = PUBKEY_FILENAME
+        current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
+        current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
 """
 Description:
   Initialize worker
