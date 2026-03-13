@@ -4,5 +4,6 @@ scikit-learn==1.6.1
 gunicorn==21.2.0
 Pyfhel==3.5.0
 --extra-index-url https://test.pypi.org/simple/ 
-rorycommon @ file:///home/nacho/Programming/Python/rory_common/dist/rorycommon-0.0.76.tar.gz
+rorycommon==0.0.77
+# rorycommon @ file:///home/nacho/Programming/Python/rory_common/dist/rorycommon-0.0.76.tar.gz
 mictlanx==0.1.0a5

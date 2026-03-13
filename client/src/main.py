@@ -13,13 +13,13 @@ from mictlanx import AsyncClient
 app = Flask(__name__)
 
 
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/rory/envs/.client.env")
-STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
-DEBUG         = bool(int(STR_DEBUG))
-
-if DEBUG:
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH",".env.dev")
+print("ENV_FILE_PATH", ENV_FILE_PATH)
+if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
+STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
+DEBUG         = bool(int(STR_DEBUG))
 NODE_ID              = os.environ.get("NODE_ID","rory-client-0")
 NODE_IP_ADDR         = os.environ.get("NODE_IP_ADDR",NODE_ID)
 NODE_PORT            = int(os.environ.get("NODE_PORT",3000))
@@ -65,7 +65,6 @@ except Exception as e:
 
 MICTLANX_CLIENT_ID      = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_TIMEOUT        = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_ROUTERS        = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_MAX_WORKERS    = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_BUCKET_ID      = os.environ.get("MICTLANX_BUCKET_ID","rory")
 MICTLANX_LOG_PATH       = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")

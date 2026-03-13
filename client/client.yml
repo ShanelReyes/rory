@@ -1,0 +1,21 @@
+services:
+  rory-client-0:
+    image: rory:client
+    container_name: rory-client-0
+    hostname: rory-client-0
+    env_file:
+      - .env
+    ports:
+      - 3000:3000
+    volumes:
+      - /rory/rory-client-0/source:/rory/source
+      - /rory/rory-client-0/sink:/rory/sink
+      - /rory/rory-client-0/log:/rory/log
+      - /rory/rory-client-0/mictlanx:/rory/mictlanx
+      - /rory/rory-client-0/keys:/rory/keys
+    networks:
+      - mictlanx
+
+networks:
+  mictlanx: 
+    external: true
