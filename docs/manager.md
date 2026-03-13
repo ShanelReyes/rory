@@ -1,3 +1,6 @@
+---
+icon: lucide/network
+---
 
 # Rory Manager
 
@@ -140,4 +143,148 @@ Confirm the Manager is ready to orchestrate the network by performing a health c
   "component_type": "manager",
   "status": "ready"
 }
+```
+
+
+
+## Docker Containerization
+
+The Manager component is containerized to ensure a stable orchestration environment. It handles the lifecycle of worker nodes and task distribution, requiring a consistent environment for the CSS management layer and cryptographic context synchronization.
+
+### Dockerfile Architecture
+
+The Manager includes a dedicated `Dockerfile` located in its root directory (`/manager/Dockerfile`). The container has been created using a multi-layer approach to improve performance and deployment. Below is a breakdown of the environment configuration:
+
+* **Base Image**: python:3.11-bullseye (chosen for its stability and support for complex C++ extensions).
+* **Working Directory**: /app
+* **Dependency Management**: High-timeout installation (1800s) to ensure the Flask-based orchestration engine and its dependencies are correctly compiled.
+
+
+### Manual Image Construction
+
+To build the Manager image manually, navigate to its root directory and execute the build command:
+
+```bash
+# Navigate to the manager directory
+cd /rory/manager
+
+# Build the image using the local Dockerfile
+docker build -t rory:manager -f Dockerfile .
+```
+
+`-t`: Defines the repository name and tag (e.g., `rory:manager`).
+
+`-f`: Specifies the `Dockerfile` located within the current directory.
+
+`.`: Sets the build context to the current folder to include the `src` and `requirements.txt`.
+
+### Automated Build Script
+
+The `build.sh` script for the Manager targets the `/manager/` directory and allows for flexible image tagging.
+
+```bash title="build.sh"
+#!/bin/bash
+readonly BASE_PATH=${1:-/rory}
+readonly IMAGE=${2:-rory:manager}
+
+# The script targets the manager component folder specifically
+docker build -t ${IMAGE} ${BASE_PATH}/manager/
+```
+
+**Usage Instructions**
+
+The script accepts two optional positional arguments to generalize the construction:
+
+* `BASE_PATH`: The root directory where the Rory project is located.
+* `IMAGE`: The full name and tag for the resulting Docker image.
+
+```bash
+# Build the manager image using default values (rory:manager)
+./build.sh
+
+# Build with a custom image name and project path
+./build.sh /home/sreyes/rory shanelreyes/rory:manager-prod
+```
+
+### Orchestration with Docker Compose
+
+The manager node can be orchestrated using `docker-compose.yml` to manage network identities, volumes for keys/logs, and environment variables.
+
+**Network Dependency**
+
+The manager requires the external mictlanx network to communicate with the CSS layer:
+```bash
+docker network create mictlanx
+```
+
+**Service Definition**
+
+```yaml title="docker-compose.yml"
+services:
+  rory-manager-0:
+    image: shanelreyes/rory:manager
+    container_name: rory-manager-0
+    hostname: rory-manager-0
+    ports:
+      - 3000:3000
+    environment:
+      - NODE_ID=rory-manager-0
+      - RORY_MANAGER_IP_ADDR=rory-manager-0
+    volumes:
+      - /rory/rory-manager-0/source:/rory/source
+      - /rory/rory-manager-0/keys:/rory/keys
+      - /rory/rory-manager-0/log:/rory/log
+    networks:
+      - mictlanx
+```
+
+### Deployment Commands
+The `deploy.sh` script for the Manager handles environment variable loading and build flags to ensure the orchestrator starts with the correct configuration.  
+
+```bash title="deploy.sh"
+#!/bin/bash
+readonly COMPOSE_FILE=${4:-docker-compose.yml}
+readonly ENV_FILE_PATH=${3:-.env.dev}
+readonly BUILD_MODE=${1:-0}
+readonly DETACHED_MODE=${2:-0}
+readonly detached_flag=$([ "$DETACHED_MODE" -eq 1 ] && echo "-d" || echo "")
+
+if [ "$BUILD_MODE" -eq 1 ]; then
+    echo "Building Docker images..."
+    docker compose --env-file ${ENV_FILE_PATH} -f ./${COMPOSE_FILE} up ${detached_flag} --build 
+else
+    docker compose --env-file ${ENV_FILE_PATH} -f ./${COMPOSE_FILE} up ${detached_flag}
+fi
+```
+
+**Usage Instructions**
+The script uses four positional arguments for deployment control:
+
+* `BUILD_MODE ($1)`: Set to `1` to force image rebuilding, `0` to use existing images.
+* `DETACHED_MODE ($2)`: Set to `1` to run in the background (detached), `0` for interactive mode.
+* `ENV_FILE_PATH ($3)`: Path to the environment variables file (Default: `.env.dev`).
+* `COMPOSE_FILE ($4)`: Filename of the target compose manifest (Default: `docker-compose.yml`).
+
+```bash title="Examples"
+# Standard deployment (Interactive, no build, using .env.dev)
+./deploy.sh
+
+# Rebuild images and run in detached mode
+./deploy.sh 1 1
+
+# Run in background using a specific production environment file
+./deploy.sh 0 1 .env.prod
+```
+
+
+### Verification
+
+Verify that the manager image and container are correctly initialized in the Docker engine:
+
+```bash
+# Check manager image
+docker images | grep rory:manager
+
+# Check running manager container
+docker ps | grep rory-manager-0
 ```

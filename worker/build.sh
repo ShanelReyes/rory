@@ -1,5 +1,5 @@
 #!/bin/bash
 readonly BASE_PATH=${1:-/home/sreyes/rory}
-readonly IMAGE_TAG=${2:-worker}
+readonly IMAGE=${2:-rory:worker}
 
-docker build -t shanelreyes/rory:${IMAGE_TAG} ${BASE_PATH}/worker/
+docker build -t ${IMAGE} ${BASE_PATH}/worker/

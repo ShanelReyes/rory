@@ -1,13 +1,16 @@
 services:
   rory-client-0:
-    image: shanelreyes/rory:client
+    image: ${RORY_IMAGE:-rory:client}
     container_name: rory-client-0
     hostname: rory-client-0
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - 3000:3000
     # env_file:""
     environment:
-      - RORY_DEBUG=0
+      - RORY_DEBUG=${RORY_DEBUG:-0}
       - NODE_ID=rory-client-0
       - NODE_PORT=3000
       - NODE_IP_ADDR=rory-client-0
@@ -26,7 +29,6 @@ services:
       - MAX_ITERATIONS=10
       - TESTING=0
       - LIU_SECURITY_LEVEL=128
-      # - M=3
       - MICTLANX_TIMEOUT=120
       - MICTLANX_API_VERSION=3
       - MICTLANX_EXPIRES_IN=15d 
@@ -37,9 +39,6 @@ services:
       - MICTLANX_DISABLED_LOG=0
       - MICTLANX_MAX_WORKERS=4
       - MICTLANX_CLIENT_LB_ALGORITHM=2CHOICES_UF
-      # - MAX_THREADS=3
-      # - XOLO_ENABLE=0
-      # - CUSTOM_PYTHON_PATH=/app
     volumes:
       - /rory/rory-client-0/source:/rory/source
       - /rory/rory-client-0/sink:/rory/sink

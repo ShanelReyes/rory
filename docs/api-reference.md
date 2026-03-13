@@ -2,16 +2,16 @@
 icon: material/xml
 ---
 
-# 📚 API Reference
+# API Reference
 
 Comprehensive technical documentation for the Rory platform, detailing the endpoints for the Client, Manager, and Worker components. This reference covers secure data mining protocols using homomorphic (Liu, CKKS) and order-preserving (FDHOPE) encryption schemes.
 
 ---
 
-## 💻 Rory Client
+## Rory Client
 The **Client** acts as the **Data Owner (DO)** and the primary **Decryption Authority**. It is responsible for local data preparation, cryptographic key management, and participating as a secure decryption authority in interactive privacy-preserving protocols.
 
-### 🗺️ Route Summary
+### Route Summary
 
 #### Clustering
 | Method | Route | Function | Description |
@@ -34,7 +34,7 @@ The **Client** acts as the **Data Owner (DO)** and the primary **Decryption Auth
 | `POST` | `/classification/sknn_pqc_train` | `sknn_pqc_train` | Post-Quantum Secure KNN training. |
 | `POST` | `/classification/sknn_pqc_predict` | `sknn_pqc_predict` | Post-Quantum Secure KNN prediction. |
 
-### 🛰️ Clustering (Client-side)
+### Clustering (Client-side)
 Endpoints to initiate secure data grouping. These routes handle local encryption and the externalization of datasets to the CSS.
 ::: client.src.routes.clustering
     options:
@@ -43,7 +43,7 @@ Endpoints to initiate secure data grouping. These routes handle local encryption
       heading_level: 4
 
 
-### 📊 Classification (Client-side)
+### Classification (Client-side)
 Endpoints for secure K-Nearest Neighbors (KNN) operations, managing the transformation between different encryption domains.
 ::: client.src.routes.classification
     options:
@@ -53,17 +53,17 @@ Endpoints for secure K-Nearest Neighbors (KNN) operations, managing the transfor
 
 ---
 
-## 🌐 Rory Manager
+## Rory Manager
 The **Manager** is the central **Orchestrator** of the PPDMaaS ecosystem. Its primary function is to manage the lifecycle of mining tasks, perform load balancing, and assign available Workers to specific experimental requests while maintaining an audit trail of service times.
 
-### 🗺️ Route Summary
+### Route Summary
 | Method | Route | Function | Description |
 |:---:|:---|:---|:---|
 | `POST` | `/workers/started` | `started` | Registers a new active Worker node. |
 | `GET` | `/workers` | `getAll` | Retrieves metadata of all registered nodes. |
 | `POST` | `/workers/deploy` | `deploy_worker` | Dynamically deploys a new Worker container. |
 
-### ⚙️ Orchestration & Management
+### Orchestration & Management
 Endpoints for task status tracking, worker registration, and resource allocation.
 ::: manager.src.routes.workers
     options:
@@ -73,10 +73,10 @@ Endpoints for task status tracking, worker registration, and resource allocation
 
 ---
 
-## ⚙️ Rory Worker
+## Rory Worker
 The **Worker** nodes represent the **Cloud Computing Power**. They perform high-performance data mining directly on encrypted data (ciphertext). They operate in a "zero-knowledge" state regarding the underlying plaintext, returning only encrypted intermediate or final results.
 
-### 🗺️ Route Summary
+### Route Summary
 
 #### Clustering
 | Method | Route | Function | Description |
@@ -97,7 +97,7 @@ The **Worker** nodes represent the **Cloud Computing Power**. They perform high-
 | `POST` | `/sknn/predict` | `sknn_predict` | Interactive Secure KNN using the **FDHOPE** scheme. |
 | `POST` | `/pqc/sknn/predict` | `sknn_pqc_predict` | Post-Quantum Secure KNN using the **CKKS** lattice-based scheme. |
 
-### 🛰️ Clustering (Worker-side)
+### Clustering (Worker-side)
 Execution logic for distributed K-Means, DBS K-Means, and NNC algorithms over encrypted matrices.
 ::: worker.src.routes.clustering
     options:
@@ -105,7 +105,7 @@ Execution logic for distributed K-Means, DBS K-Means, and NNC algorithms over en
       show_root_toc_entry: false
       heading_level: 4
 
-### 📊 Classification (Worker-side)
+### Classification (Worker-side)
 Endpoints for processing secure classification queries, utilizing FDHOPE for privacy-preserving distance comparisons.
 ::: worker.src.routes.classification
     options:

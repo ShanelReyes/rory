@@ -10,6 +10,7 @@ from routes.classification import classification
 from mictlanx.logger.log import Log
 from mictlanx import AsyncClient
 
+
 app = Flask(__name__)
 
 

@@ -1,33 +1,13 @@
 
 [project]
-
+site_url="https://shanelreyes.github.io/rory/"
 nav = [
     { "Home" = "index.md" },
-    { "System Overview" = "overview.md" },
-    { "Component: Client" = "client.md" },
-    { "Component: Manager" = "manager.md" },
-    { "Component: Worker" = "worker.md" },
-    { "Deployment & DevOps" = "deployment.md" },
+    { "Client" = "client.md" },
+    { "Manager" = "manager.md" },
+    { "Worker" = "worker.md" },
     {"API Reference" = "api-reference.md"}
 ]
-
-# nav = [
-#     { "Home" = "index.md" },
-#     { "System Overview" = "overview.md" },
-#     { "Component: Client" = [
-#         { "Description & Usage" = "client.md" },
-#         { "API Reference" = "api-reference.md" }
-#     ]},
-#     { "Component: Manager" = [
-#         { "Description & Usage" = "manager.md" },
-#         { "API Reference" = "api_manager.md" }
-#     ]},
-#     { "Component: Worker" = [
-#         { "Description & Usage" = "worker.md" },
-#         { "API Reference" = "api_worker.md" }
-#     ]},
-#     { "Deployment & DevOps" = "deployment.md" }
-# ]
 
 site_name = "Rory"
 site_description = "A new project generated from the default template project."
@@ -85,23 +65,9 @@ toggle.name = "Switch to light mode"
 
 [project.plugins.mkdocstrings.handlers.python]
 inventories = ["https://docs.python.org/3/objects.inv"]
-paths = ["./"]
-
-# [project.plugins.mkdocstrings.handlers.python.options]
-# docstring_style = "google"
-# inherited_members = true
-# show_source = false
-
+paths = ["rory"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
 docstring_style = "google"
 inherited_members = true
 show_source = false
-# # AÑADIDO: Opciones globales para limpiar el menú lateral automáticamente
-# show_root_heading = false
-# show_root_toc_entry = false
-# # Opcional: Esto ayuda a que las secciones personalizadas como "Expected Headers" se lean mejor
-# show_section_titles = true
-
-# [project.markdown_extensions.toc]
-# toc_depth = 3
