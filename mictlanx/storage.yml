@@ -1,0 +1,72 @@
+services:
+  mictlanx-router-0:
+    cap_add:
+      - SYS_PTRACE
+    image: ${MICTLANX_ROUTER_IMAGE:-nachocode/mictlanx:router-0.1.0a5}
+    restart: unless-stopped
+    env_file:
+      - .env.mictlanx.dev
+    networks:
+      - mictlanx
+    ports:
+      - "${MICTLANX_ROUTER_PORT:-63666}:60666"
+    volumes:
+      - mictlanx-router-0-logs:/log
+      - ./profiler:/profiler
+    command: > 
+      sh -c 'gunicorn --worker-class uvicorn.workers.UvicornWorker
+      mictlanxrouter.server:app
+      --bind ${MICTLANX_ROUTER_HOST-0.0.0.0}:${MICTLANX_INTERNAL_ROUTER_PORT-60666}  
+      --workers ${MICTLANX_MAX_WORKERS-1}'
+
+
+  mictlanx-summoner-0:
+    image: ${MICTLANX_SUMMONER_IMAGE:-nachocode/mictlanx:summoner-0.1.0a4}
+    container_name: mictlanx-summoner-0
+    hostname: mictlanx-summoner-0
+    privileged: true
+    ports:
+      - 15000:15000
+    environment:
+      - USER_ID=1001
+      - GROUP_ID=1002
+      - DOCKER_GID=1001
+      - BASE_PATH=${BASE_PATH-/app/mictlanx}
+      - BIN_NAME=summoner
+      - NODE_ID=mictlanx-summoner-0
+      - NODE_PORT=15000
+      - IP_ADDRESS=mictlanx-summoner-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - LOG_PATH=${BASE_PATH-/app/mictlanx}/log
+      - LOCAL_PATH=${BASE_PATH-/app/mictlanx}/local
+      - DATA_PATH=${BASE_PATH-/app/mictlanx}/data
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - mictlanx-summoner-0:/mictlanx
+    networks:
+      - mictlanx
+
+  mictlanx-rm-0:
+    image: ${MICTLANX_RM_IMAGE:-nachocode/mictlanx:rm-0.1.0a3}
+    container_name: mictlanx-rm-0
+    restart: unless-stopped
+    networks: [mictlanx]
+    ports:
+      - "5555:5555"
+    volumes:
+      - mictlanx-rm-db:/mictlanx/db
+      - ./peers.json:/app/peers.json
+    command: ["python", "-m", "mictlanxrm.main"]
+    env_file:
+      - .env.rm.dev
+    # environment:
+
+
+volumes:
+  mictlanx-summoner-0:
+  mictlanx-router-0-logs:
+  mictlanx-rm-db:
+
+networks:
+  mictlanx:
+    external: true

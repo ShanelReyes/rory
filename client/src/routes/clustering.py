@@ -13,7 +13,6 @@ from rory.core.security.cryptosystem.fdhope import Fdhope
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.utils.constants import Constants
 from rory.core.utils.utils import Utils as RoryUtils
-from mictlanx.v4.client import Client  as V4Client
 from mictlanx import AsyncClient
 from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor

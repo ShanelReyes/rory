@@ -3,15 +3,19 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.classification import classification
-from mictlanx import Client,AsyncClient
-from mictlanx.utils.index import Utils
+from mictlanx import AsyncClient
 from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
 app = Flask(__name__)
-DEBUG                 = bool(int(os.environ.get("RORY_DEBUG",1)))
-if DEBUG:
-    load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
+
+RORY_WORKER_ENV_FILE_PATH = os.environ.get("RORY_WORKER_ENV_FILE_PATH",".env")
+print("RORY_WORKER_ENV_FILE_PATH",RORY_WORKER_ENV_FILE_PATH)
+
+
+if os.path.exists(RORY_WORKER_ENV_FILE_PATH):
+    load_dotenv(RORY_WORKER_ENV_FILE_PATH)
+    # load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
 
 NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
 PORT                 = int(os.environ.get("NODE_PORT",9000))
@@ -47,13 +51,13 @@ except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
 # NUM_CHUNKS                 = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
+DEBUG                      = bool(int(os.environ.get("RORY_DEBUG",0)))
 MICTLANX_TIMEOUT           = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_ID         = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","3"))
 MICTLANX_ROUTERS           = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
 MICTLANX_DEBUG             = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
 MICTLANX_MAX_WORKERS       = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
-MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","https")
 MICTLANX_LOG_PATH          = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
 MICTLANX_LOG_INTERVAL      = int(os.environ.get("MICTLANX_LOG_INTERVAL","24"))
 MICTLANX_LOG_WHEN          = os.environ.get("MICTLANX_LOG_WHEN","h") 
@@ -63,20 +67,24 @@ MICTLANX_BACKOFF_FACTOR    = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5
 MICTLANX_MAX_RETRIES       = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
 MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
 MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
+MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","http")
+MICTLANX_API_VERSION    = int(os.environ.get("MICTLANX_API_VERSION","4"))
 
+MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id        = MICTLANX_CLIENT_ID,
+    uri              = MICTLANX_URI,
     capacity_storage = "200mb",
     debug            = False,
     eviction_policy  = "LRU",
     max_workers      = MICTLANX_MAX_WORKERS,
-    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
     log_when         = MICTLANX_LOG_WHEN
 )
+
 
 
 def console_handler_filter(record:logging.LogRecord):
@@ -136,8 +144,16 @@ Description:
 def started_completed():
   def __inner():
     try:
+      url = "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT)
+      LOGGER.debug({
+          "event":"MANAGER.STARTED_STARTED",
+          "manager_ip_addr":RORY_MANAGER_IP_ADDR,
+          "manager_port":RORY_MANAGER_PORT,
+          "node_id":NODE_ID,
+          "port":PORT
+      })
       response = requests.post(
-            "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT),
+            url,
             headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)},
             timeout = 300
       )

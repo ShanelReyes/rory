@@ -2,7 +2,7 @@ import os, sys
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.workers import workers
-from mictlanx.v4.summoner.summoner import Summoner
+from mictlanx.services.summoner.summoner import Summoner
 from load_balancing.round_robin import RoundRobin
 from load_balancing.two_choices import TwoChoices
 from load_balancing.random import  Random
@@ -64,7 +64,7 @@ MICTLANX_SUMMONER_PORT       = int(os.environ.get("MICTLANX_SUMMONER_PORT",15000
 MICTLANX_SUMMONER_MODE       = os.environ.get("MICTLANX_SUMMONER_MODE","docker")
 MICTLANX_API_VERSION         = int(os.environ.get("MICTLANX_API_VERSION",3))
 MICTLANX_CLIENT_ID           = os.environ.get("MICTLANX_CLIENT_ID","CLIENT_ID")
-MICTLANX_ROUTERS             = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
+MICTLANX_URI             = os.environ.get("MICTLANX_URI", "mictlanx://mictlanx-router-0@localhost:63666?api_version=4&protocol=http")
 MICTLANX_TIMEOUT             = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_MAX_WORKERS         = int(os.environ.get("MICTLANX_MAX_WORKERS",12))
 MICTLANX_DEBUG               = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
@@ -111,7 +111,7 @@ if init_workers > 0:
         "worker_cpu":WORKER_CPU,
         "init_port":init_port,
         "docker_image":DOCKER_IMAGE,
-        "routers":MICTLANX_ROUTERS,
+        "mictlanx_uri":MICTLANX_URI,
         "swarm_nodes":",".join(SWARM_NODES)
     })
     
@@ -131,7 +131,7 @@ if init_workers > 0:
         init_port                  = init_port,
         WORKER_MEMORY              = WORKER_MEMORY,
         WORKER_CPU                 = WORKER_CPU,
-        WORKER_MICTLANX_ROUTERS    = MICTLANX_ROUTERS,
+        WORKER_MICTLANX_URI        = MICTLANX_URI,
         MICTLANX_DEBUG             = MICTLANX_DEBUG,
         MICTLANX_MAX_WORKERS       = MICTLANX_MAX_WORKERS,
         swarm_nodes                = SWARM_NODES,
@@ -176,7 +176,7 @@ if init_workers > 0:
             "folder_keys":FOLDER_KEYS,
             "init_port":init_port,
             "docker_image":DOCKER_IMAGE,
-            "peers":MICTLANX_ROUTERS,
+            "peers":MICTLANX_URI,
             "swarm_nodes":",".join(SWARM_NODES),
             "service_time":time.time() - deploy_workers_start_time
         })

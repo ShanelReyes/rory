@@ -1,8 +1,8 @@
-import os, sys, time
+import os
 from option import NONE,Some,Result,Ok,Err
 from mictlanx.logger.log import Log
-from mictlanx.v4.summoner.summoner import Summoner,SummonContainerPayload,ExposedPort
-from mictlanx.interfaces.payloads import MountX
+from mictlanx.services.models.summoner import MountX,ExposedPort
+from mictlanx.services.summoner.summoner import Summoner,SummonContainerPayload
 from typing import List
 
 def deploy_nodes(
@@ -45,7 +45,7 @@ def deploy_nodes(
         init_port:int               = 3000,
         WORKER_MEMORY:str           = "1000000000",
         WORKER_CPU:int              = 2,
-        WORKER_MICTLANX_ROUTERS:str = "mictlanx-peer-0:localhost:7000",
+        WORKER_MICTLANX_URI:str = "mictlanx://mictlanx-router-0@localhost:63666?api_version=4&protocol=http",
         MICTLANX_MAX_WORKERS:int    = 12,
         swarm_nodes:List[str]       = ["2","3","4","8"]
 )->Result[bool, Exception]:
@@ -103,10 +103,10 @@ def deploy_nodes(
                 hostname      = container_id,
                 exposed_ports = [
                     ExposedPort(
-                        ip_addr        = NONE,
+                        ip_addr        = None,
                         host_port      = init_port+i,
                         container_port = init_port,
-                        protocolo      = NONE
+                        protocolo      = None
                     )
                 ],
                 envs={
@@ -135,7 +135,7 @@ def deploy_nodes(
                     "TESTING":"0",
                     "MAX_RETRIES":str(MAX_RETRIES),
                     "MAX_THREADS":str(WORKER_MAX_THREADS),
-                    "MICTLANX_ROUTERS":WORKER_MICTLANX_ROUTERS,
+                    "MICTLANX_URI":WORKER_MICTLANX_URI,
                     "MICTLANX_DEBUG":str(int(MICTLANX_DEBUG)),
                     "MICTLANX_MAX_WORKERS":str(MICTLANX_MAX_WORKERS),
                     "MICTLANX_TIMEOUT":str(MICTLANX_TIMEOUT),
@@ -156,16 +156,16 @@ def deploy_nodes(
                 cpu_count=int(WORKER_CPU),
                 mounts= mounts,
                 network_id= DOCKER_NETWORK_ID,
-                selected_node=Some(selected_node),
-                force=Some(True)
+                selected_node=selected_node,
+                force=True
             )
             response = summoner.summon(
-                payload=payload,
-                mode=MICTLANX_SUMMONER_MODE,
-                client_id=Some(MICTLANX_CLIENT_ID),
-                app_id=NONE,
-                authorization=NONE,
-                secret= NONE
+                payload       = payload,
+                mode          = MICTLANX_SUMMONER_MODE,
+                # client_id     = Some(MICTLANX_CLIENT_ID),
+                # app_id        = NONE,
+                # authorization = NONE,
+                # secret        = NONE
             )
             if response.is_err:
                 log.error({

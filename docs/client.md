@@ -143,8 +143,8 @@ The service uses Gunicorn to manage worker processes, which is essential for han
 
     ```bash
     cd rory/mictlanx
-    docker compose -f ./router-static.yml down
-    docker compose -f ./router-static.yml up -d
+    docker compose -f ./storage.yml down
+    docker compose -f ./storage.yml up -d
     # Alternatively, you can use the provided startup script:
     # ./run.sh
     ```

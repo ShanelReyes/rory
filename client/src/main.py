@@ -1,29 +1,26 @@
 import os, logging, sys
 from flask import Flask,current_app
-from option import Some
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
-from mictlanx.utils.index import Utils
 from rory.core.security.cryptosystem.liu import Liu
 from rory.core.security.dataowner import DataOwner
-from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
 from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
 from mictlanx.logger.log import Log
-from mictlanx import Client,AsyncClient
+from mictlanx import AsyncClient
 
 
 app = Flask(__name__)
 
 
 ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH",".env.dev")
-STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
-DEBUG         = bool(int(STR_DEBUG))
-print("Env file path:", ENV_FILE_PATH)
+print("ENV_FILE_PATH", ENV_FILE_PATH)
 if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
+STR_DEBUG     = os.environ.get("RORY_DEBUG",0) 
+DEBUG         = bool(int(STR_DEBUG))
 NODE_ID              = os.environ.get("NODE_ID","rory-client-0")
 NODE_IP_ADDR         = os.environ.get("NODE_IP_ADDR",NODE_ID)
 NODE_PORT            = int(os.environ.get("NODE_PORT",3000))
@@ -69,7 +66,6 @@ except Exception as e:
 
 MICTLANX_CLIENT_ID      = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_TIMEOUT        = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_ROUTERS        = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666") #mictlanx-peer-2:localhost:7002")
 MICTLANX_MAX_WORKERS    = int(os.environ.get("MICTLANX_MAX_WORKERS","12"))
 MICTLANX_BUCKET_ID      = os.environ.get("MICTLANX_BUCKET_ID","rory")
 MICTLANX_LOG_PATH       = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
@@ -78,15 +74,18 @@ MICTLANX_LOG_WHEN       = os.environ.get("MICTLANX_LOG_WHEN","h")
 MICTLANX_DELAY          = int(os.environ.get("MICTLANX_DELAY","2"))
 MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
 MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
-MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","https")
+MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","http")
+MICTLANX_API_VERSION    = int(os.environ.get("MICTLANX_API_VERSION","4"))
+
+MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id        = MICTLANX_CLIENT_ID,
+    uri              = MICTLANX_URI,
     capacity_storage = "200mb",
     debug            = False,
     eviction_policy  = "LRU",
     max_workers      = MICTLANX_MAX_WORKERS,
-    routers          = list(Utils.routers_from_str(routers_str=MICTLANX_ROUTERS,protocol=MICTLANX_PROTOCOL)),
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
