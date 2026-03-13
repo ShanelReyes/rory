@@ -19,6 +19,36 @@ The system follows a decentralized orchestration model composed of four primary 
 * **Storage Layer (CSS/Mictlanx):** A distributed and asynchronous storage service that handles data fragmentation and persistence.
 * **Interaction Layer (Client)**: The entry point for users to upload datasets, configure mining parameters, and retrieve results.
 
+## Quick Start
+
+Follow these steps to deploy the complete ecosystem (Storage + Rory Nodes) using Docker.
+
+1. **Initialize the Storage Layer (Mictlanx)**
+
+    Navigate to the Mictlanx directory and start the CSS routers:
+
+    ```bash
+    cd rory/mictlanx
+    ```
+
+    **Troubleshooting (Connection Refused):** If you encounter the error `Failed to connect to localhost port 63666`, it means the default port is occupied or blocked. Resolve this by starting the service on an alternative port (e.g., 64666):
+
+    ```bash
+    ./run.sh .env.mictlanx.dev 64666
+    ```
+
+2. **Deploy Rory Ecosystem**
+
+    Return to the project root and launch the Client, Manager, and Worker nodes:
+
+    ```bash
+    cd /Rory
+    docker compose -f ./docker-compose.yml up --build
+    ```
+
+This command will build the images and orchestrate the three main nodes, linking them automatically to the Mictlanx storage network.
+
+
 ## Security & Privacy Model
 
 Rory integrates cryptographic schemes to maintain privacy:
