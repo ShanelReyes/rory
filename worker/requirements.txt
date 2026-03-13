@@ -3,5 +3,5 @@ scikit-learn==1.6.1
 gunicorn==21.2.0
 
 --extra-index-url https://test.pypi.org/simple/
-rorycommon==0.0.76
-mictlanx==0.0.162
+rorycommon==0.0.77
+mictlanx==0.1.0a5

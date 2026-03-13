@@ -8,8 +8,11 @@ from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
 app = Flask(__name__)
+
 RORY_WORKER_ENV_FILE_PATH = os.environ.get("RORY_WORKER_ENV_FILE_PATH",".env")
 print("RORY_WORKER_ENV_FILE_PATH",RORY_WORKER_ENV_FILE_PATH)
+
+
 if os.path.exists(RORY_WORKER_ENV_FILE_PATH):
     load_dotenv(RORY_WORKER_ENV_FILE_PATH)
     # load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
