@@ -785,7 +785,7 @@ async def kmeans():
         )
 
         get_ptm_entry = ExperimentLogEntry(
-            event         = "GET",
+            event         = "GET", 
             experiment_id = experiment_id,
             start_time    = t1,
             end_time      = time.time(),

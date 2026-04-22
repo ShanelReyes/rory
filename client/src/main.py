@@ -45,6 +45,7 @@ CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
 PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
 SECRET_KEY_FILENAME = os.environ.get("SECRET_KEY_FILENAME","secretkey")
 RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
+ROTATEKEY_FILENAME   = os.environ.get("ROTATEKEY_FILENAME","rotatekey")
 
 RELOAD        = bool(int(os.environ.get("RELOAD",0)))
 NP_RANDOM     = bool(int(os.environ.get("NP_RANDOM","1")))
