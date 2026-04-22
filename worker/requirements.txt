@@ -1,7 +1,6 @@
 Flask[async]==3.0.0
-scikit-learn==1.6.1
 gunicorn==21.2.0
 
 --extra-index-url https://test.pypi.org/simple/
-rorycommon==0.0.77
+rorycommon==0.1.1
 mictlanx==0.1.0a5
