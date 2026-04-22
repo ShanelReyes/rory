@@ -51,15 +51,13 @@ def test():
         }
     )
 
-@machinelearning.route("/lr",methods = ["POST"])
-async def lr():
+@machinelearning.route("/logisticregression",methods = ["POST"])
+async def logisticregression():
     """
     This method implements an interactive, logistic regression protocol with raw data. The workflow is designed for 
     Machine Learning as a Service (MLaaS), where the Client (Data Owner) provides their information to get a result.
-
     
     Attributes:
-       
         Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
         Plaintext-Matrix-Filename (str): Local filename for data reading. Defaults to "matrix0".
         Extension (str): File extension of the dataset. Defaults to "csv".
@@ -76,9 +74,6 @@ async def lr():
         service_time_worker (float): Cumulative time of remote computation.
         service_time_client (float): Total local time (Encryption/Decryption/IO).
         response_time_clustering (float): End-to-end execution time.
-
-    Raises:
-        
     """
     try:
         arrivalTime                  = time.time()
@@ -94,7 +89,7 @@ async def lr():
         
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        algorithm                       = Constants.MachinelearningAlgorithms.LR
+        algorithm                       = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
@@ -106,8 +101,8 @@ async def lr():
         e                               = int(request_headers.get("E"))
         experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
-        requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
+        # requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
+        # requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
 
@@ -329,7 +324,7 @@ async def pplr():
         
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        algorithm                       = Constants.MachinelearningAlgorithms.PPLR
+        # algorithm                       = Constants.MachinelearningAlgorithms.PPLR
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
@@ -340,11 +335,11 @@ async def pplr():
         plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","matrix0")
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","matrix1")
         extension                       = request_headers.get("Extension","csv")
-        e                               = int(request_headers.get("E"))
+        # e                               = int(request_headers.get("E"))
         experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
-        requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
+        # requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
+        # requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
 
@@ -365,190 +360,12 @@ async def pplr():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
+        logger.debug({"Debug":"Starting the PPLR protocol. The actual implementation is in progress."})
+
         
-        # _______________________________________________________________________________
-        ckks = Ckks.from_pyfhel(
-            _round             = _round,
-            decimals           = decimals,
-            path               = path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename =rotatekey_filename
-        )
-        # _______________________________________________________________________________
-        dataowner = DataOwnerPQC(scheme = ckks) 
-        
-        local_read_dataset_start_time = time.time()
-        plaintext_matrix_result  = await RoryCommon.read_numpy_from(
-            path      = plaintext_matrix_test_path,
-            extension = extension,
-        )
-        if plaintext_matrix_result.is_err:
-            return Response(status=500, response="Failed to local read plain text matrix.")
-        plaintext_matrix = plaintext_matrix_result.unwrap()
-        
-        plaintext_matrix = plaintext_matrix.astype(np.float32)
-
-        n_features          = plaintext_matrix.shape[1]
-        initial_weights     = np.zeros((1, n_features), dtype=np.float32)
-        initial_bias        = np.zeros((1, 1), dtype=np.float32)
-        encrypted_weights_id = f"weights_{plaintext_matrix_train_id}"
-        encrypted_bias_id = f"bias_{plaintext_matrix_train_id}"
-
-
-        local_read_entry = ExperimentLogEntry(
-            event          = "LOCAL.READ",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = local_read_dataset_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_test_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            e              = e,
-            workers        = max_workers,
-            security_level = security_level,
-        )
-        logger.debug(local_read_entry.model_dump()) #Debug en lugar de info
-
-        max_workers = Utils.get_workers(num_chunks=num_chunks)
-       
-        encryption_start_time = time.time()
-
-        encrypted_matrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor( #Encrypt 
-            executor           = executor,
-            key                = encrypted_matrix_test_id,
-            plaintext_matrix   = plaintext_matrix,
-            _round             = _round,
-            decimals           = decimals,
-            path               = path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            num_chunks         = num_chunks,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename
-        )
-        
-        segment_encrypt_entry = ExperimentLogEntry(
-            event          = "SEGMENT.ENCRYPT",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = encryption_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_test_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            e              = e,
-            workers        = max_workers,
-            security_level = security_level,
-        )
-        logger.debug(segment_encrypt_entry.model_dump()) #Debug
-
-        put_chunks_start_time = time.time()
-        put_encrypted_matrix_result = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = encrypted_matrix_test_id,
-            chunks    = encrypted_matrix_chunks,
-            timeout   = MICTLANX_TIMEOUT,
-            max_tries = MICTLANX_MAX_RETRIES,
-        )
-
-        service_time_client = time.time() - arrivalTime
-        
-        managerResponse:RoryManager = current_app.config.get("manager")
-        get_worker_start_time = time.time()
-        
-        get_worker_result = managerResponse.getWorker(
-            headers={
-                "Algorithm"             : algorithm,
-                "Start-Request-Time"    : str(arrivalTime),
-                "Matrix-Id"             : encrypted_matrix_test_id, # Target the encrypted matrix
-                "Security-Level"        : str(security_level)
-            }
-        )
-
-        if get_worker_result.is_err:
-            return Response(response=str(get_worker_result.unwrap_err()), status=500)
-            
-        (_worker_id, port) = get_worker_result.unwrap()
-        get_worker_service_time = time.time() - get_worker_start_time
-        worker_id = "localhost" if TESTING else _worker_id
-
-        worker_start_time = time.time()
-        worker = RoryWorker(
-            workerId=worker_id, 
-            port=port, 
-            session=s, 
-            algorithm=algorithm
-        )
-
-        workerResponse = worker.run(
-            headers={
-                "Model-Labels-Shape": request_headers.get("Model-Labels-Shape", "1"),
-                "Encrypted-Matrix-Id": encrypted_matrix_test_id,
-                "Epochs": str(e),
-                "Experiment-Id": experiment_id
-            },
-            timeout=WORKER_TIMEOUT
-        )
-        workerResponse.raise_for_status()
-            
-        worker_response_time = time.time() - worker_start_time 
-        jsonWorkerResponse   = workerResponse.json()
-        encrypted_label_vector = jsonWorkerResponse.get("label_vector")
-
-        try:
-            decrypted_vector = dataowner.decrypt(encrypted_label_vector)
-            decrypted_list = decrypted_vector.tolist()
-        except Exception as decrypt_err:
-            logger.error(f"Decryption failed: {decrypt_err}")
-            decrypted_list = []
-
-        put_encrypted_ptm_entry = ExperimentLogEntry(
-            event          = "PUT",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = put_chunks_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_test_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            e              = e,
-            workers        = max_workers,
-            security_level = security_level
-        )
-        logger.debug(put_encrypted_ptm_entry.model_dump())
-        endTime       = time.time() # Get the time when it ends
-        response_time = endTime - arrivalTime # Get the service time
-
-        classification_completed_entry = ExperimentLogEntry(
-            event          = "COMPLETED",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = arrivalTime,
-            end_time       = time.time(),
-            id             = plaintext_matrix_test_id,
-            num_chunks     = num_chunks,
-            security_level = security_level,
-            workers        = max_workers,
-            time           = response_time,
-            description    = "PPLR Completed Successfully"
-        )
-        logger.debug(classification_completed_entry.model_dump())
-
         return Response(
             response = json.dumps({
-                "label_vector": decrypted_vector.tolist(),
-                "worker_id": worker_id,
-                "service_time_manager": get_worker_service_time,
-                "service_time_worker": worker_response_time,
-                "service_time_client": service_time_client,
-                "response_time": str(response_time),
-                "algorithm": algorithm,
+                "x": "This is a placeholder response. The actual implementation of the PPLR protocol is in progress.",
             }),
             status  = 200,
         )
