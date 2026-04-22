@@ -19,9 +19,9 @@ from option import Some
 from models import ExperimentLogEntry
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 
-logisticregression = Blueprint("logisticregression",__name__,url_prefix = "/logisticregression")
+machinelearning = Blueprint("machinelearning",__name__,url_prefix = "/machinelearning")
 
-@logisticregression.route("/test",methods=["GET","POST"])
+@machinelearning.route("/test",methods=["GET","POST"])
 def test():
     """Diagnostic and health check endpoint for the logisticregression component.
 
@@ -51,7 +51,7 @@ def test():
         }
     )
 
-@logisticregression.route("/lr",methods = ["POST"])
+@machinelearning.route("/lr",methods = ["POST"])
 async def lr():
     """
     This method implements an interactive, logistic regression protocol with raw data. The workflow is designed for 
@@ -283,7 +283,7 @@ async def lr():
 
         
 
-@logisticregression.route("/pplr",methods = ["POST"])
+@machinelearning.route("/pplr",methods = ["POST"])
 async def pplr():
     """
     This method implements an interactive, privacy-preserving logistic regression protocol 

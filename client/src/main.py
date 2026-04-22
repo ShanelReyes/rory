@@ -7,6 +7,7 @@ from rory.core.security.dataowner import DataOwner
 from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
+from routes.machinelearning import machinelearning
 from mictlanx.logger.log import Log
 from mictlanx import AsyncClient
 
@@ -143,6 +144,7 @@ def create_app(*args):
     # Register blueprints
     app.register_blueprint(clustering)
     app.register_blueprint(classification)
+    app.register_blueprint(machinelearning)
     with app.app_context():
         current_app.config["request_counter"]         = 0
         current_app.config["logger"]                  = LOGGER
