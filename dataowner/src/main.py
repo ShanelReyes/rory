@@ -46,6 +46,8 @@ ALGORITHM_MAP = {
     "KNN":"CLASSIFICATION",
     "SKNN":"CLASSIFICATION",
     "SKNNPQC":"CLASSIFICATION",
+    "LOGISTICREGRESSION":"MACHINELEARNING",
+    "PPLR":"MACHINELEARNING",
 }
 # TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
 
@@ -183,6 +185,30 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             record_test_filename  = row["RECORD_TEST_FILENAME"],
             # num_chunks            = int(row["NUM_CHUNKS"]),
             extension             = row["EXTENSION"],
+        )
+    elif algorithm == "LOGISTICREGRESSION":
+        result = client.lr(
+            plaintext_matrix_train_id       = f"TRAIN_{plaintext_matrix_id}-{current_experiment_iteration}",
+            plaintext_matrix_test_id        = f"TEST_{plaintext_matrix_id}-{current_experiment_iteration}",
+            plaintext_matrix_train_filename = row["DATASET_TRAIN_FILENAME"],
+            plaintext_matrix_test_filename  = row["DATASET_PREDICT_FILENAME"],
+            extension                       = row["EXTENSION"],
+            e                               = int(row["EPOCHS"]),
+            learning_rate                   = float(row.get("LEARNING_RATE", 0.01))
+        )
+    elif algorithm == "PPLR":
+        result = client.pplr(
+            plaintext_matrix_train_id       = f"TRAIN_{plaintext_matrix_id}-{current_experiment_iteration}",
+            plaintext_matrix_test_id        = f"TEST_{plaintext_matrix_id}-{current_experiment_iteration}",
+            plaintext_matrix_train_filename = row["DATASET_TRAIN_FILENAME"],
+            plaintext_matrix_test_filename  = row["DATASET_PREDICT_FILENAME"],
+            extension                       = row["EXTENSION"],
+            e                               = int(row["EPOCHS"]),
+            learning_rate                   = float(row.get("LEARNING_RATE", 0.01)),
+            max_iterations                  = int(row["MAX_ITERATIONS"]),
+            accuracy_threshold              = float(row.get("ACCURACY_THRESHOLD")),
+            prediction_threshold            = float(row.get("PREDICTION_THRESHOLD", 0.5)),
+            experiment_iteration            = current_experiment_iteration
         )
     else:
         print("UNKNOWN ALGORITM", algorithm)

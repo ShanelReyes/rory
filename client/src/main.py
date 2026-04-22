@@ -176,6 +176,7 @@ def create_app(*args):
         current_app.config["PUBKEY_FILENAME"]         = PUBKEY_FILENAME
         current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
         current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
+        current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
     # return app
 
 
