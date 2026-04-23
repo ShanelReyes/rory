@@ -73,9 +73,12 @@ async def logisticregression():
     to_remove_headers           = ["User-Agent","Accept-Encoding","Connection"]
     filtered_headers            = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     experiment_id               = filtered_headers.get("Experiment-Id","")
-    algorithm                   = Constants.MachineLearningAlgorithms.LR
+    algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION
+
+    plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","matrix_train")
+    plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","matrix_test")
     epochs                      = int(headers.get("Epochs", 1))
-    learning_rate               = float(headers.get("Learning-Rate", 0.01))
+    learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     matrix_train_id             = filtered_headers.get("Matrix-Train-Id")
     matrix_test_id              = filtered_headers.get("Matrix-Test-Id")
 
@@ -83,7 +86,7 @@ async def logisticregression():
     MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
     MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
     MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
-
+    """
     try:
         matrix_train = await RoryCommon.get_and_merge(
             client         = STORAGE_CLIENT, 
@@ -124,17 +127,23 @@ async def logisticregression():
 
         service_time = time.time() - local_start_time
         predictions = result_dict["predictions"].tolist()
+    """
+    logger.info({
+        "algorithm" : algorithm,
+        "plaintext_matrix_train_id": plaintext_matrix_train_id,
+        "plaintext_matrix_test_id": plaintext_matrix_test_id,
+        "epoch": epochs, 
+        "learning_rate": learning_rate, 
+    })
 
-        return Response(
-            response=json.dumps({
-                "label_vector": predictions,
-                "training_time": result_dict["training_time"],
-                "inference_time": result_dict["inference_time"],
-                "service_time": service_time
-            }),
-            status=200
+    return Response(
+        response=json.dumps({
+            "x": "This endpoint is under development. Please check back later."
+        }),
+        status=200
         )
 
+    """
     except Exception as e:
         logger.error({
             "msg":str(e)
@@ -144,6 +153,7 @@ async def logisticregression():
             status   = 503,
             headers  = {"Error-Message":str(e)}
         )
+    """
 
 
 @machinelearning.route("/pplr", methods=["POST"])
@@ -189,8 +199,8 @@ async def pplr():
     experiment_id               = headers.get("Experiment-Id", "")
 
     epochs                      = int(headers.get("Epochs", 1))
-    learning_rate               = float(headers.get("Learning-Rate", 0.01))
-    accuracy_threshold          = float(headers.get("Accuracy-Threshold", 0.80))
+    learning_rate               = float(headers.get("Learning-Rate", "0.01"))
+    accuracy_threshold          = float(headers.get("Accuracy-Threshold", "0.80"))
     iterations                  = int(headers.get("Iterations", 1))
     
     
@@ -198,7 +208,7 @@ async def pplr():
     encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id","emt_id_not_provided")
     encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id","emt_id_not_provided")
     encrypted_weights_id        = headers.get("Encrypted-Weights-Id","ew_id_not_provided")
-    encrypted_bias_id           = headers.get("Encrypted-Bias-Id","")
+    encrypted_bias_id           = headers.get("Encrypted-Bias-Id","eb_id_not_provided")
 
     scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(headers.get("N-Features", 0))
@@ -206,20 +216,6 @@ async def pplr():
     model_id                   = f"model_{experiment_id}_{iterations}"
     num_chunks                  = 1 # Para pesos y bias, se asume que caben en un solo chunk cada uno. Las predicciones se segmentan en 4 chunks para facilitar la descarga por parte del cliente.
 
-    logger.info({
-        "experiment_id": experiment_id,
-        "epochs": epochs,
-        "learning_rate": learning_rate,
-        "accuracy_threshold": accuracy_threshold,
-        "iterations": iterations,
-        "encrypted_matrix_train_id": encrypted_matrix_train_id,
-        "encrypted_matrix_test_id": encrypted_matrix_test_id,
-        "encrypted_weights_id": encrypted_weights_id,
-        "encrypted_bias_id": encrypted_bias_id,
-        "scale": scale,
-        "n_features": n_features,
-        "n_samples": n_samples  
-    })
 
     if not all([encrypted_matrix_train_id, encrypted_weights_id, encrypted_bias_id, n_features, n_samples]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
@@ -241,7 +237,7 @@ async def pplr():
     relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
     rotatekey_filename       = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
-    # Configuración CKKS
+    """# Configuración CKKS
     logger.info(f"Worker {worker_id} - Initializing CKKS context for PPLR round {iterations} of experiment {experiment_id}")
     ckks = Ckks.from_pyfhel(
         _round              = _round,
@@ -282,7 +278,7 @@ async def pplr():
             bucket_id   = BUCKET_ID, 
             key         = encrypted_bias_id, 
             ckks        = ckks
-        )--
+        )
 
         updated_weights, updated_bias, train_time = LogisticRegressionFHE.train(
             HE                  = ckks.he_object, 
@@ -362,6 +358,8 @@ async def pplr():
         )
         logger.info(classification_completed_entry.model_dump())
 
+        
+
         return Response(
             response=json.dumps({
                 "encrypted_weights_id": out_weights_id,
@@ -369,7 +367,7 @@ async def pplr():
                 "encrypted_predict_vector_id": out_preds_id,
                 "training_time": train_time,
                 "inference_time": inference_time,
-                "service_time": service_time
+                "service_time": service_time,
             }),
             status=200
         )
@@ -382,4 +380,25 @@ async def pplr():
             response = None,
             status   = 503,
             headers  = {"Error-Message":str(e)}
-        )
+        )"""
+    
+    logger.debug({
+            "algorithm" : algorithm,
+            "encrypted_matrix_train_id": encrypted_matrix_train_id,
+            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "epoch": epochs, 
+            "learning_rate": learning_rate, 
+            "accuracy_threshold": accuracy_threshold,
+            "scale" : scale,
+            "n_features" : n_features,
+            "n_samples" : n_samples,
+        })
+    
+    return Response(
+            response = json.dumps({
+                "x": "This endpoint is under development. Please check back later."                
+            }),
+            status   = 200,
+            headers  = {}
+            )
+    

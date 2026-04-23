@@ -99,11 +99,8 @@ async def logisticregression():
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","matrix1")
         extension                       = request_headers.get("Extension","csv")
         epochs                          = int(request_headers.get("Epochs", 1))
-        learning_rate                   = float(request_headers.get("Learning-Rate", 0.01))
-        experiment_iteration            = request_headers.get("Experiment-Iteration","0")
+        learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        # requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
-        # requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
 
@@ -114,7 +111,7 @@ async def logisticregression():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
-        
+        """
         local_read_dataset_start_time = time.time()
         records_test_result = await RoryCommon.read_numpy_from(
             path=plaintext_matrix_test_path, 
@@ -254,7 +251,19 @@ async def logisticregression():
             workers        = max_workers,
             time           = response_time,
         )
-        logger.debug(classification_completed_entry.model_dump())
+
+        logger.debug({
+            "plaintext_matrix_train_id": plaintext_matrix_train_id,
+            "plaintext_matrix_test_id": plaintext_matrix_test_id,
+            "plaintext_matrix_train_path": plaintext_matrix_train_path,
+            "plaintext_matrix_test_path": plaintext_matrix_test_path,   
+            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
+            "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
+            "extension" : extension,
+            "epoch": epochs, 
+            "learning_rate": learning_rate, 
+            "max_iterations": MAX_ITERATIONS,
+        })
 
         return Response(
             response = json.dumps({
@@ -272,7 +281,31 @@ async def logisticregression():
     except Exception as e:
         logger.error("CLIENT_ERROR "+str(e))
         return Response(response = None, status = 500, headers={"Error-Message":str(e)})
+    """
+        logger.debug({
+            "algorithm" : algorithm,
+            "plaintext_matrix_train_id": plaintext_matrix_train_id,
+            "plaintext_matrix_test_id": plaintext_matrix_test_id,
+            "plaintext_matrix_train_path": plaintext_matrix_train_path,
+            "plaintext_matrix_test_path": plaintext_matrix_test_path,   
+            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
+            "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
+            "extension" : extension,
+            "epoch": epochs, 
+            "learning_rate": learning_rate, 
+            "max_iterations": MAX_ITERATIONS,
+        })
 
+        return Response(
+            response = json.dumps({
+                "x": "This endpoint is under development. Please check back later."                
+            }),
+            status   = 200,
+            headers  = {}
+            )
+    except Exception as e:
+        logger.error("CLIENT_ERROR "+str(e))
+        return Response(response = None, status = 500, headers={"Error-Message":str(e)})
 
         
 
@@ -313,8 +346,8 @@ async def pplr():
         plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
 
         epochs                          = int(request_headers.get("Epochs", "1"))
-        learning_rate                   = float(request_headers.get("Learning-Rate", 0.01))
-        accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", 0.80))
+        learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
+        accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", "0.80"))
 
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
@@ -333,6 +366,7 @@ async def pplr():
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
         logger.debug({
+            "algorithm" : algorithm,
             "plaintext_matrix_train_id": plaintext_matrix_train_id,
             "encrypted_matrix_train_id": encrypted_matrix_train_id,
             "plaintext_matrix_test_id": plaintext_matrix_test_id,
@@ -341,6 +375,7 @@ async def pplr():
             "plaintext_matrix_test_path": plaintext_matrix_test_path,   
             "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
             "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
+            "extension" : extension,
             "epoch": epochs, 
             "learning_rate": learning_rate, 
             "accuracy_threshold": accuracy_threshold,
@@ -360,7 +395,11 @@ async def pplr():
         logger.error({
             "msg":str(e)
         })
-        return Response(response = None, status = 500, headers={"Error-Message":str(e)})
+        return Response(
+            response = None, 
+            status = 500, 
+            headers={"Error-Message":str(e)}
+        )
 
 
         
