@@ -281,35 +281,6 @@ async def logisticregression():
 
 @machinelearning.route("/pplr",methods = ["POST"])
 async def pplr():
-    """
-    This method implements an interactive, privacy-preserving logistic regression protocol 
-    powered by CKKS homomorphic encryption scheme. The workflow is designed for 
-    Privacy-Preserving Machine Learning as a Service (PPMLaaS), where the Client (Data Owner) 
-    remains the only entity capable of decrypting intermediate computations.
-
-    
-    Attributes:
-       
-        Plaintext-Matrix-Id (str): Unique ID for the matrix. Defaults to "matrix0".
-        Plaintext-Matrix-Filename (str): Local filename for data reading. Defaults to "matrix0".
-        Extension (str): File extension of the dataset. Defaults to "csv".
-        E (int): Number of epochs to rounds. **Required**.
-        Max-Iterations (int): Maximum number of protocol rounds. Defaults to 10.
-        Experiment-Id (str): Tracking ID for performance auditing.
-        Experiment-Iteration (str): Current loop index of the experiment.
-
-    Returns:
-        prediction (list): Final predictions.
-        iterations (int): Actual number of iterations performed.
-        worker_id (str): ID of the node that performed the secure computations.
-        service_time_manager (float): Time spent in Worker allocation.
-        service_time_worker (float): Cumulative time of remote computation.
-        service_time_client (float): Total local time (Encryption/Decryption/IO).
-        response_time_clustering (float): End-to-end execution time.
-
-    Raises:
-        
-    """
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -344,8 +315,6 @@ async def pplr():
         epochs                          = int(request_headers.get("Epochs", "1"))
         learning_rate                   = float(request_headers.get("Learning-Rate", 0.01))
         accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", 0.80))
-        
-       
 
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
@@ -355,7 +324,6 @@ async def pplr():
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename  = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-        # max_workers        = Utils.get_workers(num_chunks=num_chunks)
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -364,14 +332,25 @@ async def pplr():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
-        logger.debug({"Debug":"Starting the PPLR protocol. The actual implementation is in progress."})
+        logger.debug({
+            "plaintext_matrix_train_id": plaintext_matrix_train_id,
+            "encrypted_matrix_train_id": encrypted_matrix_train_id,
+            "plaintext_matrix_test_id": plaintext_matrix_test_id,
+            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "plaintext_matrix_train_path": plaintext_matrix_train_path,
+            "plaintext_matrix_test_path": plaintext_matrix_test_path,   
+            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
+            "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
+            "epoch": epochs, 
+            "learning_rate": learning_rate, 
+            "accuracy_threshold": accuracy_threshold,
+            "max_iterations": MAX_ITERATIONS,
+        })
 
         
         return Response(
             response = json.dumps({
-                "epochs" : epochs,
-                "learning_rate" : learning_rate,
-                "accuracy_threshold" :  accuracy_threshold,
+                "x": "This endpoint is under development. Please check back later."
             }),
             status   = 200,
             headers  = {}

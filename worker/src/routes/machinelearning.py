@@ -195,15 +195,31 @@ async def pplr():
     
     
    
-    encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
-    encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
-    encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
-    encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
+    encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id","emt_id_not_provided")
+    encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id","emt_id_not_provided")
+    encrypted_weights_id        = headers.get("Encrypted-Weights-Id","ew_id_not_provided")
+    encrypted_bias_id           = headers.get("Encrypted-Bias-Id","")
 
     scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(headers.get("N-Features", 0))
     n_samples                   = int(headers.get("N-Samples", 0))
+    model_id                   = f"model_{experiment_id}_{iterations}"
+    num_chunks                  = 1 # Para pesos y bias, se asume que caben en un solo chunk cada uno. Las predicciones se segmentan en 4 chunks para facilitar la descarga por parte del cliente.
 
+    logger.info({
+        "experiment_id": experiment_id,
+        "epochs": epochs,
+        "learning_rate": learning_rate,
+        "accuracy_threshold": accuracy_threshold,
+        "iterations": iterations,
+        "encrypted_matrix_train_id": encrypted_matrix_train_id,
+        "encrypted_matrix_test_id": encrypted_matrix_test_id,
+        "encrypted_weights_id": encrypted_weights_id,
+        "encrypted_bias_id": encrypted_bias_id,
+        "scale": scale,
+        "n_features": n_features,
+        "n_samples": n_samples  
+    })
 
     if not all([encrypted_matrix_train_id, encrypted_weights_id, encrypted_bias_id, n_features, n_samples]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
@@ -226,6 +242,7 @@ async def pplr():
     rotatekey_filename       = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
     # Configuración CKKS
+    logger.info(f"Worker {worker_id} - Initializing CKKS context for PPLR round {iterations} of experiment {experiment_id}")
     ckks = Ckks.from_pyfhel(
         _round              = _round,
         decimals            = decimals,
@@ -238,6 +255,7 @@ async def pplr():
     )
 
     try:
+        logger.info(f"Worker {worker_id} - Starting PPLR round {iterations} for experiment {experiment_id}")
         enc_X_train, enc_y_train = await RoryCommon.get_pyctxt_list_split(
             client      = STORAGE_CLIENT, 
             bucket_id   = BUCKET_ID, 
@@ -264,7 +282,7 @@ async def pplr():
             bucket_id   = BUCKET_ID, 
             key         = encrypted_bias_id, 
             ckks        = ckks
-        )
+        )--
 
         updated_weights, updated_bias, train_time = LogisticRegressionFHE.train(
             HE                  = ckks.he_object, 
