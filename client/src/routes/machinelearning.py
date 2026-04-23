@@ -98,7 +98,8 @@ async def logisticregression():
         plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","matrix0")
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","matrix1")
         extension                       = request_headers.get("Extension","csv")
-        e                               = int(request_headers.get("E"))
+        epochs                          = int(request_headers.get("Epochs", 1))
+        learning_rate                   = float(request_headers.get("Learning-Rate", 0.01))
         experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
         # requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
@@ -324,24 +325,27 @@ async def pplr():
         
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        # algorithm                       = Constants.MachinelearningAlgorithms.PPLR
+        algorithm                       = Constants.MachineLearningAlgorithms.PPLR
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","matrix0")
-        encrypted_matrix_train_id       = "encrypted{}".format(plaintext_matrix_train_id) # The id of the encrypted matrix is built
-        plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","matrix1")
-        encrypted_matrix_test_id        = "encrypted{}".format(plaintext_matrix_test_id)
-        plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","matrix0")
-        plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","matrix1")
-        extension                       = request_headers.get("Extension","csv")
-        # e                               = int(request_headers.get("E"))
         experiment_iteration            = request_headers.get("Experiment-Iteration","0")
-        experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        # requestId_train                 = "request-{}".format(plaintext_matrix_train_id)
-        # requestId_test                  = "request-{}".format(plaintext_matrix_test_id)
+
+        plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","matrix-train")
+        encrypted_matrix_train_id       = "encrypted{}".format(plaintext_matrix_train_id) # The id of the encrypted matrix is built
+        plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","matrix-test")
+        encrypted_matrix_test_id        = "encrypted{}".format(plaintext_matrix_test_id)
+        plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","matrix-train")
+        plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","matrix-test")
+        extension                       = request_headers.get("Extension","csv")
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
-        plaintext_matrix_test_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
+        plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
+
+        epochs                          = int(request_headers.get("Epochs", "1"))
+        learning_rate                   = float(request_headers.get("Learning-Rate", 0.01))
+        accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", 0.80))
+        
+       
 
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
@@ -365,9 +369,12 @@ async def pplr():
         
         return Response(
             response = json.dumps({
-                "x": "This is a placeholder response. The actual implementation of the PPLR protocol is in progress.",
+                "epochs" : epochs,
+                "learning_rate" : learning_rate,
+                "accuracy_threshold" :  accuracy_threshold,
             }),
-            status  = 200,
+            status   = 200,
+            headers  = {}
         )
 
     except Exception as e:

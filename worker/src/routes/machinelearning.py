@@ -3,8 +3,8 @@ import numpy as np
 import numpy.typing as npt
 from typing import List,Tuple
 from flask import Blueprint,current_app,request,Response
-from rory.core.machine_learning import LogisticRegressionBaseline
-from rory.core.machine_learning.secure.pqc import LogisticRegressionFHE
+from rory.core.machine_learning.secure.pqc.pplr import LogisticRegressionFHE
+from rory.core.machine_learning.logistic_regression import LogisticRegressionBaseline
 from rory.core.utils.utils import Utils
 from rory.core.utils.constants import Constants
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
@@ -16,9 +16,9 @@ from rorycommon import Common as RoryCommon
 from Pyfhel import PyCtxt,Pyfhel
 from models import ExperimentLogEntry
 
-logisticregression = Blueprint("logisticregression", __name__, url_prefix="/logisticregression")
+machinelearning = Blueprint("machinelearning", __name__, url_prefix="/machinelearning")
 
-@logisticregression.route("/test", methods=["GET", "POST"])
+@machinelearning.route("/test", methods=["GET", "POST"])
 def test():
      """Health check and component identification endpoint for the Worker node.
     This method serves as a heartbeat signal for the Rory Manager, allowing the orchestrator to confirm 
@@ -42,8 +42,8 @@ def test():
         headers={"Component-Type": "worker"}
     )
 
-@logisticregression.route("/lr", methods=["POST"])
-async def lr():
+@machinelearning.route("/logisticregression", methods=["POST"])
+async def logisticregression():
     """
     Standard Logistic Regression (Plaintext) execution endpoint.
 
@@ -73,7 +73,7 @@ async def lr():
     to_remove_headers           = ["User-Agent","Accept-Encoding","Connection"]
     filtered_headers            = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     experiment_id               = filtered_headers.get("Experiment-Id","")
-    algorithm                   = Constants.MachinelearningAlgorithms.LR
+    algorithm                   = Constants.MachineLearningAlgorithms.LR
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", 0.01))
     matrix_train_id             = filtered_headers.get("Matrix-Train-Id")
@@ -146,7 +146,7 @@ async def lr():
         )
 
 
-@logisticregression.route("/pplr", methods=["POST"])
+@machinelearning.route("/pplr", methods=["POST"])
 async def pplr():
     """
     Interactive Privacy-Preserving Logistic Regression (PPLR) execution endpoint.
@@ -185,18 +185,22 @@ async def pplr():
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     
     headers                     = request.headers
-    algorithm                   = Constants.MachinelearningAlgorithms.PPLR
+    algorithm                   = Constants.MachineLearningAlgorithms.PPLR
     experiment_id               = headers.get("Experiment-Id", "")
+
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", 0.01))
-    iterations                  = int(headers.get("Iterations", 0))
-    scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
+    accuracy_threshold          = float(headers.get("Accuracy-Threshold", 0.80))
+    iterations                  = int(headers.get("Iterations", 1))
+    
     
    
     encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
     encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
     encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
     encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
+
+    scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(headers.get("N-Features", 0))
     n_samples                   = int(headers.get("N-Samples", 0))
 
