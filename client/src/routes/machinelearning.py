@@ -103,6 +103,51 @@ async def logisticregression():
             "max_iterations": MAX_ITERATIONS,
         })
 
+        #_____________________________
+        # Leer el dataset de entrenamiento desde source_path
+        # plaintext_matrix_train = RoryCommon.read_numpy_from(path, extension)
+
+        # Colocar un logger.debug con un mensaje que indique que se leyo correctamente
+
+        # Partir en chunks el dataset de entrenamiento
+        # Chunks.from_ndarray()
+
+        # Colocar un logger.debug
+
+        # Escribir dataset de entrenamiento cifrado en el SAD
+        # RoryCommon.delete_and_put_chunks()
+
+        #Colocar un logger.debug
+        #_____________________________
+
+        # Leer el dataset de prueba desde source_path
+        # plaintext_matrix_test = RoryCommon.read_numpy_from(path, extension)
+
+        # Colocar un logger.debug
+        # Partir en chunks el dataset de prueba
+        # Chunks.from_ndarray() 
+
+        # Colocar un logger.debug
+
+        # Escribir dataset de prueba cifrado en el SAD
+        # RoryCommon.delete_and_put_chunks()
+        # Colocar un logger.debug
+        # _____________________________
+
+        # Leer el label_vector de entrenamiento desde source_path
+        # RoryCommon.read_numpy_from(source_path, ".npy")
+        # Colocar un logger.debug
+
+        # Partir en chunks el label_vector de entrenamiento
+        # Chunks.from_ndarray()
+        # Colocar un logger.debug
+
+        # Escribir label_vector de entrenamiento cifrado en el SAD
+        # RoryCommon.delete_and_put_chunks()
+        # Colocar un logger.debug
+        # _____________________________
+
+
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."                
@@ -218,7 +263,7 @@ async def pplr():
         # Colocar un logger.debug con las variables r, a y n generadas
         
         # Cifrar dataset de entrenamiento utilizando CKKS
-        # RoryCommon.segment_and_encrypt()
+        # RoryCommon.segment_and_encrypt_with_executor()
         # donde key es el id de la matriz que vas a cifrar
         # n es la variable que acabamos de generar
         
