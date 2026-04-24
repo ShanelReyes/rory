@@ -223,130 +223,112 @@ async def pplr():
             "accuracy_threshold": accuracy_threshold,
             "max_iterations": MAX_ITERATIONS,
         })
+        
+        ckks = Ckks.from_pyfhel(
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            relinkey_filename  = relinkey_filename,
+            # rotatekey_filename = rotatekey_filename
+        )
+
+        plaintext_matrix_train = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_train_path, 
+            extension = extension
+        )
+        plaintext_matrix_train = plaintext_matrix_train.unwrap()
+        
         logger.debug({
-            "plaintext_matrix_train_id": plaintext_matrix_train_id,
-            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
-            "plaintext_matrix_test_id": plaintext_matrix_test_id,
-            "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
-            "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
-            "plaintext_matrix_train_label_filename": plaintext_matrix_train_label_filename,
-            "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
-            "plaintext_matrix_test_label_filename": plaintext_matrix_test_label_filename,
-            "plaintext_weight_matrix_id": plaintext_weight_matrix_id,
-            "plaintext_bias_vector_id": plaintext_bias_vector_id,
-            "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
-            "encrypted_matrix_test_label_id": encrypted_matrix_test_label_id,
-            "encrypted_weight_matrix_id": encrypted_weight_matrix_id,
-            "encrypted_bias_vector_id": encrypted_bias_vector_id,
+            "msg": "Dataset de entrenamiento leído exitosamente"
         })
+
+        n_samples_train = plaintext_matrix_train.shape[0]
+        n_features_train = plaintext_matrix_train.shape[1]
+        n_train = n_features_train * n_samples_train
+
+        logger.debug({
+            "n_samples_train": n_samples_train,
+            "n_features_train": n_features_train,
+            "n_train": n_train
+        })
+
+        encrypted_matrix_train_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
+            executor           = executor,
+            key                = encrypted_matrix_train_id,
+            plaintext_matrix   = plaintext_matrix_train,
+            n                  = n_train,
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            num_chunks         = num_chunks,
+            relinkey_filename  = relinkey_filename,
+        )
+
+        logger.debug({
+            "msg": "Dataset de entrenamiento cifrado exitosamente"
+        })
+
+        plaintext_matrix_test = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_test_path, 
+            extension = extension
+        )
+        plaintext_matrix_test = plaintext_matrix_test.unwrap()
         
-        # ckks = Ckks.from_pyfhel(
-        #     _round             = _round,
-        #     decimals           = decimals,
-        #     path               = path,
-        #     ctx_filename       = ctx_filename,
-        #     pubkey_filename    = pubkey_filename,
-        #     secretkey_filename = secretkey_filename,
-        #     relinkey_filename  = relinkey_filename,
-        #     rotatekey_filename = rotatekey_filename
-        # )
+        logger.debug({
+            "msg": "Dataset de prueba leído exitosamente"
+        })
 
-        # plaintext_matrix_train = await RoryCommon.read_numpy_from(
-        #     path = plaintext_matrix_train_path, 
-        #     extension = extension
-        # )
-        # plaintext_matrix_train = plaintext_matrix_train.unwrap()
-        
-        # logger.debug({
-        #     "msg": "Dataset de entrenamiento leído exitosamente"
-        # })
+        n_samples_test = plaintext_matrix_test.shape[0]
+        n_features_test = plaintext_matrix_test.shape[1]
+        n_test = n_features_test * n_samples_test
 
-        # n_samples_train = plaintext_matrix_train.shape[0]
-        # n_features_train = plaintext_matrix_train.shape[1]
-        # n_train = n_features_train * n_samples_train
+        logger.debug({
+            "n_samples_test": n_samples_test,
+            "n_features_test": n_features_test,
+            "n_test": n_test
+        })
 
-        # logger.debug({
-        #     "n_samples_train": n_samples_train,
-        #     "n_features_train": n_features_train,
-        #     "n_train": n_train
-        # })
+        encrypted_matrix_test_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
+            executor           = executor,
+            key                = encrypted_matrix_test_id,
+            plaintext_matrix   = plaintext_matrix_test,
+            n                  = n_test,
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            num_chunks         = num_chunks,
+            relinkey_filename  = relinkey_filename,
+        )
 
-        # encrypted_matrix_train_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
-        #     executor           = executor,
-        #     key                = encrypted_matrix_train_id,
-        #     plaintext_matrix   = plaintext_matrix_train,
-        #     n                  = n_train,
-        #     _round             = _round,
-        #     decimals           = decimals,
-        #     path               = path,
-        #     ctx_filename       = ctx_filename,
-        #     pubkey_filename    = pubkey_filename,
-        #     secretkey_filename = secretkey_filename,
-        #     num_chunks         = num_chunks,
-        #     relinkey_filename  = relinkey_filename,
-        # )
+        logger.debug({
+            "msg": "Dataset de test cifrado exitosamente"
+        })
 
-        # logger.debug({
-        #     "msg": "Dataset de entrenamiento cifrado exitosamente"
-        # })
+        encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_matrix_train_id,
+            chunks    = encrypted_matrix_train_chunks,
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str((n_samples_train,n_features_train)),
+                "dtype":"float32"
+            }
+        )
 
-        # plaintext_matrix_test = await RoryCommon.read_numpy_from(
-        #     path = plaintext_matrix_test_path, 
-        #     extension = extension
-        # )
-        # plaintext_matrix_test = plaintext_matrix_test.unwrap()
-        
-        # logger.debug({
-        #     "msg": "Dataset de prueba leído exitosamente"
-        # })
-
-        # n_samples_test = plaintext_matrix_test.shape[0]
-        # n_features_test = plaintext_matrix_test.shape[1]
-        # n_test = n_features_test * n_samples_test
-
-        # logger.debug({
-        #     "n_samples_test": n_samples_test,
-        #     "n_features_test": n_features_test,
-        #     "n_test": n_test
-        # })
-
-        # encrypted_matrix_test_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
-        #     executor           = executor,
-        #     key                = encrypted_matrix_test_id,
-        #     plaintext_matrix   = plaintext_matrix_test,
-        #     n                  = n_test,
-        #     _round             = _round,
-        #     decimals           = decimals,
-        #     path               = path,
-        #     ctx_filename       = ctx_filename,
-        #     pubkey_filename    = pubkey_filename,
-        #     secretkey_filename = secretkey_filename,
-        #     num_chunks         = num_chunks,
-        #     relinkey_filename  = relinkey_filename,
-        # )
-
-        # logger.debug({
-        #     "msg": "Dataset de test cifrado exitosamente"
-        # })
-
-        # encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
-        #     client    = STORAGE_CLIENT,
-        #     bucket_id = BUCKET_ID,
-        #     key       = encrypted_matrix_train_id,
-        #     chunks    = encrypted_matrix_train_chunks,
-        #     timeout   = MICTLANX_TIMEOUT,
-        #     max_tries = MICTLANX_MAX_RETRIES,
-        #     tags = {
-        #         "shape": str((n_samples_train,n_features_train)),
-        #         "dtype":"float32"
-        #     }
-        # )
-
-        # logger.debug({
-        #     "msg": "Dataset de train cifrado en el sistema de almacenamiento"
-        # })
+        logger.debug({
+            "msg": "Dataset de train cifrado en el sistema de almacenamiento"
+        })
 
 
 
