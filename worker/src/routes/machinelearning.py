@@ -53,8 +53,10 @@ async def logisticregression():
     filtered_headers            = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
     experiment_id               = filtered_headers.get("Experiment-Id","")
     algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION
-    plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","matrix_train")
-    plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","matrix_test")
+    plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
+    plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","test_x")
+    plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
+    plaintext_matrix_test_label_id = headers.get("Plaintext-Matrix-Test-Label-Id","test_y")
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     matrix_train_id             = filtered_headers.get("Matrix-Train-Id")
@@ -68,6 +70,8 @@ async def logisticregression():
         "algorithm" : algorithm,
         "plaintext_matrix_train_id": plaintext_matrix_train_id,
         "plaintext_matrix_test_id": plaintext_matrix_test_id,
+        "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
+        "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
         "epoch": epochs, 
         "learning_rate": learning_rate, 
     })
@@ -96,6 +100,8 @@ async def pplr():
     iterations                  = int(headers.get("Iterations", 1))
     encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
     encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
+    encrypted_matrix_train_label_id   = headers.get("Encrypted-Matrix-Train-Label-Id")
+    encrypted_matrix_test_label_id    = headers.get("Encrypted-Matrix-Test-Label-Id")
     encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
     encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
     scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
@@ -124,6 +130,8 @@ async def pplr():
             "algorithm" : algorithm,
             "encrypted_matrix_train_id": encrypted_matrix_train_id,
             "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
+            "encrypted_matrix_test_label_id": encrypted_matrix_test_label_id,
             "epoch": epochs, 
             "learning_rate": learning_rate, 
             "accuracy_threshold": accuracy_threshold,
