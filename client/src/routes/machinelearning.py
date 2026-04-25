@@ -219,10 +219,10 @@ async def pplr():
         learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
         accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", "0.80"))
 
-        plaintext_weight_matrix_id                = request_headers.get("Plaintext-Weight-Matrix-Id","weight")
-        encrypted_weight_matrix_id                = "encrypted{}".format(plaintext_weight_matrix_id)
-        plaintext_bias_vector_id                = request_headers.get("Plaintext-Bias-Vector-Id","weight")
-        encrypted_bias_vector_id                = "encrypted{}".format(plaintext_bias_vector_id)
+        plaintext_weight_matrix_id      = request_headers.get("Plaintext-Weight-Matrix-Id","weight")
+        encrypted_weight_matrix_id      = "encrypted{}".format(plaintext_weight_matrix_id)
+        plaintext_bias_vector_id        = request_headers.get("Plaintext-Bias-Vector-Id","bias")
+        encrypted_bias_vector_id        = "encrypted{}".format(plaintext_bias_vector_id)
 
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
@@ -231,7 +231,7 @@ async def pplr():
         pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
-        rotatekey_filename  = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+        rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
