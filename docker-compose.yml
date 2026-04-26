@@ -16,7 +16,7 @@ services:
       - /rory/rory-client-0/sink:/rory/sink
       - /rory/rory-client-0/log:/rory/log
       - /rory/mictlanx:/rory/mictlanx
-      - /rory/keys:/rory/keys
+      - ${KEYS_PATH:-/rory/keys}:/rory/keys
     networks:
       - mictlanx
 
@@ -57,7 +57,7 @@ services:
         - /rory/rory-worker-0/sink:/rory/sink
         - /rory/rory-worker-0/log:/rory/log  
         - /rory/rory-worker-0/mictlanx:/rory/mictlanx
-        - /rory/keys:/rory/keys
+        - ${KEYS_PATH:-/rory/keys}:/rory/keys
       networks:
         - mictlanx
 

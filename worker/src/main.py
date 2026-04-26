@@ -3,6 +3,7 @@ from threading import Thread
 from flask import Flask,current_app
 from routes.clustering import clustering
 from routes.classification import classification
+from routes.machinelearning import machinelearning
 from mictlanx import AsyncClient
 from dotenv import load_dotenv
 from retry.api import retry_call
@@ -36,6 +37,7 @@ CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
 PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
 SECRET_KEY_FILENAME = os.environ.get("SECRET_KEY_FILENAME","secretkey")
 RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
+ROTATEKEY_FILENAME   = os.environ.get("ROTATEKEY_FILENAME","rotatekey")
 
 #CREAR FOLDERS
 SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
@@ -67,8 +69,8 @@ MICTLANX_BACKOFF_FACTOR    = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5
 MICTLANX_MAX_RETRIES       = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
 MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
 MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
-MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","http")
-MICTLANX_API_VERSION    = int(os.environ.get("MICTLANX_API_VERSION","4"))
+MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","http")
+MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","4"))
 
 MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
@@ -113,6 +115,7 @@ def create_app():
     # Register blueprints
     app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
     app.register_blueprint(classification)
+    app.register_blueprint(machinelearning)
     with app.app_context():
         current_app.config["request_counter"]         = 0
         current_app.config["logger"]                  = LOGGER
@@ -137,6 +140,7 @@ def create_app():
         current_app.config["PUBKEY_FILENAME"]         = PUBKEY_FILENAME
         current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
         current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
+        current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
 """
 Description:
   Initialize worker

@@ -7,6 +7,7 @@ from rory.core.security.dataowner import DataOwner
 from rory.core.interfaces.rorymanager import RoryManager
 from routes.clustering import clustering
 from routes.classification import classification
+from routes.machinelearning import machinelearning
 from mictlanx.logger.log import Log
 from mictlanx import AsyncClient
 
@@ -45,6 +46,7 @@ CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
 PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
 SECRET_KEY_FILENAME = os.environ.get("SECRET_KEY_FILENAME","secretkey")
 RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
+ROTATEKEY_FILENAME   = os.environ.get("ROTATEKEY_FILENAME","rotatekey")
 
 RELOAD        = bool(int(os.environ.get("RELOAD",0)))
 NP_RANDOM     = bool(int(os.environ.get("NP_RANDOM","1")))
@@ -142,6 +144,7 @@ def create_app(*args):
     # Register blueprints
     app.register_blueprint(clustering)
     app.register_blueprint(classification)
+    app.register_blueprint(machinelearning)
     with app.app_context():
         current_app.config["request_counter"]         = 0
         current_app.config["logger"]                  = LOGGER
@@ -173,6 +176,7 @@ def create_app(*args):
         current_app.config["PUBKEY_FILENAME"]         = PUBKEY_FILENAME
         current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
         current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
+        current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
     # return app
 
 
