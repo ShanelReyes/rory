@@ -82,7 +82,6 @@ async def logisticregression():
         extension                       = request_headers.get("Extension","csv")
         epochs                          = int(request_headers.get("Epochs", "1"))
         learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
-        experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
         plaintext_matrix_train_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_label_filename, extension)    
@@ -114,50 +113,166 @@ async def logisticregression():
             "learning_rate": learning_rate, 
             "max_iterations": MAX_ITERATIONS,
         })
+        plaintext_matrix_train = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_train_path, 
+            extension = extension
+        )
 
-        #_____________________________
-        # Leer el dataset de entrenamiento desde source_path
-        # plaintext_matrix_train = RoryCommon.read_numpy_from(path, extension)
+        plaintext_matrix_train = plaintext_matrix_train.unwrap()
+        
+        logger.debug({
+            "msg": "Dataset de entrenamiento leído exitosamente"
+        })
 
-        # Colocar un logger.debug con un mensaje que indique que se leyo correctamente
 
-        # Partir en chunks el dataset de entrenamiento
-        # Chunks.from_ndarray()
+        plaintext_matrix_train_chunks = Chunks.from_ndarray(
+                ndarray      = plaintext_matrix_train, 
+                group_id     = plaintext_matrix_train_id,
+                num_chunks   = num_chunks,
+                chunk_prefix = Some(plaintext_matrix_train_id)
+                )
+        
+        logger.debug({
+            "msg": "Dataset de entrenamiento partido en chunks"
+        })
 
-        # Colocar un logger.debug
+        plaintext_train_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = plaintext_matrix_train_id,
+            chunks    = plaintext_matrix_train_chunks.unwrap(),
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str(plaintext_matrix_train.shape),
+                "dtype": str(plaintext_matrix_train.dtype)
+            }
+        )
 
-        # Escribir dataset de entrenamiento cifrado en el SAD
-        # RoryCommon.delete_and_put_chunks()
+        logger.debug({
+            "msg": "Dataset de entrenamiento en el sistema de almacenamiento"
+        })
 
-        #Colocar un logger.debug
-        #_____________________________
+        plaintext_matrix_test = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_test_path, 
+            extension = extension
+        )
 
-        # Leer el dataset de prueba desde source_path
-        # plaintext_matrix_test = RoryCommon.read_numpy_from(path, extension)
+        plaintext_matrix_test = plaintext_matrix_test.unwrap()
+        
+        logger.debug({
+            "msg": "Dataset de prueba leído exitosamente"
+        })
 
-        # Colocar un logger.debug
-        # Partir en chunks el dataset de prueba
-        # Chunks.from_ndarray() 
 
-        # Colocar un logger.debug
+        plaintext_matrix_test_chunks = Chunks.from_ndarray(
+                ndarray      = plaintext_matrix_test, 
+                group_id     = plaintext_matrix_test_id,
+                num_chunks   = num_chunks,
+                chunk_prefix = Some(plaintext_matrix_test_id)
+                )
+        
+        logger.debug({
+            "msg": "Dataset de prueba partido en chunks"
+        })
 
-        # Escribir dataset de prueba cifrado en el SAD
-        # RoryCommon.delete_and_put_chunks()
-        # Colocar un logger.debug
-        # _____________________________
+        plaintext_test_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = plaintext_matrix_test_id,
+            chunks    = plaintext_matrix_test_chunks.unwrap(),
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str(plaintext_matrix_test.shape),
+                "dtype": str(plaintext_matrix_test.dtype)
+            }
+        )
 
-        # Leer el label_vector de entrenamiento desde source_path
-        # RoryCommon.read_numpy_from(source_path, ".npy")
-        # Colocar un logger.debug
+        logger.debug({
+            "msg": "Dataset de prueba en el sistema de almacenamiento"
+        })
 
-        # Partir en chunks el label_vector de entrenamiento
-        # Chunks.from_ndarray()
-        # Colocar un logger.debug
 
-        # Escribir label_vector de entrenamiento cifrado en el SAD
-        # RoryCommon.delete_and_put_chunks()
-        # Colocar un logger.debug
-        # _____________________________
+        plaintext_matrix_train_label = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_train_label_path, 
+            extension = extension
+        )
+
+        plaintext_matrix_train_label = plaintext_matrix_train_label.unwrap()
+        
+        logger.debug({
+            "msg": "Dataset de etiquetas de entrenamiento leído exitosamente"
+        })
+
+
+        plaintext_matrix_train_label_chunks = Chunks.from_ndarray(
+                ndarray      = plaintext_matrix_train_label, 
+                group_id     = plaintext_matrix_train_label_id,
+                num_chunks   = num_chunks,
+                chunk_prefix = Some(plaintext_matrix_train_label_id)
+                )
+        
+        logger.debug({
+            "msg": "Dataset de etiquetas de entrenamiento partido en chunks"
+        })
+
+        plaintext_train_label_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = plaintext_matrix_train_label_id,
+            chunks    = plaintext_matrix_train_label_chunks.unwrap(),
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str(plaintext_matrix_train_label.shape),
+                "dtype": str(plaintext_matrix_train_label.dtype)
+            }
+        )
+
+        logger.debug({
+            "msg": "Dataset de etiquetas de entrenamiento en el sistema de almacenamiento"
+        })
+
+        plaintext_matrix_test_label = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_test_label_path, 
+            extension = extension
+        )
+
+        plaintext_matrix_test_label = plaintext_matrix_test_label.unwrap()
+        
+        logger.debug({
+            "msg": "Dataset de etiquetas de prueba leído exitosamente"
+        })
+
+
+        plaintext_matrix_test_label_chunks = Chunks.from_ndarray(
+                ndarray      = plaintext_matrix_test_label, 
+                group_id     = plaintext_matrix_test_label_id,
+                num_chunks   = num_chunks,
+                chunk_prefix = Some(plaintext_matrix_test_label_id)
+                )
+        
+        logger.debug({
+            "msg": "Dataset de etiqeutas de prueba partido en chunks"
+        })
+
+        plaintext_test_label_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = plaintext_matrix_test_label_id,
+            chunks    = plaintext_matrix_test_label_chunks.unwrap(),
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str(plaintext_matrix_test_label.shape),
+                "dtype": str(plaintext_matrix_test_label.dtype)
+            }
+        )
+
+        logger.debug({
+            "msg": "Dataset de etiquetas de prueba en el sistema de almacenamiento"
+        })
 
 
         return Response(
@@ -361,8 +476,8 @@ async def pplr():
         encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
             client    = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
-            key       = encrypted_matrix_train_id,
-            chunks    = encrypted_matrix_train_chunks,
+            key       = encrypted_matrix_test_id,
+            chunks    = encrypted_matrix_test_chunks,
             timeout   = MICTLANX_TIMEOUT,
             max_tries = MICTLANX_MAX_RETRIES,
             tags = {
