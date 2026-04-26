@@ -126,20 +126,14 @@ async def pplr():
     relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
     rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
     
-    logger.debug({
-            "algorithm" : algorithm,
-            "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
-            "encrypted_matrix_test_label_id": encrypted_matrix_test_label_id,
-            "epoch": epochs, 
-            "learning_rate": learning_rate, 
-            "accuracy_threshold": accuracy_threshold,
-            "scale" : scale,
-            "n_features" : n_features,
-            "n_samples" : n_samples,
-        })
+    # Validar que TODOS los headers se estan recibiendo correctamente 
+    # a traves de un logger.debug, agregar todos los parametros que 
+    # llegen a traves de headers
     
+
+
+    # Agregar al return response los headers que se enviaran al cliente
+    # vector de pesos, bias, label_vector_train
     return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."                

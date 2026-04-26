@@ -16,6 +16,7 @@ from mictlanx import AsyncClient
 from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor
 from option import Some
+from utils.utils import Utils
 from models import ExperimentLogEntry
 from rory.core.security.cryptosystem.pqc.ckks import Ckks, CkksModes
 
@@ -211,9 +212,9 @@ async def pplr():
         plaintext_matrix_test_label_filename  = request_headers.get("Plaintext-Matrix-Test-Label-Filename","test_y")
         extension                       = request_headers.get("Extension","csv")
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
-        plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension)
-        plaintext_matrix_train_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_label_filename, extension)    
-        plaintext_matrix_test_label_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_label_filename, extension)
+        plaintext_matrix_test_path        = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension)
+        plaintext_matrix_train_label_path = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_label_filename, extension)
+        plaintext_matrix_test_label_path  = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_label_filename, extension)
 
         epochs                          = int(request_headers.get("Epochs", "1"))
         learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
@@ -276,28 +277,34 @@ async def pplr():
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
             secretkey_filename = secretkey_filename,
-            #relinkey_filename  = relinkey_filename,
+            # relinkey_filename  = relinkey_filename,
             #rotatekey_filename = rotatekey_filename
         )
 
-        plaintext_matrix_train = await RoryCommon.read_numpy_from(
-            path = plaintext_matrix_train_path, 
+        max_workers      = Utils.get_workers(num_chunks=num_chunks)
+        #_______________________________
+        plaintext_matrix_train_result = await RoryCommon.read_numpy_from(
+            path      = plaintext_matrix_train_path,
             extension = extension
         )
-        plaintext_matrix_train = plaintext_matrix_train.unwrap()
+        if plaintext_matrix_train_result.is_err:
+            return Response(status=500, response="Failed to local read plain text matrix.")
+        plaintext_matrix_train = plaintext_matrix_train_result.unwrap()
+        plaintext_matrix_train = plaintext_matrix_train.astype(np.float32)
         
         logger.debug({
-            "msg": "Dataset de entrenamiento leído exitosamente"
+            "msg": "Training dataset read successfully"
         })
 
-        n_samples_train = plaintext_matrix_train.shape[0]
+        n_samples_train  = plaintext_matrix_train.shape[0]
         n_features_train = plaintext_matrix_train.shape[1]
-        n_train = n_features_train * n_samples_train
+        n_train          = n_features_train * n_samples_train
 
         logger.debug({
             "n_samples_train": n_samples_train,
             "n_features_train": n_features_train,
-            "n_train": n_train
+            "n_train": n_train,
+            "encrypted_matrix_train_id":encrypted_matrix_train_id
         })
 
         encrypted_matrix_train_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
@@ -313,49 +320,16 @@ async def pplr():
             secretkey_filename = secretkey_filename,
             num_chunks         = num_chunks,
             relinkey_filename  = relinkey_filename,
+            # rotatekey_filename = rotatekey_filename
         )
 
         logger.debug({
-            "msg": "Dataset de entrenamiento cifrado exitosamente"
-        })
-
-        plaintext_matrix_test = await RoryCommon.read_numpy_from(
-            path = plaintext_matrix_test_path, 
-            extension = extension
-        )
-        plaintext_matrix_test = plaintext_matrix_test.unwrap()
-        
-        logger.debug({
-            "msg": "Dataset de prueba leído exitosamente"
-        })
-
-        n_samples_test = plaintext_matrix_test.shape[0]
-        n_features_test = plaintext_matrix_test.shape[1]
-        n_test = n_features_test * n_samples_test
-
-        logger.debug({
-            "n_samples_test": n_samples_test,
-            "n_features_test": n_features_test,
-            "n_test": n_test
-        })
-
-        encrypted_matrix_test_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
-            executor           = executor,
-            key                = encrypted_matrix_test_id,
-            plaintext_matrix   = plaintext_matrix_test,
-            n                  = n_test,
-            _round             = _round,
-            decimals           = decimals,
-            path               = path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            num_chunks         = num_chunks,
-            relinkey_filename  = relinkey_filename,
-        )
-
-        logger.debug({
-            "msg": "Dataset de test cifrado exitosamente"
+            "msg": "Training dataset segmented and encrypted successfully",
+            "encrypted_matrix_train_id": encrypted_matrix_train_id,
+            "num_chunks": num_chunks,
+            "max_workers": max_workers,
+            "n_samples_train": n_samples_train,
+            "n_features_train": n_features_train,
         })
 
         encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
@@ -372,25 +346,38 @@ async def pplr():
         )
 
         logger.debug({
-            "msg": "Dataset de train cifrado en el sistema de almacenamiento"
+            "msg": "Training dataset put in SAD successfully"
         })
+        # __________________________
 
-        scale = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
+        plaintext_matrix_test_result = await RoryCommon.read_numpy_from(
+            path      = plaintext_matrix_test_path,
+            extension = extension
+        )
+        if plaintext_matrix_test_result.is_err:
+            return Response(status=500, response="Failed to local read plain text matrix.")
+        plaintext_matrix_test = plaintext_matrix_test_result.unwrap()
+        plaintext_matrix_test = plaintext_matrix_test.astype(np.float32)
 
         logger.debug({
-            "scale": scale
+            "msg": "Test dataset read successfully"
         })
 
-        plaintext_matrix_weights = np.zeros(n_features_train, dtype=np.float64)
+        n_samples_test  = plaintext_matrix_test.shape[0]
+        n_features_test = plaintext_matrix_test.shape[1]
+        n_test          = n_features_test * n_samples_test
 
         logger.debug({
-            "weights matrix": plaintext_matrix_weights.shape
+            "n_samples_test": n_samples_test,
+            "n_features_test": n_features_test,
+            "n_test": n_test,
+            "encrypted_matrix_test_id": encrypted_matrix_test_id
         })
 
-        encrypted_weights_matrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
+        encrypted_matrix_test_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
             executor           = executor,
-            key                = encrypted_weight_matrix_id,
-            plaintext_matrix   = plaintext_matrix_weights,
+            key                = encrypted_matrix_test_id,
+            plaintext_matrix   = plaintext_matrix_test,
             n                  = n_test,
             _round             = _round,
             decimals           = decimals,
@@ -400,10 +387,63 @@ async def pplr():
             secretkey_filename = secretkey_filename,
             num_chunks         = num_chunks,
             relinkey_filename  = relinkey_filename,
+            # rotatekey_filename = rotatekey_filename
         )
 
         logger.debug({
-            "msg": "Pesos cifrados exitosamente"
+            "msg": "Test dataset encrypted successfully"
+        })
+
+        encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_matrix_test_id,
+            chunks    = encrypted_matrix_test_chunks,
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str((n_samples_test,n_features_test)),
+                "dtype":"float32"
+            }
+        )
+
+        logger.debug({
+            "msg": "Test dataset put in SAD successfully"
+        })
+
+        #_______________________________________
+
+        scale = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
+
+        logger.debug({
+            "scale": scale
+        })
+
+        plaintext_matrix_weights = np.zeros((1,n_features_train), dtype=np.float32)
+
+        logger.debug({
+            "weights matrix": plaintext_matrix_weights.shape,
+            "weights matrix": str(plaintext_matrix_weights.dtype)
+        })
+
+        encrypted_weights_matrix_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
+            executor           = executor,
+            key                = encrypted_weight_matrix_id,
+            plaintext_matrix   = plaintext_matrix_weights,
+            n                  = n_train,
+            _round             = _round,
+            decimals           = decimals,
+            path               = path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            num_chunks         = num_chunks,
+            relinkey_filename  = relinkey_filename,
+            # rotatekey_filename = rotatekey_filename
+        )
+
+        logger.debug({
+            "msg": "encrypted weights matrix segment and encrypted successfully",
         })
 
         encrypted_weights_put_chunk = await RoryCommon.delete_and_put_chunks(
@@ -420,50 +460,107 @@ async def pplr():
         )
 
         logger.debug({
-            "msg": "Matriz de pesos cifrado en el sistema de almacenamiento"
+            "msg": "encrypted weights matrix deleted and put in SAD successfully",
         })
 
-        plaintext_vector_bias = np.array([0.0], dtype=np.float64)
+        plaintext_vector_bias = np.array([0.0], dtype=np.float32)
 
         logger.debug({
-            "bias vector": plaintext_vector_bias.shape
+            "bias vector shape": plaintext_vector_bias.shape
         })
 
-        encrypted_bias_vector_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
-            executor           = executor,
-            key                = encrypted_bias_vector_id,
-            plaintext_matrix   = plaintext_vector_bias,
-            n                  = n_test,
-            _round             = _round,
-            decimals           = decimals,
-            path               = path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            num_chunks         = num_chunks,
-            relinkey_filename  = relinkey_filename,
-        )
 
-        logger.debug({
-            "msg": "Bias cifrado exitosamente"
-        })
+        # encrypted_bias_vector_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
+        #     executor           = executor,
+        #     key                = encrypted_bias_vector_id,
+        #     plaintext_matrix   = plaintext_vector_bias,
+        #     n                  = n_train,
+        #     _round             = _round,
+        #     decimals           = decimals,
+        #     path               = path,
+        #     ctx_filename       = ctx_filename,
+        #     pubkey_filename    = pubkey_filename,
+        #     secretkey_filename = secretkey_filename,
+        #     num_chunks         = num_chunks,
+        #     relinkey_filename  = relinkey_filename,
+        # )
 
-        encrypted_bias_put_chunk = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = encrypted_bias_vector_id,
-            chunks    = encrypted_bias_vector_chunks,
-            timeout   = MICTLANX_TIMEOUT,
-            max_tries = MICTLANX_MAX_RETRIES,
-            tags = {
-                "shape": str((1,1)),
-                "dtype":"float32"
-            }
-        )
+        # logger.debug({
+        #     "msg": "Bias cifrado exitosamente"
+        # })
 
-        logger.debug({
-            "msg": "Bias cifrado en el sistema de almacenamiento"
-        })
+        # encrypted_bias_put_chunk = await RoryCommon.delete_and_put_chunks(
+        #     client    = STORAGE_CLIENT,
+        #     bucket_id = BUCKET_ID,
+        #     key       = encrypted_bias_vector_id,
+        #     chunks    = encrypted_bias_vector_chunks,
+        #     timeout   = MICTLANX_TIMEOUT,
+        #     max_tries = MICTLANX_MAX_RETRIES,
+        #     tags = {
+        #         "shape": str((1,1)),
+        #         "dtype":"float32"
+        #     }
+        # )
+
+        # logger.debug({
+        #     "msg": "Bias cifrado en el sistema de almacenamiento"
+        # })
+
+        # Leer, cifrar, y poner en el sad el label vector test
+
+        # Colocar un logger.debug
+
+        # # Comunicarse con el manager y con el worker
+        # get_worker_start_time       = time.time()
+        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+        #     headers = {
+        #         "Algorithm"             : algorithm,
+        #         "Start-Request-Time"    : str(arrivalTime),
+        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
+        #     }
+        # )
+        # if get_worker_result.is_err:
+        #     error = get_worker_result.unwrap_err()
+        #     logger.error(str(error))
+        #     return Response(str(error), status=500)
+        # (worker_id,port) = get_worker_result.unwrap()
+
+        # worker = RoryWorker( #Allows to establish the connection with the worker
+        #     workerId  = worker_id,
+        #     port      = port,
+        #     session   = s,
+        #     algorithm = algorithm,
+        # )
+
+        # status = Constants.ClusteringStatus.START #Set the status to start
+        # iteration = 0
+        
+        # # LLenar headers para el worker siguiendo el formato establecido
+        # # para los headers, por ejemplo:
+        # worker_headers = {
+        #     "Clustering-Status"      : str(status),
+        # }
+
+        # # enviarle headers al worker 
+        # worker_response = worker.run(
+        #         timeout = WORKER_TIMEOUT, 
+        #         headers = worker_headers
+        #     ) #Run 1 starts
+        # worker_status = worker_response.status_code
+
+        # if worker_status !=200:
+        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+
+        # worker_response.raise_for_status()
+        # jsonWorkerResponse        = worker_response.json()
+        # # extraer del json la informacion que el worker nos envie, por ejemplo:
+        # # run1_service_time         = jsonWorkerResponse["service_time"]
+
+        # #colocar un logger.debug con la informacion extraida del json que envia el worker
+        
+
+
 
 
         return Response(
