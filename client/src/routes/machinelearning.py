@@ -297,7 +297,6 @@ async def pplr():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        executor:ProcessPoolExecutor = current_app.config.get("executor")
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         num_chunks                   = current_app.config.get("NUM_CHUNKS",2)
         np_random                    = current_app.config.get("np_random")
@@ -394,7 +393,6 @@ async def pplr():
             secretkey_filename = secretkey_filename,
             relinkey_filename  = relinkey_filename,
             rotatekey_filename = rotatekey_filename
-            # rotatekey_filename = ""
         )
 
         max_workers      = Utils.get_workers(num_chunks=num_chunks)
@@ -448,7 +446,7 @@ async def pplr():
             "n_features_train": n_features_train,
         })
 
-        encrypted_test_put_chunk = await RoryCommon.delete_and_put_chunks(
+        encrypted_train_put_chunk = await RoryCommon.delete_and_put_chunks(
             client    = STORAGE_CLIENT,
             bucket_id = BUCKET_ID,
             key       = encrypted_matrix_train_id,
@@ -460,9 +458,9 @@ async def pplr():
                 "dtype":"float32"
             }
         )
-        if encrypted_test_put_chunk.is_err:
+        if encrypted_train_put_chunk.is_err:
             logger.error({
-                "msg": "Failed to put encrypted training matrix in storage",
+                "msg": "Failed to put encrypted train matrix in storage",
                 "encrypted_matrix_train_id": encrypted_matrix_train_id
             })
             return Response(status=500, response="Failed to put encrypted matrix in storage.")
@@ -563,7 +561,7 @@ async def pplr():
             relinkey_filename  = relinkey_filename,
             rotatekey_filename = rotatekey_filename,
             tags               = {
-                "shape": str((1,1)),
+                "shape": str((1,n_features_train)),
                 "dtype": "float32"
             }
         )
@@ -578,85 +576,175 @@ async def pplr():
             "bias vector shape": plaintext_vector_bias.shape
         })
         
-        encrypted_bias_put_chunk = await RoryCommon.segment_encrypt_with_vector_ckks_and_put_chunks_with_executor(
-            client             = STORAGE_CLIENT,
-            bucket_id          = BUCKET_ID,
+
+
+        logger.debug({
+            "msg": "Segmented, encrypted, and placed bias in the SAD"
+        })
+
+        plaintext_matrix_train_label_result = await RoryCommon.read_numpy_from(
+            path = plaintext_matrix_train_label_path, 
+            extension = extension
+        )
+
+        if plaintext_matrix_train_label_result.is_err:
+            return Response(status=500, response="Failed to local read plaintext matrix.")
+        plaintext_matrix_train_label = plaintext_matrix_train_label_result.unwrap()
+        plaintext_matrix_train_label = plaintext_matrix_train.astype(np.float32)
+        
+        logger.debug({
+            "msg": "Training label dataset read successfully"
+        })
+
+        n_samples_train_label = plaintext_matrix_train_label.shape[0]
+        n_train_label = plaintext_matrix_train_label.size
+
+        logger.debug({
+            "n_samples_train_label": n_samples_train_label,
+            "n_train_label": n_train_label,
+            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id
+        })
+
+        encrypted_matrix_train_label_chunks = RoryCommon.segment_and_encrypt_ckks_with_executor(
             executor           = executor,
-            key                = encrypted_bias_vector_id,
-            vector             = plaintext_vector_bias,
+            key                = encrypted_matrix_train_label_id,
+            plaintext_matrix   = plaintext_matrix_train_label,
+            n                  = n_train_label,
             _round             = _round,
             decimals           = decimals,
             path               = path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
             secretkey_filename = secretkey_filename,
+            num_chunks         = num_chunks,
             relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename,
-            tags               = {
-                "shape": str((1,1)),
-                "dtype": "float32"
-            }
+            rotatekey_filename = rotatekey_filename
         )
 
         logger.debug({
-            "msg": "Segmented, encrypted, and placed bias in the SAD"
+            "msg": "Training label dataset segmented and encrypted successfully",
+            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
+            "num_chunks": num_chunks,
+            "max_workers": max_workers,
+            "n_samples_train_label": n_samples_train,
         })
 
-        # Leer el label vector test
-        # Colocar logger debug
-        # Segementar y cifrar con rorycommon.segment_and_encrypt_ckks_with_executor
-        # Colocar un logger.debug
-        # Poner el label vector test cifrado en el sistema de almacenamiento con RoryCommon.delete_and_put_chunks
-        # Colocar un logger.debug
+        encrypted_train_label_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_matrix_train_label_id,
+            chunks    = encrypted_matrix_train_label_chunks,
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str((n_samples_train_label,1)),
+                "dtype":"float32"
+            }
+        )
+        if encrypted_train_label_put_chunk.is_err:
+            logger.error({
+                "msg": "Failed to put encrypted training label matrix in storage",
+                "encrypted_matrix_train_label_id": encrypted_matrix_train_id
+            })
+            return Response(status=500, response="Failed to put encrypted matrix in storage.")
+
+        logger.debug({
+            "msg": "Training label dataset put in SAD successfully"
+        })
+
+
+
 
         # # Comunicarse con el manager y con el worker
-        # get_worker_start_time       = time.time()
-        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
-        #     headers = {
-        #         "Algorithm"             : algorithm,
-        #         "Start-Request-Time"    : str(arrivalTime),
-        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
-        #     }
-        # )
-        # if get_worker_result.is_err:
-        #     error = get_worker_result.unwrap_err()
-        #     logger.error(str(error))
-        #     return Response(str(error), status=500)
-        # (worker_id,port) = get_worker_result.unwrap()
-
-        # worker = RoryWorker( #Allows to establish the connection with the worker
-        #     workerId  = worker_id,
-        #     port      = port,
-        #     session   = s,
-        #     algorithm = algorithm,
-        # )
-
-        # status = Constants.ClusteringStatus.START #Set the status to start
-        # iteration = 0
+        logger.debug({
+            "msg": "Begin the comunication"
+        })
+        get_worker_start_time       = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+            headers = {
+                "Algorithm"             : algorithm,
+                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
+            }
+        )
+        if get_worker_result.is_err:
+            error = get_worker_result.unwrap_err()
+            logger.error(str(error))
+            return Response(str(error), status=500)
+        (worker_id,port) = get_worker_result.unwrap()
+        logger.debug({
+            "msg": "Complete comunication"
+        })
         
-        # # LLenar headers para el worker siguiendo el formato establecido
-        # # para los headers, por ejemplo:
-        # worker_headers = {
-        #     "Clustering-Status"      : str(status),
-        # }
+        worker = RoryWorker( #Allows to establish the connection with the worker
+            workerId  = worker_id,
+            port      = port,
+            session   = s,
+            algorithm = algorithm,
+        )
 
-        # # enviarle headers al worker 
-        # worker_response = worker.run(
-        #         timeout = WORKER_TIMEOUT, 
-        #         headers = worker_headers
-        #     ) #Run 1 starts
-        # worker_status = worker_response.status_code
+        status = Constants.ClusteringStatus.START #Set the status to start
+        iteration = 0
+        
 
-        # if worker_status !=200:
-        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+        worker_headers = {
+            "Clustering-Status"      : str(status),
+            "Experiment-Id"          : experiment_id,
+            "Epochs"                 : str(epochs),
+            "Learning-Rate"          : str(learning_rate),
+            "Accuracy-Threshold"     : str(accuracy_threshold),
+            "Iterations"             : str(iteration),
+            "Encrypted-Matrix-Train-Id": encrypted_matrix_train_id,
+            "Encrypted-Matrix-Test-Id": encrypted_matrix_test_id,
+            "Encrypted-Matrix-Train-Label-Id": encrypted_matrix_train_label_id,
+            "Encrypted-Weights-Id": encrypted_weight_matrix_id,
+            "Encrypted-Bias-Id": encrypted_bias_vector_id, 
+            "Scale": str(scale),
+            "N-Features": str(n_features_test),
+            "N-Samples-Train": str(n_samples_train),
+        }
 
-        # worker_response.raise_for_status()
-        # jsonWorkerResponse        = worker_response.json()
-        # # extraer del json la informacion que el worker nos envie, por ejemplo:
-        # # run1_service_time         = jsonWorkerResponse["service_time"]
+        logger.debug({
+            "msg": "Connection with the worker"
+        })
+        # enviarle headers al worker 
+        worker_response = worker.run(
+                timeout = WORKER_TIMEOUT, 
+                headers = worker_headers
+            ) #Run 1 starts
+        worker_status = worker_response.status_code
 
-        # #colocar un logger.debug con la informacion extraida del json que envia el worker
+        logger.debug({
+            "worker_status": worker_status
+        })
+
+        if worker_status !=200:
+            return Response("Worker error: {}".format(worker_response.content),status=500)
+        logger.debug({
+            "msg": "Connection with the worker sucesfully"
+        })
+        logger.debug({
+            "msg": "Worker response"
+        })
+        worker_response.raise_for_status()
+        jsonWorkerResponse        = worker_response.json()
+        run1_service_time         = jsonWorkerResponse["service_time"]
+        run1_out_weights_id       = jsonWorkerResponse["out_weights_id"]
+        run1_out_bias_id          = jsonWorkerResponse["out_bias_id"]
+        run1_out_predictions_id   = jsonWorkerResponse["out_predictions_id"]
+
+        logger.debug({
+            "run1_service_time" : run1_service_time,
+            "run1_out_weights_id": run1_out_weights_id,
+            "run1_out_bias_id": run1_out_bias_id,
+            "run1_out_predictions_id": run1_out_predictions_id, 
+        })
+
+        # extraer del json la informacion que el worker nos envie, por ejemplo:
+        # run1_service_time         = jsonWorkerResponse["service_time"]
+
+        #colocar un logger.debug con la informacion extraida del json que envia el worker
         
 
 

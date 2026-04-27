@@ -101,18 +101,28 @@ async def pplr():
     encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
     encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
     encrypted_matrix_train_label_id   = headers.get("Encrypted-Matrix-Train-Label-Id")
-    encrypted_matrix_test_label_id    = headers.get("Encrypted-Matrix-Test-Label-Id")
     encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
     encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
     scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(headers.get("N-Features", 0))
-    n_samples                   = int(headers.get("N-Samples", 0))
+    n_samples_train             = int(headers.get("N-Samples-Train", 0))
 
-    if not all([encrypted_matrix_train_id, encrypted_weights_id, encrypted_bias_id]):
+    if not all([encrypted_matrix_train_id, 
+                encrypted_weights_id, 
+                encrypted_bias_id,
+                encrypted_matrix_test_id,
+                encrypted_matrix_train_label_id,
+                scale,
+                n_features,
+                n_samples_train,
+                epochs,
+                learning_rate,
+                accuracy_threshold
+                ]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    # out_weights_id = f"w_{experiment_id}_{iterations}"
-    # out_bias_id = f"b_{experiment_id}_{iterations}"
-    # out_preds_id = f"preds_{experiment_id}_{iterations}"
+    out_weights_id = f"weights_{experiment_id}_{iterations}"
+    out_bias_id = f"bias_{experiment_id}_{iterations}"
+    out_predictions_id = f"predictions_{experiment_id}_{iterations}"
     MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
     MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
     MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
@@ -126,17 +136,32 @@ async def pplr():
     relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
     rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
     
-    # Validar que TODOS los headers se estan recibiendo correctamente 
-    # a traves de un logger.debug, agregar todos los parametros que 
-    # llegen a traves de headers
+    logger.debug({
+            "algorithm" : algorithm,
+            "encrypted_matrix_train_id": encrypted_matrix_train_id,
+            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
+            "encrypted_weight_matrix_id": encrypted_weights_id,
+            "encrypted_bias_vector_id": encrypted_bias_id,
+            "epoch": epochs, 
+            "learning_rate": learning_rate, 
+            "accuracy_threshold": accuracy_threshold,
+            "n_features": n_features,
+            "n_features": n_features, 
+        })
+    
     
 
 
     # Agregar al return response los headers que se enviaran al cliente
     # vector de pesos, bias, label_vector_train
+    service_time = time.time() - local_start_time
     return Response(
             response = json.dumps({
-                "x": "This endpoint is under development. Please check back later."                
+                "out_weights_id": str(out_weights_id),
+                "out_bias_id": str(out_bias_id),
+                "out_predictions_id": str(out_predictions_id),
+                "service_time" : str(service_time)            
             }),
             status   = 200,
             headers  = {}
