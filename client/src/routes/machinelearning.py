@@ -75,18 +75,18 @@ async def logisticregression():
         plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","train_x")
         plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","test_x")
         plaintext_matrix_train_label_id = request_headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
-        plaintext_matrix_test_label_id  = request_headers.get("Plaintext-Matrix-Test-Label-Id","test_y")
+        # plaintext_matrix_test_label_id  = request_headers.get("Plaintext-Matrix-Test-Label-Id","test_y")
         plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","train_x")
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","test_x")
         plaintext_matrix_train_label_filename = request_headers.get("Plaintext-Matrix-Train-Label-Filename","train_y")
-        plaintext_matrix_test_label_filename  = request_headers.get("Plaintext-Matrix-Test-Label-Filename","test_y")
+        # plaintext_matrix_test_label_filename  = request_headers.get("Plaintext-Matrix-Test-Label-Filename","test_y")
         extension                       = request_headers.get("Extension","csv")
         epochs                          = int(request_headers.get("Epochs", "1"))
         learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
         plaintext_matrix_train_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_label_filename, extension)    
-        plaintext_matrix_test_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_label_filename, extension)
+        # plaintext_matrix_test_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_label_filename, extension)
 
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
@@ -104,37 +104,39 @@ async def logisticregression():
             "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
             "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
             "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
-            "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
+            # "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
             "plaintext_matrix_train_label_path": plaintext_matrix_train_label_path,
-            "plaintext_matrix_test_label_path": plaintext_matrix_test_label_path,   
+            # "plaintext_matrix_test_label_path": plaintext_matrix_test_label_path,   
             "plaintext_matrix_train_label_filename": plaintext_matrix_train_label_filename,
-            "plaintext_matrix_test_label_filename": plaintext_matrix_test_label_filename,
+            # "plaintext_matrix_test_label_filename": plaintext_matrix_test_label_filename,
             "extension" : extension,
             "epoch": epochs, 
             "learning_rate": learning_rate, 
             "max_iterations": MAX_ITERATIONS,
         })
-        plaintext_matrix_train = await RoryCommon.read_numpy_from(
+        plaintext_matrix_train_result = await RoryCommon.read_numpy_from(
             path = plaintext_matrix_train_path, 
             extension = extension
         )
 
-        plaintext_matrix_train = plaintext_matrix_train.unwrap()
+        if plaintext_matrix_train_result.is_err:
+            return Response(status=500, response="Failed to read plaintext matrix train")
+
+        plaintext_matrix_train = plaintext_matrix_train_result.unwrap()
         
         logger.debug({
-            "msg": "Dataset de entrenamiento leído exitosamente"
+            "msg": "Training dataset read successfully"
         })
 
-
         plaintext_matrix_train_chunks = Chunks.from_ndarray(
-                ndarray      = plaintext_matrix_train, 
-                group_id     = plaintext_matrix_train_id,
-                num_chunks   = num_chunks,
-                chunk_prefix = Some(plaintext_matrix_train_id)
-                )
-        
+            ndarray      = plaintext_matrix_train, 
+            group_id     = plaintext_matrix_train_id,
+            num_chunks   = num_chunks,
+            chunk_prefix = Some(plaintext_matrix_train_id)
+            )
+    
         logger.debug({
-            "msg": "Dataset de entrenamiento partido en chunks"
+            "msg": "Training dataset split into chunks"
         })
 
         plaintext_train_put_chunk = await RoryCommon.delete_and_put_chunks(
@@ -151,20 +153,23 @@ async def logisticregression():
         )
 
         logger.debug({
-            "msg": "Dataset de entrenamiento en el sistema de almacenamiento"
+            "msg": "Training dataset in cloud storage"
         })
+        #__________________________
 
-        plaintext_matrix_test = await RoryCommon.read_numpy_from(
+        plaintext_matrix_test_result = await RoryCommon.read_numpy_from(
             path = plaintext_matrix_test_path, 
             extension = extension
         )
 
-        plaintext_matrix_test = plaintext_matrix_test.unwrap()
+        if plaintext_matrix_test_result.is_err:
+            return Response(status=500, response="Failed to read plaintext matrix test")
+
+        plaintext_matrix_test = plaintext_matrix_test_result.unwrap()
         
         logger.debug({
-            "msg": "Dataset de prueba leído exitosamente"
+            "msg": "Test dataset read successfully"
         })
-
 
         plaintext_matrix_test_chunks = Chunks.from_ndarray(
                 ndarray      = plaintext_matrix_test, 
@@ -174,7 +179,7 @@ async def logisticregression():
                 )
         
         logger.debug({
-            "msg": "Dataset de prueba partido en chunks"
+            "msg": "Test dataset split into chunks"
         })
 
         plaintext_test_put_chunk = await RoryCommon.delete_and_put_chunks(
@@ -191,21 +196,22 @@ async def logisticregression():
         )
 
         logger.debug({
-            "msg": "Dataset de prueba en el sistema de almacenamiento"
+            "msg": "Test dataset in cloud storage"
         })
+        #________________________________
 
-
-        plaintext_matrix_train_label = await RoryCommon.read_numpy_from(
+        plaintext_matrix_train_label_result = await RoryCommon.read_numpy_from(
             path = plaintext_matrix_train_label_path, 
             extension = extension
         )
+        if plaintext_matrix_train_label_result.is_err:
+            return Response(status=500, response="Failed to read training label dataset")
 
-        plaintext_matrix_train_label = plaintext_matrix_train_label.unwrap()
+        plaintext_matrix_train_label = plaintext_matrix_train_label_result.unwrap()
         
         logger.debug({
-            "msg": "Dataset de etiquetas de entrenamiento leído exitosamente"
+            "msg": "Training label vector dataset read successfully"
         })
-
 
         plaintext_matrix_train_label_chunks = Chunks.from_ndarray(
                 ndarray      = plaintext_matrix_train_label, 
@@ -215,7 +221,7 @@ async def logisticregression():
                 )
         
         logger.debug({
-            "msg": "Dataset de etiquetas de entrenamiento partido en chunks"
+            "msg": "Training label vector dataset split into chunks"
         })
 
         plaintext_train_label_put_chunk = await RoryCommon.delete_and_put_chunks(
@@ -232,48 +238,56 @@ async def logisticregression():
         )
 
         logger.debug({
-            "msg": "Dataset de etiquetas de entrenamiento en el sistema de almacenamiento"
+            "msg": "Training label vector dataset in cloud storage"
         })
 
-        plaintext_matrix_test_label = await RoryCommon.read_numpy_from(
-            path = plaintext_matrix_test_label_path, 
-            extension = extension
-        )
+        # # Comunicarse con el manager y con el worker
+        # get_worker_start_time       = time.time()
+        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+        #     headers = {
+        #         "Algorithm"             : algorithm,
+        #         "Start-Request-Time"    : str(arrivalTime),
+        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
+        #     }
+        # )
+        # if get_worker_result.is_err:
+        #     error = get_worker_result.unwrap_err()
+        #     logger.error(str(error))
+        #     return Response(str(error), status=500)
+        # (worker_id,port) = get_worker_result.unwrap()
 
-        plaintext_matrix_test_label = plaintext_matrix_test_label.unwrap()
+        # worker = RoryWorker( #Allows to establish the connection with the worker
+        #     workerId  = worker_id,
+        #     port      = port,
+        #     session   = s,
+        #     algorithm = algorithm,
+        # )
         
-        logger.debug({
-            "msg": "Dataset de etiquetas de prueba leído exitosamente"
-        })
+        # # LLenar headers para el worker siguiendo el formato establecido
+        # # para los headers:
+        # worker_headers = {
+        #     
+        # }
 
+        # # enviarle headers al worker 
+        # worker_response = worker.run(
+        #         timeout = WORKER_TIMEOUT, 
+        #         headers = worker_headers
+        #     ) #Run 1 starts
+        # worker_status = worker_response.status_code
 
-        plaintext_matrix_test_label_chunks = Chunks.from_ndarray(
-                ndarray      = plaintext_matrix_test_label, 
-                group_id     = plaintext_matrix_test_label_id,
-                num_chunks   = num_chunks,
-                chunk_prefix = Some(plaintext_matrix_test_label_id)
-                )
+        # if worker_status !=200:
+        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+
+        # worker_response.raise_for_status()
+        # jsonWorkerResponse        = worker_response.json()
+        # # extraer del json la informacion que el worker nos envie, por ejemplo:
+        # # run1_service_time         = jsonWorkerResponse["service_time"]
+
+        # #colocar un logger.debug con la informacion extraida del json que envia el worker
         
-        logger.debug({
-            "msg": "Dataset de etiqeutas de prueba partido en chunks"
-        })
 
-        plaintext_test_label_put_chunk = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = plaintext_matrix_test_label_id,
-            chunks    = plaintext_matrix_test_label_chunks.unwrap(),
-            timeout   = MICTLANX_TIMEOUT,
-            max_tries = MICTLANX_MAX_RETRIES,
-            tags = {
-                "shape": str(plaintext_matrix_test_label.shape),
-                "dtype": str(plaintext_matrix_test_label.dtype)
-            }
-        )
-
-        logger.debug({
-            "msg": "Dataset de etiquetas de prueba en el sistema de almacenamiento"
-        })
 
 
         return Response(
