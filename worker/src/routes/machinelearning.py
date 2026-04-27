@@ -158,9 +158,9 @@ async def pplr():
     service_time = time.time() - local_start_time
     return Response(
             response = json.dumps({
-                "out_weights_id": str(out_weights_id),
-                "out_bias_id": str(out_bias_id),
-                "out_predictions_id": str(out_predictions_id),
+                "out_weights_id": out_weights_id,
+                "out_bias_id": out_bias_id,
+                "out_predictions_id": out_predictions_id,
                 "service_time" : str(service_time)            
             }),
             status   = 200,

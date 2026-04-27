@@ -674,7 +674,8 @@ async def pplr():
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
         logger.debug({
-            "msg": "Complete comunication"
+            "msg": "Complete comunication",
+            "worker id": worker_id
         })
         
         worker = RoryWorker( #Allows to establish the connection with the worker
@@ -716,7 +717,8 @@ async def pplr():
         worker_status = worker_response.status_code
 
         logger.debug({
-            "worker_status": worker_status
+            "worker_status": worker_status,
+            "worker response": worker_response 
         })
 
         if worker_status !=200:
@@ -728,6 +730,9 @@ async def pplr():
             "msg": "Worker response"
         })
         worker_response.raise_for_status()
+        logger.debug({
+            "msg": "Worker send status"
+        })
         jsonWorkerResponse        = worker_response.json()
         run1_service_time         = jsonWorkerResponse["service_time"]
         run1_out_weights_id       = jsonWorkerResponse["out_weights_id"]
