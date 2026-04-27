@@ -52,8 +52,8 @@ def test():
         }
     )
 
-@machinelearning.route("/logisticregression",methods = ["POST"])
-async def logisticregression():
+@machinelearning.route("/logistic_regression",methods = ["POST"])
+async def logistic_regression():
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -72,22 +72,19 @@ async def logisticregression():
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
+        experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","train_x")
         plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","test_x")
         plaintext_matrix_train_label_id = request_headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
-        # plaintext_matrix_test_label_id  = request_headers.get("Plaintext-Matrix-Test-Label-Id","test_y")
         plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","train_x")
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","test_x")
         plaintext_matrix_train_label_filename = request_headers.get("Plaintext-Matrix-Train-Label-Filename","train_y")
-        # plaintext_matrix_test_label_filename  = request_headers.get("Plaintext-Matrix-Test-Label-Filename","test_y")
         extension                       = request_headers.get("Extension","csv")
         epochs                          = int(request_headers.get("Epochs", "1"))
         learning_rate                   = float(request_headers.get("Learning-Rate", "0.01"))
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension) 
         plaintext_matrix_train_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_label_filename, extension)    
-        # plaintext_matrix_test_label_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_label_filename, extension)
-
         MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
@@ -104,11 +101,8 @@ async def logisticregression():
             "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
             "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
             "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
-            # "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
             "plaintext_matrix_train_label_path": plaintext_matrix_train_label_path,
-            # "plaintext_matrix_test_label_path": plaintext_matrix_test_label_path,   
             "plaintext_matrix_train_label_filename": plaintext_matrix_train_label_filename,
-            # "plaintext_matrix_test_label_filename": plaintext_matrix_test_label_filename,
             "extension" : extension,
             "epoch": epochs, 
             "learning_rate": learning_rate, 
@@ -241,54 +235,81 @@ async def logisticregression():
             "msg": "Training label vector dataset in cloud storage"
         })
 
-        # # Comunicarse con el manager y con el worker
-        # get_worker_start_time       = time.time()
-        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
-        #     headers = {
-        #         "Algorithm"             : algorithm,
-        #         "Start-Request-Time"    : str(arrivalTime),
-        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
-        #     }
-        # )
-        # if get_worker_result.is_err:
-        #     error = get_worker_result.unwrap_err()
-        #     logger.error(str(error))
-        #     return Response(str(error), status=500)
-        # (worker_id,port) = get_worker_result.unwrap()
 
-        # worker = RoryWorker( #Allows to establish the connection with the worker
-        #     workerId  = worker_id,
-        #     port      = port,
-        #     session   = s,
-        #     algorithm = algorithm,
-        # )
+        logger.debug({
+            "msg": "Begin the comunication"
+        })
+        # Comunicarse con el manager y con el worker
+        get_worker_start_time       = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+            headers = {
+                "Algorithm"             : algorithm,
+                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
+            }
+        )
+        if get_worker_result.is_err:
+            error = get_worker_result.unwrap_err()
+            logger.error(str(error))
+            return Response(str(error), status=500)
+        (worker_id,port) = get_worker_result.unwrap()
+        logger.debug({
+            "msg": "Complete comunication",
+            "worker id": worker_id
+        })
+
+        worker = RoryWorker( #Allows to establish the connection with the worker
+            workerId  = worker_id,
+            port      = port,
+            session   = s,
+            algorithm = algorithm,
+        )
         
-        # # LLenar headers para el worker siguiendo el formato establecido
-        # # para los headers:
-        # worker_headers = {
-        #     
-        # }
+        status = Constants.ClusteringStatus.START #Set the status to start
+        iteration = 0
 
-        # # enviarle headers al worker 
-        # worker_response = worker.run(
-        #         timeout = WORKER_TIMEOUT, 
-        #         headers = worker_headers
-        #     ) #Run 1 starts
-        # worker_status = worker_response.status_code
+        worker_headers = {
+            "Clustering-Status"         : str(status),
+            "Experiment-Id"             : experiment_id,
+            "Iterations"                : str(iteration),
+            "Plaintext-Matrix-Train-Id" : plaintext_matrix_train_id,
+            "Plaintext-Matrix-Test-Id"  : plaintext_matrix_test_id,
+            "Plaintext-Matrix-Train-Label-Id" : plaintext_matrix_train_label_id,
+            "Epochs"                 : str(epochs),
+            "Learning-Rate"          : str(learning_rate),
+        }
 
-        # if worker_status !=200:
-        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+        logger.debug({
+            "msg": "Connection with the worker"
+        })
+        # enviarle headers al worker 
+        worker_response = worker.run(
+                timeout = WORKER_TIMEOUT, 
+                headers = worker_headers
+            ) #Run 1 starts
+        worker_status = worker_response.status_code
 
-        # worker_response.raise_for_status()
-        # jsonWorkerResponse        = worker_response.json()
-        # # extraer del json la informacion que el worker nos envie, por ejemplo:
-        # # run1_service_time         = jsonWorkerResponse["service_time"]
+        logger.debug({
+            "worker_status": str(worker_response),
+            "worker_id": worker_id,
+            "worker_port" : port,
+        })
 
-        # #colocar un logger.debug con la informacion extraida del json que envia el worker
-        
+        if worker_status !=200:
+            return Response("Worker error: {}".format(worker_response.content),status=500)
 
+        logger.debug({
+            "msg": "Worker response"
+        })
+        worker_response.raise_for_status()
 
+        jsonWorkerResponse        = worker_response.json()
+        run1_out_predictions_id   = jsonWorkerResponse["out_predictions_id"]
+
+        logger.debug({
+            "run1_out_predictions_id": run1_out_predictions_id, 
+        })
 
         return Response(
             response = json.dumps({
@@ -299,7 +320,10 @@ async def logisticregression():
             )
     except Exception as e:
         logger.error("CLIENT_ERROR "+str(e))
-        return Response(response = None, status = 500, headers={"Error-Message":str(e)})
+        return Response(
+            response = None, 
+            status = 500, 
+            headers={"Error-Message":str(e)})
 
 
 @machinelearning.route("/pplr",methods = ["POST"])
@@ -735,7 +759,6 @@ async def pplr():
             "worker_status": str(worker_response),
             "worker_id": worker_id,
             "worker_port" : port,
-            # "worker response": worker_response 
         })
 
         if worker_status !=200:
@@ -751,14 +774,14 @@ async def pplr():
             "msg": "Worker send status"
         })
         jsonWorkerResponse        = worker_response.json()
-        run1_out_weights_id       = jsonWorkerResponse["out_weights_id"]
-        run1_out_bias_id          = jsonWorkerResponse["out_bias_id"]
-        run1_out_predictions_id   = jsonWorkerResponse["out_predictions_id"]
+        run1_encrypted_out_weights_id       = jsonWorkerResponse["encrypted_out_weights_id"]
+        run1_encrypted_out_bias_id          = jsonWorkerResponse["encrypted_out_bias_id"]
+        run1_encrypted_out_predictions_id   = jsonWorkerResponse["encrypted_out_predictions_id"]
 
         logger.debug({
-            "run1_out_weights_id": run1_out_weights_id,
-            "run1_out_bias_id": run1_out_bias_id,
-            "run1_out_predictions_id": run1_out_predictions_id, 
+            "run1_encrypted_out_weights_id"     : run1_encrypted_out_weights_id,
+            "run1_encrypted_out_bias_id"        : run1_encrypted_out_bias_id,
+            "run1_encrypted_out_predictions_id" : run1_encrypted_out_predictions_id, 
         })
 
         return Response(

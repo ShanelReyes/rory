@@ -42,25 +42,29 @@ def test():
         headers={"Component-Type": "worker"}
     )
 
-@machinelearning.route("/logisticregression", methods=["POST"])
-async def logisticregression():
+@machinelearning.route("/logistic_regression", methods=["POST"])
+async def logistic_regression():
     local_start_time            = time.time()
     logger                      = current_app.config["logger"]
     STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     headers                     = request.headers
-    to_remove_headers           = ["User-Agent","Accept-Encoding","Connection"]
-    filtered_headers            = dict(list(filter(lambda x: not x[0] in to_remove_headers, headers.items())))
-    experiment_id               = filtered_headers.get("Experiment-Id","")
+    experiment_id               = headers.get("Experiment-Id","")
+    iterations                  = int(headers.get("Iterations", 1))
     algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION
     plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
     plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","test_x")
     plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
-    plaintext_matrix_test_label_id = headers.get("Plaintext-Matrix-Test-Label-Id","test_y")
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
-    matrix_train_id             = filtered_headers.get("Matrix-Train-Id")
-    matrix_test_id              = filtered_headers.get("Matrix-Test-Id")
+    if not all([plaintext_matrix_train_id, 
+                plaintext_matrix_test_id, 
+                plaintext_matrix_train_label_id,
+                epochs,
+                learning_rate,
+                ]):
+        return Response("Missing mandatory IDs or shape parameters", status=400)
+    out_predictions_id          = f"predictions_{experiment_id}_{iterations}"
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
     MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
     MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
@@ -68,19 +72,20 @@ async def logisticregression():
     
     logger.debug({
         "algorithm" : algorithm,
+        "experiment_id" : experiment_id,
         "plaintext_matrix_train_id": plaintext_matrix_train_id,
         "plaintext_matrix_test_id": plaintext_matrix_test_id,
         "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
-        "plaintext_matrix_test_label_id": plaintext_matrix_test_label_id,
         "epoch": epochs, 
         "learning_rate": learning_rate, 
     })
 
     return Response(
         response=json.dumps({
-            "x": "This endpoint is under development. Please check back later."
+            "out_predictions_id": out_predictions_id
         }),
-        status=200
+        status=200,
+        headers  = {}
         )
 
 
@@ -120,21 +125,21 @@ async def pplr():
                 accuracy_threshold
                 ]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    out_weights_id = f"weights_{experiment_id}_{iterations}"
-    out_bias_id = f"bias_{experiment_id}_{iterations}"
-    out_predictions_id = f"predictions_{experiment_id}_{iterations}"
-    MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-    _round                  = bool(int(current_app.config.get("_round","0"))) #False
-    decimals                = int(current_app.config.get("DECIMALS","4"))
-    path                    = current_app.config.get("KEYS_PATH","/rory/keys")
-    ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
-    pubkey_filename         = current_app.config.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
-    rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+    encrypted_out_weights_id     = f"weights_{experiment_id}_{iterations}"
+    encrypted_out_bias_id        = f"bias_{experiment_id}_{iterations}"
+    encrypted_out_predictions_id = f"predictions_{experiment_id}_{iterations}"
+    MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    MICTLANX_DELAY               = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR      = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES         = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
+    _round                       = bool(int(current_app.config.get("_round","0"))) #False
+    decimals                     = int(current_app.config.get("DECIMALS","4"))
+    path                         = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename                 = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename              = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename           = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename            = current_app.config.get("RELINKEY_FILENAME","relinkey")
+    rotatekey_filename           = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
     
     logger.debug({
             "algorithm" : algorithm,
@@ -158,9 +163,9 @@ async def pplr():
     # service_time = time.time() - local_start_time
     return Response(
             response = json.dumps({
-                "out_weights_id": out_weights_id,
-                "out_bias_id": out_bias_id,
-                "out_predictions_id": out_predictions_id          
+                "encrypted_out_weights_id": encrypted_out_weights_id,
+                "encrypted_out_bias_id": encrypted_out_bias_id,
+                "encrypted_out_predictions_id": encrypted_out_predictions_id          
             }),
             status   = 200,
             headers  = {}

@@ -3,6 +3,7 @@ from uuid import uuid4
 
 default_headers_lr = {
     "Experiment-Id": uuid4().hex[:10],
+    "Experiment-Iteration": "0",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
     "Plaintext-Matrix-Train-Label-Id": "label_vector_train",
     "Plaintext-Matrix-Test-Id": "dataset1_test",
@@ -36,7 +37,9 @@ default_headers_pplr = {
 }
 
 def test_client():
-    result = R.post("http://localhost:3000/machinelearning/pplr", headers=default_headers_pplr
+    result = R.post(
+        "http://localhost:3000/machinelearning/pplr",
+        headers=default_headers_pplr
            )
     if result.status_code != 200:
         print("Error:", result.status_code, result.text)
@@ -47,7 +50,7 @@ def test_client():
 
 def test_client_lr():
     result = R.post(
-        "http://localhost:3000/machinelearning/logisticregression", 
+        "http://localhost:3000/machinelearning/logistic_regression",
         headers=default_headers_lr
     )
     print(result.json())
