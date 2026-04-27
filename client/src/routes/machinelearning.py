@@ -241,6 +241,55 @@ async def logisticregression():
             "msg": "Training label vector dataset in cloud storage"
         })
 
+        # # Comunicarse con el manager y con el worker
+        # get_worker_start_time       = time.time()
+        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+        #     headers = {
+        #         "Algorithm"             : algorithm,
+        #         "Start-Request-Time"    : str(arrivalTime),
+        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
+        #     }
+        # )
+        # if get_worker_result.is_err:
+        #     error = get_worker_result.unwrap_err()
+        #     logger.error(str(error))
+        #     return Response(str(error), status=500)
+        # (worker_id,port) = get_worker_result.unwrap()
+
+        # worker = RoryWorker( #Allows to establish the connection with the worker
+        #     workerId  = worker_id,
+        #     port      = port,
+        #     session   = s,
+        #     algorithm = algorithm,
+        # )
+        
+        # # LLenar headers para el worker siguiendo el formato establecido
+        # # para los headers:
+        # worker_headers = {
+        #     
+        # }
+
+        # # enviarle headers al worker 
+        # worker_response = worker.run(
+        #         timeout = WORKER_TIMEOUT, 
+        #         headers = worker_headers
+        #     ) #Run 1 starts
+        # worker_status = worker_response.status_code
+
+        # if worker_status !=200:
+        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+
+        # worker_response.raise_for_status()
+        # jsonWorkerResponse        = worker_response.json()
+        # # extraer del json la informacion que el worker nos envie, por ejemplo:
+        # # run1_service_time         = jsonWorkerResponse["service_time"]
+
+        # #colocar un logger.debug con la informacion extraida del json que envia el worker
+        
+
+
+
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."                
