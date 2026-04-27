@@ -761,15 +761,6 @@ async def pplr():
             "run1_out_predictions_id": run1_out_predictions_id, 
         })
 
-        # extraer del json la informacion que el worker nos envie, por ejemplo:
-        # run1_service_time         = jsonWorkerResponse["service_time"]
-
-        #colocar un logger.debug con la informacion extraida del json que envia el worker
-        
-
-
-
-
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."
