@@ -641,6 +641,7 @@ async def pplr():
                 "dtype":"float32"
             }
         )
+
         if encrypted_train_label_put_chunk.is_err:
             logger.error({
                 "msg": "Failed to put encrypted training label matrix in storage",
@@ -652,7 +653,7 @@ async def pplr():
             "msg": "Training label dataset put in SAD successfully"
         })
 
-
+        #__________________________
 
 
         # # Comunicarse con el manager y con el worker
@@ -717,8 +718,10 @@ async def pplr():
         worker_status = worker_response.status_code
 
         logger.debug({
-            "worker_status": worker_status,
-            "worker response": worker_response 
+            "worker_status": str(worker_response),
+            "worker_id": worker_id,
+            "worker_port" : port,
+            # "worker response": worker_response 
         })
 
         if worker_status !=200:
@@ -734,13 +737,11 @@ async def pplr():
             "msg": "Worker send status"
         })
         jsonWorkerResponse        = worker_response.json()
-        run1_service_time         = jsonWorkerResponse["service_time"]
         run1_out_weights_id       = jsonWorkerResponse["out_weights_id"]
         run1_out_bias_id          = jsonWorkerResponse["out_bias_id"]
         run1_out_predictions_id   = jsonWorkerResponse["out_predictions_id"]
 
         logger.debug({
-            "run1_service_time" : run1_service_time,
             "run1_out_weights_id": run1_out_weights_id,
             "run1_out_bias_id": run1_out_bias_id,
             "run1_out_predictions_id": run1_out_predictions_id, 

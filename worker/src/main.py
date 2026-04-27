@@ -53,7 +53,7 @@ except Exception as e:
     print("MAKE_FOLDER_ERROR",e)
 
 # NUM_CHUNKS                 = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
-DEBUG                      = bool(int(os.environ.get("RORY_DEBUG",0)))
+DEBUG                      = bool(int(os.environ.get("RORY_DEBUG",1)))
 MICTLANX_TIMEOUT           = int(os.environ.get("MICTLANX_TIMEOUT",120))
 MICTLANX_CLIENT_ID         = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
 MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","3"))

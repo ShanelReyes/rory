@@ -155,13 +155,12 @@ async def pplr():
 
     # Agregar al return response los headers que se enviaran al cliente
     # vector de pesos, bias, label_vector_train
-    service_time = time.time() - local_start_time
+    # service_time = time.time() - local_start_time
     return Response(
             response = json.dumps({
                 "out_weights_id": out_weights_id,
                 "out_bias_id": out_bias_id,
-                "out_predictions_id": out_predictions_id,
-                "service_time" : str(service_time)            
+                "out_predictions_id": out_predictions_id          
             }),
             status   = 200,
             headers  = {}
