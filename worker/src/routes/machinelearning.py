@@ -16,7 +16,7 @@ from rorycommon import Common as RoryCommon
 from Pyfhel import PyCtxt,Pyfhel
 from models import ExperimentLogEntry
 
-machinelearning = Blueprint("machinelearning", __name__, url_prefix="/machinelearning")
+machinelearning = Blueprint("machinelearning", __name__, url_prefix="/machine-learning")
 
 @machinelearning.route("/test", methods=["GET", "POST"])
 def test():
@@ -42,7 +42,7 @@ def test():
         headers={"Component-Type": "worker"}
     )
 
-@machinelearning.route("/logistic_regression", methods=["POST"])
+@machinelearning.route("/logistic-regression/train", methods=["POST"])
 async def logistic_regression():
     local_start_time            = time.time()
     logger                      = current_app.config["logger"]
@@ -51,18 +51,13 @@ async def logistic_regression():
     headers                     = request.headers
     experiment_id               = headers.get("Experiment-Id","")
     iterations                  = int(headers.get("Iterations", 1))
-    algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION
+    algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_TRAIN
     plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
-    plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","test_x")
+    # plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","test_x")
     plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
-    if not all([plaintext_matrix_train_id, 
-                plaintext_matrix_test_id, 
-                plaintext_matrix_train_label_id,
-                epochs,
-                learning_rate,
-                ]):
+    if not all([plaintext_matrix_train_id, plaintext_matrix_train_label_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     out_predictions_id          = f"predictions_{experiment_id}_{iterations}"
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
@@ -74,7 +69,7 @@ async def logistic_regression():
         "algorithm" : algorithm,
         "experiment_id" : experiment_id,
         "plaintext_matrix_train_id": plaintext_matrix_train_id,
-        "plaintext_matrix_test_id": plaintext_matrix_test_id,
+        # "plaintext_matrix_test_id": plaintext_matrix_test_id,
         "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
         "epoch": epochs, 
         "learning_rate": learning_rate, 
@@ -89,22 +84,22 @@ async def logistic_regression():
         )
 
 
-@machinelearning.route("/pplr", methods=["POST"])
-async def pplr():
+@machinelearning.route("/pplr/train", methods=["POST"])
+async def pplr_train():
     local_start_time            = time.time()
     logger                      = current_app.config["logger"]
     worker_id                   = current_app.config["NODE_ID"]
     STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     headers                     = request.headers
-    algorithm                   = Constants.MachineLearningAlgorithms.PPLR
+    algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
     experiment_id               = headers.get("Experiment-Id", "")
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     accuracy_threshold          = float(headers.get("Accuracy-Threshold", "0.80"))
     iterations                  = int(headers.get("Iterations", 1))
     encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
-    encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
+    # encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
     encrypted_matrix_train_label_id   = headers.get("Encrypted-Matrix-Train-Label-Id")
     encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
     encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
@@ -112,18 +107,7 @@ async def pplr():
     n_features                  = int(headers.get("N-Features", 0))
     n_samples_train             = int(headers.get("N-Samples-Train", 0))
 
-    if not all([encrypted_matrix_train_id, 
-                encrypted_weights_id, 
-                encrypted_bias_id,
-                encrypted_matrix_test_id,
-                encrypted_matrix_train_label_id,
-                scale,
-                n_features,
-                n_samples_train,
-                epochs,
-                learning_rate,
-                accuracy_threshold
-                ]):
+    if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_matrix_train_label_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     encrypted_out_weights_id     = f"weights_{experiment_id}_{iterations}"
     encrypted_out_bias_id        = f"bias_{experiment_id}_{iterations}"
@@ -144,7 +128,7 @@ async def pplr():
     logger.debug({
             "algorithm" : algorithm,
             "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            # "encrypted_matrix_test_id": encrypted_matrix_test_id,
             "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
             "encrypted_weight_matrix_id": encrypted_weights_id,
             "encrypted_bias_vector_id": encrypted_bias_id,
@@ -171,3 +155,13 @@ async def pplr():
             headers  = {}
             )
     
+@machinelearning.route("/pplr/predict", methods=["POST"])
+async def pplr_predict():
+    # Similar a pplr_train pero con la logica de prediccion, se pueden compartir algunos parametros como el scale, n_features, etc.
+    return Response(
+            response = json.dumps({
+                "encrypted_out_predictions_id": "predictions_id_placeholder"          
+            }),
+            status   = 200,
+            headers  = {}
+            )
