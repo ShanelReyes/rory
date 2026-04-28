@@ -32,8 +32,8 @@ default_headers_pplr_train = {
     "Epochs": "1",
     "Learning-Rate": "0.01",
     "Accuracy-Threshold": "0.80",
-    "Plaintext-Weight-Id": "weight-matrix",
-    "Plaintext-Bias-Id": "bias-vector",
+    # "Plaintext-Weight-Id": "weight-matrix",
+    # "Plaintext-Bias-Id": "bias-vector",
 }
 
 def test_client_pplr_train():

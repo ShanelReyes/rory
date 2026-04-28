@@ -365,10 +365,8 @@ async def pplr_train():
         learning_rate      = float(request_headers.get("Learning-Rate", "0.01"))
         accuracy_threshold = float(request_headers.get("Accuracy-Threshold", "0.80"))
 
-        plaintext_weight_id = request_headers.get("Plaintext-Weight-Id","weight")
-        encrypted_weight_id = "encrypted{}".format(plaintext_weight_id)
-        plaintext_bias_id   = request_headers.get("Plaintext-Bias-Id","bias")
-        encrypted_bias_id   = "encrypted{}".format(plaintext_bias_id)
+        encrypted_weight_id = "{}encryptedweight".format(plaintext_matrix_train_id) 
+        encrypted_bias_id   = "{}encryptedbias".format(plaintext_matrix_train_id)
 
         _round             = bool(int(current_app.config.get("_round","0")))            #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
@@ -386,27 +384,26 @@ async def pplr_train():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
-        logger.debug({
-            "algorithm" : algorithm,
-            "plaintext_matrix_train_id": plaintext_matrix_train_id,
-            "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            "plaintext_matrix_train_path": plaintext_matrix_train_path,
-            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
-            # "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
-            "plaintext_matrix_train_label_id": plaintext_label_vector_train_id,
-            "encrypted_matrix_train_label_id": encrypted_label_vector_train_id,
-            "plaintext_matrix_train_label_path": plaintext_label_vector_train_path, 
-            "plaintext_matrix_train_label_filename": plaintext_matrix_train_filename,
-            "extension" : extension,
-            "plaintext_weight_matrix_id": plaintext_weight_id,
-            "encrypted_weight_matrix_id": encrypted_weight_id,
-            "plaintext_bias_vector_id": plaintext_bias_id,
-            "encrypted_bias_vector_id": encrypted_bias_id,
-            "epoch": epochs, 
-            "learning_rate": learning_rate, 
-            "accuracy_threshold": accuracy_threshold,
-            "max_iterations": MAX_ITERATIONS,
-        })
+        # logger.debug({
+        #     "algorithm" : algorithm,
+        #     "plaintext_matrix_train_id": plaintext_matrix_train_id,
+        #     "encrypted_matrix_train_id": encrypted_matrix_train_id,
+        #     "plaintext_matrix_train_path": plaintext_matrix_train_path,
+        #     "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
+        #     "plaintext_matrix_train_label_id": plaintext_label_vector_train_id,
+        #     "encrypted_matrix_train_label_id": encrypted_label_vector_train_id,
+        #     "plaintext_matrix_train_label_path": plaintext_label_vector_train_path, 
+        #     "plaintext_matrix_train_label_filename": plaintext_matrix_train_filename,
+        #     "extension" : extension,
+        #     "plaintext_weight_matrix_id": plaintext_weight_id,
+        #     "encrypted_weight_matrix_id": encrypted_weight_id,
+        #     "plaintext_bias_vector_id": plaintext_bias_id,
+        #     "encrypted_bias_vector_id": encrypted_bias_id,
+        #     "epoch": epochs, 
+        #     "learning_rate": learning_rate, 
+        #     "accuracy_threshold": accuracy_threshold,
+        #     "max_iterations": MAX_ITERATIONS,
+        # })
         
         ckks = Ckks.from_pyfhel(
             _round             = _round,
@@ -527,7 +524,7 @@ async def pplr_train():
             _round             = False
         )
         #__________________________
-        
+
         get_worker_start_time       = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
@@ -559,19 +556,20 @@ async def pplr_train():
         
 
         worker_headers = {
-            "Clustering-Status"      : str(status),
-            "Experiment-Id"          : experiment_id,
-            "Epochs"                 : str(epochs),
-            "Learning-Rate"          : str(learning_rate),
-            "Accuracy-Threshold"     : str(accuracy_threshold),
-            "Iterations"             : str(iteration),
+            "Clustering-Status"   : str(status),
+            "Experiment-Id"       : experiment_id,
+            "Epochs"              : str(epochs),
+            "Learning-Rate"       : str(learning_rate),
+            "Accuracy-Threshold"  : str(accuracy_threshold),
+            "Iterations"          : str(iteration),
             "Encrypted-Matrix-Train-Id": encrypted_matrix_train_id,
-            "Encrypted-Matrix-Train-Label-Id": encrypted_matrix_train_id,
+            "Encrypted-Label-Vector-Train-Id": encrypted_label_vector_train_id,
             "Encrypted-Weights-Id": encrypted_weight_id,
-            "Encrypted-Bias-Id": encrypted_bias_id, 
-            "Scale": str(scale),
-            "N-Features": str(n_features),
-            "N-Samples": str(n_samples),
+            "Encrypted-Bias-Id"   : encrypted_bias_id,
+            "Scale"               : str(scale),
+            "N-Features"          : str(n_features),
+            "N-Samples"           : str(n_samples),
+            "Num-Chunks"          : str(num_chunks),
         }
 
         logger.debug({
@@ -594,15 +592,13 @@ async def pplr_train():
             return Response("Worker error: {}".format(worker_response.content),status=500)
         
         worker_response.raise_for_status()
-        jsonWorkerResponse                = worker_response.json()
-        run1_encrypted_out_weights_id     = jsonWorkerResponse["encrypted_out_weights_id"]
-        run1_encrypted_out_bias_id        = jsonWorkerResponse["encrypted_out_bias_id"]
-        run1_encrypted_out_predictions_id = jsonWorkerResponse["encrypted_out_predictions_id"]
+        jsonWorkerResponse              = worker_response.json()
+        encrypted_weights_id_train    = jsonWorkerResponse["encrypted_weight_id"]
+        encrypted_bias_id_train       = jsonWorkerResponse["encrypted_bias_id"]
 
         logger.debug({
-            "run1_encrypted_out_weights_id"     : run1_encrypted_out_weights_id,
-            "run1_encrypted_out_bias_id"        : run1_encrypted_out_bias_id,
-            "run1_encrypted_out_predictions_id" : run1_encrypted_out_predictions_id, 
+            "encrypted_weights_id"     : encrypted_weights_id_train,
+            "encrypted_bias_id"        : encrypted_bias_id_train, 
         })
 
         return Response(

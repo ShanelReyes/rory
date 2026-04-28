@@ -91,34 +91,32 @@ async def pplr_train():
     worker_id                   = current_app.config["NODE_ID"]
     STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
-    headers                     = request.headers
+    request_headers             = request.headers
     algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
-    experiment_id               = headers.get("Experiment-Id", "")
-    epochs                      = int(headers.get("Epochs", 1))
-    learning_rate               = float(headers.get("Learning-Rate", "0.01"))
-    accuracy_threshold          = float(headers.get("Accuracy-Threshold", "0.80"))
-    iterations                  = int(headers.get("Iterations", 1))
-    encrypted_matrix_train_id   = headers.get("Encrypted-Matrix-Train-Id")
-    # encrypted_matrix_test_id    = headers.get("Encrypted-Matrix-Test-Id")
-    encrypted_matrix_train_label_id   = headers.get("Encrypted-Matrix-Train-Label-Id")
-    encrypted_weights_id        = headers.get("Encrypted-Weights-Id")
-    encrypted_bias_id           = headers.get("Encrypted-Bias-Id")
-    scale                       = int(headers.get("Scale", 40)) # Escala para Pyfhel
-    n_features                  = int(headers.get("N-Features", 0))
-    n_samples_train             = int(headers.get("N-Samples-Train", 0))
-
-    if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_matrix_train_label_id]):
+    experiment_id               = request_headers.get("Experiment-Id", "")
+    epochs                      = int(request_headers.get("Epochs", 1))
+    learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
+    accuracy_threshold          = float(request_headers.get("Accuracy-Threshold", "0.80"))
+    iterations                  = int(request_headers.get("Iterations", 1))
+    encrypted_matrix_train_id   = request_headers.get("Encrypted-Matrix-Train-Id")
+    encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
+    encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
+    encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
+    scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
+    n_features                  = int(request_headers.get("N-Features", 0))
+    n_samples                   = int(request_headers.get("N-Samples", 0))
+    num_chunks                  = int(request_headers.get("Num-Chunks",-1))
+    
+    if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    encrypted_out_weights_id     = f"weights_{experiment_id}_{iterations}"
-    encrypted_out_bias_id        = f"bias_{experiment_id}_{iterations}"
-    encrypted_out_predictions_id = f"predictions_{experiment_id}_{iterations}"
+    
     MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
     MICTLANX_DELAY               = int(current_app.config.get("MICTLANX_DELAY","2"))
     MICTLANX_BACKOFF_FACTOR      = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
     MICTLANX_MAX_RETRIES         = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
     _round                       = bool(int(current_app.config.get("_round","0"))) #False
     decimals                     = int(current_app.config.get("DECIMALS","4"))
-    path                         = current_app.config.get("KEYS_PATH","/rory/keys")
+    keys_path                    = current_app.config.get("KEYS_PATH","/rory/keys")
     ctx_filename                 = current_app.config.get("CTX_FILENAME","ctx")
     pubkey_filename              = current_app.config.get("PUBKEY_FILENAME","pubkey")
     secretkey_filename           = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
@@ -128,8 +126,7 @@ async def pplr_train():
     logger.debug({
             "algorithm" : algorithm,
             "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            # "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "encrypted_matrix_train_label_id": encrypted_matrix_train_label_id,
+            "encrypted_matrix_train_label_id": encrypted_label_vector_train_id,
             "encrypted_weight_matrix_id": encrypted_weights_id,
             "encrypted_bias_vector_id": encrypted_bias_id,
             "epoch": epochs, 
@@ -139,17 +136,66 @@ async def pplr_train():
             "n_features": n_features, 
         })
     
+    ckks = Ckks.from_pyfhel_server(
+        _round             = _round,
+        decimals           = decimals,
+        path               = keys_path,
+        ctx_filename       = ctx_filename,
+        pubkey_filename    = pubkey_filename,
+        relinkey_filename  = relinkey_filename,
+        rotatekey_filename = rotatekey_filename
+    )
     
+    # Leer dataset train desde el sistema de almacenamiento
+    encrypted_matrix_train_result = await RoryCommon.get_pyctxt(
+        client         = STORAGE_CLIENT,
+        bucket_id      = BUCKET_ID,
+        key            = encrypted_matrix_train_id,
+        ckks           = ckks,
+        max_retries    = MICTLANX_MAX_RETRIES,
+        delay          = MICTLANX_DELAY,
+        backoff_factor = MICTLANX_BACKOFF_FACTOR,
+        timeout        = MICTLANX_TIMEOUT
+    )
+    
+    logger.debug({
+            "msg": "encrypted matrix train get from storage"
+        })
+    
+    # Leer label_vector train desde el sistema de almacenamiento
+    # Colocar logger debug
 
+    # Leer encrypted weights desde el sistema de almacenamiento
+    # init_encrypted_weights = RoryCommon.get_pyctxt()
+    # Colocar logger debug 
 
-    # Agregar al return response los headers que se enviaran al cliente
-    # vector de pesos, bias, label_vector_train
-    # service_time = time.time() - local_start_time
+    # Leer encrypted bias desde el sistema de almacenamiento
+    # init_encrypted_bias = RoryCommon.get_pyctxt()
+    # Colocar logger debug
+
+    # Iniciar entrenamiento
+    # encrypted_weights, encrypted_bias, time = LogisticRegressionFHE.train()
+    # Colocar logger debug
+
+    # descomenta estas dos lineas:
+    # del init_encrypted_weights
+    # del init_encrypted_bias
+
+    # Colocar encrypted_weights en el sistema de almacenamiento
+    # parametros: key=encrypted_weights_id, chunks=encrypted_weights
+    # RoryCommon.delete_and_put_chunks()
+    # Colocar logger debug
+
+    # Colocar encrypted_bias_train en el sistema de almacenamiento 
+    # parametros: key = encrypted_bias_id, chunks=encrypted_bias
+    # RoryCommon.delete_and_put_chunks()
+    # Colocar logger debug
+    
+    # El reponse queda como esta ahora
     return Response(
             response = json.dumps({
-                "encrypted_out_weights_id": encrypted_out_weights_id,
-                "encrypted_out_bias_id": encrypted_out_bias_id,
-                "encrypted_out_predictions_id": encrypted_out_predictions_id          
+                "encrypted_weight_id":encrypted_weights_id,
+                "encrypted_bias_id":encrypted_bias_id,       
             }),
             status   = 200,
             headers  = {}
