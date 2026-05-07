@@ -597,27 +597,6 @@ async def pplr_train():
         MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-
-        # logger.debug({
-        #     "algorithm" : algorithm,
-        #     "plaintext_matrix_train_id": plaintext_matrix_train_id,
-        #     "encrypted_matrix_train_id": encrypted_matrix_train_id,
-        #     "plaintext_matrix_train_path": plaintext_matrix_train_path,
-        #     "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
-        #     "plaintext_matrix_train_label_id": plaintext_label_vector_train_id,
-        #     "encrypted_matrix_train_label_id": encrypted_label_vector_train_id,
-        #     "plaintext_matrix_train_label_path": plaintext_label_vector_train_path, 
-        #     "plaintext_matrix_train_label_filename": plaintext_matrix_train_filename,
-        #     "extension" : extension,
-        #     "plaintext_weight_matrix_id": plaintext_weight_id,
-        #     "encrypted_weight_matrix_id": encrypted_weight_id,
-        #     "plaintext_bias_vector_id": plaintext_bias_id,
-        #     "encrypted_bias_vector_id": encrypted_bias_id,
-        #     "epoch": epochs, 
-        #     "learning_rate": learning_rate, 
-        #     "accuracy_threshold": accuracy_threshold,
-        #     "max_iterations": MAX_ITERATIONS,
-        # })
         
         ckks = Ckks.from_pyfhel(
             _round             = _round,
@@ -884,21 +863,6 @@ async def pplr_predict():
         MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-
-        logger.debug({
-            "algorithm" : algorithm,
-            "plaintext_matrix_test_id": plaintext_matrix_test_id,
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "plaintext_matrix_test_path": plaintext_matrix_test_path,   
-            "plaintext_matrix_test_filename": plaintext_matrix_test_filename,
-            "extension" : extension,
-            "plaintext_weight_matrix_id": plaintext_weight_matrix_id,
-            "encrypted_weight_matrix_id": encrypted_weight_matrix_id,
-            "plaintext_bias_vector_id": plaintext_bias_vector_id,
-            "encrypted_bias_vector_id": encrypted_bias_vector_id, 
-            "accuracy_threshold": accuracy_threshold,
-            "max_iterations": MAX_ITERATIONS,
-        })
         
         ckks = Ckks.from_pyfhel(
             _round             = _round,
@@ -911,23 +875,7 @@ async def pplr_predict():
             rotatekey_filename = rotatekey_filename
         )
 
-    # Identificar headers para la prediccion.
-    # Definir headers base, los que se extraen con current_app.config
-    # Definir headers para predict, por ejemplo, vector de pesos, dataset_test, dataset_test_id, n_test, etc.
-    # Agregar logger debug con cada cada header.
-    # Verifica que los valores que estan en el logger debug sean los correctos.
-
-    # Inicializar ckks con Ckks.from_pyfhel
-    # Leer cada dataset que se tenga que usar en esta etapa. Por ejemplo dataset_test con read_numpy_from
-    # Colocar logger.debu con informacion importante para el siguiente paso
-    # Cifrar cada dataset con segment_and_encrypt_ckks_with_executor
-    # Colocar logger.debug con informacion importante para el siguiente paso
-    # Subir cada dataset cifrado al storage con delete_and_put_chunks
-    # Colocar logger.debug 
-
-    # Agrega el return Response con un mensaje. Incluye response, status=200 y headers={}.
-    # pass
-
+        
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."
@@ -935,6 +883,7 @@ async def pplr_predict():
             status   = 200,
             headers  = {}
         )
+
 
     except Exception as e:
         logger.error({
@@ -945,3 +894,6 @@ async def pplr_predict():
             status = 500, 
             headers={"Error-Message":str(e)}
         )
+    
+
+    

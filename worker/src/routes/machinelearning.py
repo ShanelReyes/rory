@@ -174,7 +174,7 @@ async def pplr_train():
     # Colocar logger debug
 
     # Iniciar entrenamiento
-    # encrypted_weights, encrypted_bias, time = LogisticRegressionFHE.train()
+    # encrypted_weights, encrypted_bias = LogisticRegressionFHE.train()
     # Colocar logger debug
 
     # descomenta estas dos lineas:
@@ -203,7 +203,7 @@ async def pplr_train():
     
 @machinelearning.route("/pplr/predict", methods=["POST"])
 async def pplr_predict():
-    # Similar a pplr_train pero con la logica de prediccion, se pueden compartir algunos parametros como el scale, n_features, etc.
+    
     return Response(
             response = json.dumps({
                 "encrypted_out_predictions_id": "predictions_id_placeholder"          
