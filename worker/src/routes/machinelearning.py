@@ -4,6 +4,7 @@ import numpy.typing as npt
 from typing import List,Tuple
 from flask import Blueprint,current_app,request,Response
 from rory.core.machine_learning.secure.pqc.pplr import LogisticRegressionFHE
+from rory.core.machine_learning.secure.pqc.lite_pplr import PPLR
 from rory.core.machine_learning.logistic_regression import LogisticRegressionBaseline
 from rory.core.utils.utils import Utils
 from rory.core.utils.constants import Constants
@@ -143,6 +144,9 @@ async def pplr_train():
         relinkey_filename  = relinkey_filename,
         rotatekey_filename = rotatekey_filename
     )
+    logger.debug({
+             "msg": "Created Context"
+         })
     
     # Leer dataset train desde el sistema de almacenamiento
     encrypted_matrix_train_result = await RoryCommon.get_pyctxt(
@@ -161,8 +165,7 @@ async def pplr_train():
         })
     
     logger.debug({
-            "chunks": num_chunks,
-            "label vector ID": encrypted_label_vector_train_id
+            "chunks": num_chunks
         })
     
     encrypted_label_vector_train_result = await RoryCommon.get_pyctxt(
@@ -177,7 +180,7 @@ async def pplr_train():
     )
     
     logger.debug({
-            "msg": "encrypted label vector train get from storage"
+            "msg": "encrypted label vector train get from storage "
         })
     
     init_encrypted_weights = await RoryCommon.get_pyctxt(
@@ -210,6 +213,77 @@ async def pplr_train():
             "msg": "encrypted bias get from storage"
         })
     
+    if isinstance(init_encrypted_weights, list):
+        logger.debug({"msg": "init_encrypted_weights are a list"})
+        init_encrypted_weights = init_encrypted_weights[0]
+
+    if isinstance(init_encrypted_bias, list):
+        logger.debug({"msg": "init_encrypted_bias are a list"})
+        init_encrypted_bias = init_encrypted_bias[0]
+        
+    #encrypted_weights, encrypted_bias = LogisticRegressionFHE.train(
+    encrypted_weights, encrypted_bias = PPLR.train(
+        HE = ckks.he_object,
+        epochs = epochs,
+        learning_rate = learning_rate, 
+        encrypted_weights = init_encrypted_weights, 
+        encrypted_bias = init_encrypted_bias, 
+        encrypted_X = encrypted_matrix_train_result, 
+        encrypted_y = encrypted_label_vector_train_result, 
+        n_features = n_features, 
+        scale = scale, 
+        n_samples = n_samples)
+    logger.debug({
+            "msg": "Finish train"
+        })
+    del init_encrypted_weights
+    del init_encrypted_bias
+
+    weights_chunks = RoryCommon.from_pyctxts_to_chunks(
+            key        = encrypted_weights_id,
+            xs         = encrypted_weights,
+            num_chunks = num_chunks
+        )
+
+    encrypted_weights_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_weights_id,
+            chunks    = weights_chunks,
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str((1, n_features)),
+                "dtype": "float32"
+            }
+        )
+    if encrypted_weights_put_chunk.is_err:
+            logger.error("Failed to process encrypted weights")
+            return Response(status=500, response="Failed to process encrypted weights")
+
+    logger.debug({
+            "msg": "Put in storage weights"
+        })    
+    
+    encrypted_bias_put_chunk = await RoryCommon.delete_and_put_chunks(
+            client    = STORAGE_CLIENT,
+            bucket_id = BUCKET_ID,
+            key       = encrypted_bias_id,
+            chunks    = encrypted_bias,
+            timeout   = MICTLANX_TIMEOUT,
+            max_tries = MICTLANX_MAX_RETRIES,
+            tags = {
+                "shape": str((1, 1)),
+                "dtype": "float32"
+            }
+        )
+    if encrypted_bias_put_chunk.is_err:
+            logger.error("Failed to process encrypted bias")
+            return Response(status=500, response="Failed to process encrypted bias")
+
+    logger.debug({
+            "msg": "Put in storage bias"
+        })
 
     return Response(
             response = json.dumps({

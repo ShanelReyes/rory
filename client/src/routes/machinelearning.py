@@ -671,7 +671,7 @@ async def pplr_train():
 
         n_features=8
         n_samples=2
-        plaintext_weight = np.zeros((1,n_features), dtype=np.float32)
+        plaintext_weight = np.zeros((n_features), dtype=np.float32)
 
         logger.debug({
             "weights matrix": plaintext_weight.shape,
@@ -702,7 +702,7 @@ async def pplr_train():
             return Response(status=500, response="Failed to put encrypted weight in cloud storage")
 
         logger.debug({
-            "msg": "Segment, encrypt and put in storage plaintext weights"
+            "msg": "Segment, encrypt and put in storage encrypted weights"
         })
         #_________________
 
