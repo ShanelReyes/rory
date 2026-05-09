@@ -630,6 +630,11 @@ async def pplr_train():
             timeout      = MICTLANX_TIMEOUT,
             max_attempts = MICTLANX_MAX_RETRIES,
         )
+
+        if plaintext_matrix_train_result.is_err:
+            logger.error("Failed to process training dataset")
+            return Response(status=500, response="Failed to process training dataset")
+        
         logger.debug({
             "msg": "Read, segment, encrypt and put in storage dataset train"
         })
@@ -653,6 +658,11 @@ async def pplr_train():
             max_attempts = MICTLANX_MAX_RETRIES,
 
         )
+
+        if plaintext_label_vector_train.is_err:
+            logger.error("Failed to put plaintext label vector training dataset in cloud storage")
+            return Response(status=500, response="Failed to put plaintext label vector training dataset in cloud storage")
+        
         #_________________
         scale = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
         logger.debug({
@@ -687,6 +697,10 @@ async def pplr_train():
             _round             = False
         )
 
+        if encrypted_weight_result.is_err:
+            logger.error("Failed to put encrypted weight in cloud storage")
+            return Response(status=500, response="Failed to put encrypted weight in cloud storage")
+
         logger.debug({
             "msg": "Segment, encrypt and put in storage plaintext weights"
         })
@@ -716,6 +730,10 @@ async def pplr_train():
             max_attempts       = MICTLANX_MAX_RETRIES,
             _round             = False
         )
+
+        if encrypted_bias_result.is_err:
+            logger.error("Failed to put encrypted bias in cloud storage")
+            return Response(status=500, response="Failed to put encrypted bias in cloud storage")
         #__________________________
 
         get_worker_start_time       = time.time()
