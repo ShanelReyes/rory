@@ -53,7 +53,6 @@ async def logistic_regression():
     iterations                  = int(headers.get("Iterations", 1))
     algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_TRAIN
     plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
-    # plaintext_matrix_test_id    = headers.get("Plaintext-Matrix-Test-Id","test_x")
     plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
     epochs                      = int(headers.get("Epochs", 1))
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
@@ -69,7 +68,6 @@ async def logistic_regression():
         "algorithm" : algorithm,
         "experiment_id" : experiment_id,
         "plaintext_matrix_train_id": plaintext_matrix_train_id,
-        # "plaintext_matrix_test_id": plaintext_matrix_test_id,
         "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
         "epoch": epochs, 
         "learning_rate": learning_rate, 
@@ -126,8 +124,8 @@ async def pplr_train():
     logger.debug({
             "algorithm" : algorithm,
             "encrypted_matrix_train_id": encrypted_matrix_train_id,
-            "encrypted_matrix_train_label_id": encrypted_label_vector_train_id,
-            "encrypted_weight_matrix_id": encrypted_weights_id,
+            "encrypted_vextor_train_label_id": encrypted_label_vector_train_id,
+            "encrypted_weights_matrix_id": encrypted_weights_id,
             "encrypted_bias_vector_id": encrypted_bias_id,
             "epoch": epochs, 
             "learning_rate": learning_rate, 
@@ -162,36 +160,57 @@ async def pplr_train():
             "msg": "encrypted matrix train get from storage"
         })
     
-    # Leer label_vector train desde el sistema de almacenamiento
-    # Colocar logger debug
-
-    # Leer encrypted weights desde el sistema de almacenamiento
-    # init_encrypted_weights = RoryCommon.get_pyctxt()
-    # Colocar logger debug 
-
-    # Leer encrypted bias desde el sistema de almacenamiento
-    # init_encrypted_bias = RoryCommon.get_pyctxt()
-    # Colocar logger debug
-
-    # Iniciar entrenamiento
-    # encrypted_weights, encrypted_bias = LogisticRegressionFHE.train()
-    # Colocar logger debug
-
-    # descomenta estas dos lineas:
-    # del init_encrypted_weights
-    # del init_encrypted_bias
-
-    # Colocar encrypted_weights en el sistema de almacenamiento
-    # parametros: key=encrypted_weights_id, chunks=encrypted_weights
-    # RoryCommon.delete_and_put_chunks()
-    # Colocar logger debug
-
-    # Colocar encrypted_bias_train en el sistema de almacenamiento 
-    # parametros: key = encrypted_bias_id, chunks=encrypted_bias
-    # RoryCommon.delete_and_put_chunks()
-    # Colocar logger debug
+    logger.debug({
+            "chunks": num_chunks,
+            "label vector ID": encrypted_label_vector_train_id
+        })
     
-    # El reponse queda como esta ahora
+    encrypted_label_vector_train_result = await RoryCommon.get_pyctxt(
+        client         = STORAGE_CLIENT,
+        bucket_id      = BUCKET_ID,
+        key            = encrypted_label_vector_train_id,
+        ckks           = ckks,
+        max_retries    = MICTLANX_MAX_RETRIES,
+        delay          = MICTLANX_DELAY,
+        backoff_factor = MICTLANX_BACKOFF_FACTOR,
+        timeout        = MICTLANX_TIMEOUT
+    )
+    
+    logger.debug({
+            "msg": "encrypted label vector train get from storage"
+        })
+    
+    init_encrypted_weights = await RoryCommon.get_pyctxt(
+        client         = STORAGE_CLIENT,
+        bucket_id      = BUCKET_ID,
+        key            = encrypted_weights_id,
+        ckks           = ckks,
+        max_retries    = MICTLANX_MAX_RETRIES,
+        delay          = MICTLANX_DELAY,
+        backoff_factor = MICTLANX_BACKOFF_FACTOR,
+        timeout        = MICTLANX_TIMEOUT
+    )
+    
+    logger.debug({
+            "msg": "encrypted weights get from storage"
+        })
+    
+    init_encrypted_bias = await RoryCommon.get_pyctxt(
+        client         = STORAGE_CLIENT,
+        bucket_id      = BUCKET_ID,
+        key            = encrypted_bias_id,
+        ckks           = ckks,
+        max_retries    = MICTLANX_MAX_RETRIES,
+        delay          = MICTLANX_DELAY,
+        backoff_factor = MICTLANX_BACKOFF_FACTOR,
+        timeout        = MICTLANX_TIMEOUT
+    )
+    
+    logger.debug({
+            "msg": "encrypted bias get from storage"
+        })
+    
+
     return Response(
             response = json.dumps({
                 "encrypted_weight_id":encrypted_weights_id,
