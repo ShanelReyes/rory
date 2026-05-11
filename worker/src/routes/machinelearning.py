@@ -309,7 +309,13 @@ async def pplr_train():
     
 @machinelearning.route("/pplr/predict", methods=["POST"])
 async def pplr_predict():
-    
+    # Definir:
+    # headers y parámetros necesarios para la predicción
+    # ckks context
+    # ckks_params = CkksParams()
+    # storage_backend
+
+    # colocar logger debug con todos los parámetros recibidos
     return Response(
             response = json.dumps({
                 "message": "PPLR prediction completed successfully",

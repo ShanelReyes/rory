@@ -58,6 +58,10 @@ default_headers_pplr_predict = {
     "Accuracy-Threshold": "0.80",
 }
 
+default_headers_pplr_predict_worker = {
+    "x":"0"
+}
+
 def test_client_pplr_train():
     result = R.post(
         "http://localhost:3000/machine-learning/pplr/train",
@@ -74,6 +78,18 @@ def test_client_pplr_predict():
     result = R.post(
         "http://localhost:3000/machine-learning/pplr/predict",
         headers=default_headers_pplr_predict
+           )
+    if result.status_code != 200:
+        print("Error:", result.status_code, result.text)
+    else:   
+        print(result.json())
+
+    assert result.status_code == 200
+
+def test_worker_pplr_predict():
+    result = R.post(
+        "http://localhost:9000/machine-learning/pplr/predict",
+        headers=default_headers_pplr_predict_worker
            )
     if result.status_code != 200:
         print("Error:", result.status_code, result.text)
