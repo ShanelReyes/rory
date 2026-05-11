@@ -978,8 +978,14 @@ async def pplr_predict():
             rotatekey_filename = rotatekey_filename
         )
 
-        #
-        
+        # ckks_params = CkksParams()
+        # definir storage_backend
+
+        # put encrypted_matrix_test en storage
+        # await storage_backend.put_from_file()
+        # Verificar con .iserr
+        # Colocar logger debug
+
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."

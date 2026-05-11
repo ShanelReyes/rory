@@ -58,7 +58,6 @@ async def logistic_regression():
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     if not all([plaintext_matrix_train_id, plaintext_matrix_train_label_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    out_predictions_id          = f"predictions_{experiment_id}_{iterations}"
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
     MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
     MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
@@ -75,7 +74,9 @@ async def logistic_regression():
 
     return Response(
         response=json.dumps({
-            "out_predictions_id": out_predictions_id
+                "message": "Logistic regression training completed successfully",
+                "algorithm": algorithm,
+                "experiment_id": experiment_id,
         }),
         status=200,
         headers  = {}
@@ -311,7 +312,7 @@ async def pplr_predict():
     
     return Response(
             response = json.dumps({
-                "encrypted_out_predictions_id": "predictions_id_placeholder"          
+                "message": "PPLR prediction completed successfully",
             }),
             status   = 200,
             headers  = {}
