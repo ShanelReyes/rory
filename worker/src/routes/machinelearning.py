@@ -309,6 +309,86 @@ async def pplr_train():
     
 @machinelearning.route("/pplr/predict", methods=["POST"])
 async def pplr_predict():
+    local_start_time            = time.time()
+    logger                      = current_app.config["logger"]
+    worker_id                   = current_app.config["NODE_ID"]
+    STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+    BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
+    request_headers             = request.headers
+    algorithm                   = Constants.MachineLearningAlgorithms.PPLR_PREDICT
+    experiment_id               = request_headers.get("Experiment-Id", "")
+    iterations                  = int(request_headers.get("Iterations", 1))
+    encrypted_matrix_test_id    = request_headers.get("Encrypted-Matrix-Test-Id")
+    encrypted_weights_train_id  = request_headers.get("Encrypted-Weights-Train-Id")
+    encrypted_bias_train_id     = request_headers.get("Encrypted-Bias-Train-Id")
+    scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
+    n_features                  = int(request_headers.get("N-Features", 0))
+    num_chunks                  = int(request_headers.get("Num-Chunks",-1))
+    
+    if not all([encrypted_matrix_test_id,encrypted_weights_train_id,encrypted_bias_train_id]):
+        return Response("Missing mandatory IDs or shape parameters", status=400)
+    
+    MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    MICTLANX_DELAY               = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR      = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES         = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
+    _round                       = bool(int(current_app.config.get("_round","0"))) #False
+    decimals                     = int(current_app.config.get("DECIMALS","4"))
+    keys_path                    = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename                 = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename              = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename           = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename            = current_app.config.get("RELINKEY_FILENAME","relinkey")
+    rotatekey_filename           = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+    
+    logger.debug({
+            "algorithm" : algorithm,
+            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "encrypted_weight_matrix_id": encrypted_weights_train_id,
+            "encrypted_bias_train_id": encrypted_bias_train_id,
+            "scale": scale,
+            "n_features": n_features,
+            "max_iterations": iterations,
+        })
+    
+    ckks = Ckks.from_pyfhel_server(
+        _round             = _round,
+        decimals           = decimals,
+        path               = keys_path,
+        ctx_filename       = ctx_filename,
+        pubkey_filename    = pubkey_filename,
+        relinkey_filename  = relinkey_filename,
+        rotatekey_filename = rotatekey_filename
+    )
+    
+    ckks_params = CkksParams(
+        keys_path          = keys_path,
+        ctx_filename       = ctx_filename,
+        pubkey_filename    = pubkey_filename,
+        secretkey_filename = secretkey_filename,
+        relinkey_filename  = relinkey_filename,
+        rotatekey_filename = rotatekey_filename,
+        decimals           = decimals,
+        _round             = _round
+    )
+
+    logger.debug({
+            "msg": "CKKS context and params created"
+        })
+
+
+    storage_backend = (
+        StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
+        .with_ckks(ckks)
+        .with_ckks_params(ckks_params=ckks_params)
+        .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+        .build()
+    )  
+
+    logger.debug({
+            "msg": "storage_backend created"
+        })  
+
     # Definir:
     # headers y parámetros necesarios para la predicción
     # ckks context

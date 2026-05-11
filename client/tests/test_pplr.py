@@ -59,7 +59,12 @@ default_headers_pplr_predict = {
 }
 
 default_headers_pplr_predict_worker = {
-    "x":"0"
+    "Experiment-Id": uuid4().hex[:10],
+    "Encrypted-Matrix-Test-Id": "encrypteddataset1_test",
+    "Encrypted-Weights-Train-Id": "dataset1_trainencryptedweights",
+    "Encrypted-Bias-Train-Id": "dataset1_trainencryptedbias",
+    "Scale": "40",
+    "N-Features": "2",
 }
 
 def test_client_pplr_train():
