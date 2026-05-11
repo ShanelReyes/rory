@@ -953,7 +953,7 @@ async def pplr_predict():
 
         _round             = bool(int(current_app.config.get("_round","0"))) #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
-        path               = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
+        keys_path               = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
         ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
         pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
@@ -967,10 +967,10 @@ async def pplr_predict():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         
-        ckks = Ckks.from_pyfhel(
+        ckks                   = Ckks.from_pyfhel_client(
             _round             = _round,
             decimals           = decimals,
-            path               = path,
+            path               = keys_path,
             ctx_filename       = ctx_filename,
             pubkey_filename    = pubkey_filename,
             secretkey_filename = secretkey_filename,
@@ -978,13 +978,45 @@ async def pplr_predict():
             rotatekey_filename = rotatekey_filename
         )
 
-        # ckks_params = CkksParams()
-        # definir storage_backend
+        ckks_params = CkksParams(
+            keys_path          = keys_path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            decimals           = decimals,
+            _round             = _round
+        )
 
-        # put encrypted_matrix_test en storage
-        # await storage_backend.put_from_file()
-        # Verificar con .iserr
-        # Colocar logger debug
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
+            .with_ckks(ckks)
+            .with_ckks_params(ckks_params=ckks_params)
+            .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+            .build()
+        )
+
+        plaintext_matrix_test_result = await storage_backend.put_from_file(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_matrix_test_id,
+            path      = plaintext_matrix_test_path,
+            extension = extension,
+            segment   = True,
+            encrypt   = True,
+            delete    = True
+        )
+        
+        if plaintext_matrix_test_result.is_err:
+            logger.error("Failed to process test dataset: {}".format(plaintext_matrix_test_result.unwrap_err()))
+            return Response(status=500, response="Failed to process test dataset")
+        plaintext_matrix_test_response = plaintext_matrix_test_result.unwrap()
+
+        logger.debug({
+            "msg": "Read, segment, encrypt and put in storage dataset test",
+            "encrypted_matrix_test_id": encrypted_matrix_test_id
+        })
+
 
         return Response(
             response = json.dumps({
