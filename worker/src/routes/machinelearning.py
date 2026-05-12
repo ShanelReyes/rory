@@ -451,11 +451,8 @@ async def pplr_predict():
     logger.debug({
             "msg": "Finish train",
             "type": str(type(encrypted_predictions)),
-            # "value":str(encrypted_predictions),
             "type": str(type(encrypted_weights)),
-            # "value":str(encrypted_weights),
             "type": str(type(encrypted_bias)),
-            # "value":str(encrypted_bias),
 
     })
     # time.sleep(100)

@@ -1048,29 +1048,47 @@ async def pplr_predict():
         
         worker_response.raise_for_status()
         jsonWorkerResponse    = worker_response.json()
-        encrypted_predictions = jsonWorkerResponse["encrypted_predictions_id"]
+        encrypted_predictions_id = jsonWorkerResponse["encrypted_predictions_id"]
 
         # logger.debug({
         # "msg": "We are the champions",
         # "encrypted_predictions_result":str(encrypted_predictions)
         # })
 
-        # Extraer predictions del storage
-        # storage_backend.get()
+        encrypted_predictions_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_predictions_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-        # Descifrar predictions 
-        # Revisar el contenido y decidir si se va a descifrar con decrypt_list (me parece que si)
-        # o con decryptVector
-        # Logger debug
+        if encrypted_predictions_result.is_err:
+            logger.error(f"Failed to get encrypted predictions: {encrypted_predictions_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted predictions") 
+        encrypted_predictions = encrypted_predictions_result.unwrap().raw_value
+        
+        logger.debug({
+            "msg": "encrypted predictions get from storage",
+            "encrypted_predictions_id": encrypted_predictions_id,
+            "type": str(type(encrypted_predictions)),
+        })
 
-        # Hacer comparacion (te muestro lo que pusimos en test)
-        # label_vector = [1 if v >= 0.5 else 0 for v in decrypted_predictions]
+        predictions_plain_list = ckks.decrypt_list(encrypted_predictions, take=1)
+        predictions_plain = np.array([p[0] for p in predictions_plain_list], dtype=np.float32)
 
-        # En el response regresar: 
-        # Algoritmo, worker id, y label_vector.
+        logger.debug({
+            "msg": "Decrypt predictions",
+        })
+
+        label_predictions = [1 if v >= 0.5 else 0 for v in predictions_plain]
+
+
         return Response(
             response = json.dumps({
-                # "encrypted_predictions": encrypted_predictions,
+                "label_predictions":label_predictions,
+                "worker_id":worker_id,
+                "algorithm":algorithm,
             }),
             status   = 200,
             headers  = {}
