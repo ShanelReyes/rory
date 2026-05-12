@@ -1047,22 +1047,34 @@ async def pplr_predict():
             return Response("Worker error: {}".format(worker_response.content),status=500)
         
         worker_response.raise_for_status()
-        jsonWorkerResponse         = worker_response.json()
-        encrypted_predictions                 =jsonWorkerResponse["encrypted_predictions_id"]
+        jsonWorkerResponse    = worker_response.json()
+        encrypted_predictions = jsonWorkerResponse["encrypted_predictions_id"]
 
-        logger.debug({
-        "msg": "We are the champions",
-        "encrypted_predictions_result":str(encrypted_predictions)
-        })
+        # logger.debug({
+        # "msg": "We are the champions",
+        # "encrypted_predictions_result":str(encrypted_predictions)
+        # })
 
+        # Extraer predictions del storage
+        # storage_backend.get()
+
+        # Descifrar predictions 
+        # Revisar el contenido y decidir si se va a descifrar con decrypt_list (me parece que si)
+        # o con decryptVector
+        # Logger debug
+
+        # Hacer comparacion (te muestro lo que pusimos en test)
+        # label_vector = [1 if v >= 0.5 else 0 for v in decrypted_predictions]
+
+        # En el response regresar: 
+        # Algoritmo, worker id, y label_vector.
         return Response(
             response = json.dumps({
-                "encrypted_predictions": encrypted_predictions,
+                # "encrypted_predictions": encrypted_predictions,
             }),
             status   = 200,
             headers  = {}
         )
-
 
     except Exception as e:
         logger.error({

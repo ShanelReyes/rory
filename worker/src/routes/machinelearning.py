@@ -396,7 +396,7 @@ async def pplr_predict():
         "msg": "encrypted matrix test get from storage",
         "encrypted_matrix_test_id": encrypted_matrix_test_id,
         "type": str(type(encrypted_matrix_test)),
-        "value":str(encrypted_matrix_test)
+        # "value":str(encrypted_matrix_test)
     })
 
     encrypted_weights_result = await storage_backend.get(
@@ -416,7 +416,7 @@ async def pplr_predict():
         "msg": "encrypted weights get from storage",
         "encrypted_matrix_test_id": encrypted_weights_id,
         "type": str(type(encrypted_weights)),
-        "value":str(encrypted_weights)
+        # "value":str(encrypted_weights)
     })
 
     encrypted_bias_result = await storage_backend.get(
@@ -451,14 +451,14 @@ async def pplr_predict():
     logger.debug({
             "msg": "Finish train",
             "type": str(type(encrypted_predictions)),
-            "value":str(encrypted_predictions),
+            # "value":str(encrypted_predictions),
             "type": str(type(encrypted_weights)),
-            "value":str(encrypted_weights),
+            # "value":str(encrypted_weights),
             "type": str(type(encrypted_bias)),
-            "value":str(encrypted_bias),
+            # "value":str(encrypted_bias),
 
     })
-
+    # time.sleep(100)
     sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
     encrypted_predictions_result = await sb_put.put(
         bucket_id = BUCKET_ID,
@@ -477,7 +477,7 @@ async def pplr_predict():
 
     logger.debug({
         "msg":"Predictions in storage",
-        "encrypted_predictions_result":str(encrypted_predictions_result)
+        # "encrypted_predictions_result":str(encrypted_predictions_result)
     })
 
 
