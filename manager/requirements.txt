@@ -3,4 +3,4 @@ gunicorn==21.2.0
 
 --extra-index-url https://test.pypi.org/simple/ 
 mictlanx==0.1.0a5
-rory==0.1.2
+rory==0.1.7
