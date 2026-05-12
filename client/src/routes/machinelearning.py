@@ -6,9 +6,6 @@ from requests import Session
 from flask import Blueprint,current_app,request,Response
 from rory.core.interfaces.rorymanager import RoryManager
 from rory.core.interfaces.roryworker import RoryWorker
-from rory.core.security.dataowner import DataOwner
-from rory.core.security.pqc.dataowner import DataOwner as DataOwnerPQC
-from rory.core.security.cryptosystem.liu import Liu
 from rory.core.utils.constants import Constants
 from rorycommon import Common as RoryCommon
 from rorycommon import StorageBuilder, StorageParams, Scheme, CkksParams
@@ -18,7 +15,6 @@ from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor
 from option import Some
 from utils.utils import Utils
-from models import ExperimentLogEntry
 from rory.core.security.cryptosystem.pqc.ckks import Ckks, CkksModes
 
 machinelearning = Blueprint("machinelearning",__name__,url_prefix = "/machine-learning")
@@ -103,167 +99,82 @@ async def logistic_regression_train():
             "learning_rate": learning_rate, 
             "max_iterations": MAX_ITERATIONS,
         })
-        plaintext_matrix_train_result = await RoryCommon.read_numpy_from(
-            path = plaintext_matrix_train_path, 
-            extension = extension
+
+        # definir storage_backend
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT)
+            .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+            .build()
         )
 
-        if plaintext_matrix_train_result.is_err:
-            return Response(status=500, response="Failed to read plaintext matrix train")
+        #Get plaintext_matrix_train
+        #Get plaintext_matrix_train_label
 
-        plaintext_matrix_train = plaintext_matrix_train_result.unwrap()
-        
-        logger.debug({
-            "msg": "Training dataset read successfully"
-        })
-
-        plaintext_matrix_train_chunks = Chunks.from_ndarray(
-            ndarray      = plaintext_matrix_train, 
-            group_id     = plaintext_matrix_train_id,
-            num_chunks   = num_chunks,
-            chunk_prefix = Some(plaintext_matrix_train_id)
-            )
-    
-        logger.debug({
-            "msg": "Training dataset split into chunks"
-        })
-
-        plaintext_train_put_chunk = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = plaintext_matrix_train_id,
-            chunks    = plaintext_matrix_train_chunks.unwrap(),
-            timeout   = MICTLANX_TIMEOUT,
-            max_tries = MICTLANX_MAX_RETRIES,
-            tags = {
-                "shape": str(plaintext_matrix_train.shape),
-                "dtype": str(plaintext_matrix_train.dtype)
-            }
-        )
-
-        logger.debug({
-            "msg": "Training dataset in cloud storage"
-        })
-
-
-        plaintext_matrix_train_label_result = await RoryCommon.read_numpy_from(
-            path = plaintext_matrix_train_label_path, 
-            extension = extension
-        )
-        if plaintext_matrix_train_label_result.is_err:
-            return Response(status=500, response="Failed to read training label dataset")
-
-        plaintext_matrix_train_label = plaintext_matrix_train_label_result.unwrap()
-        
-        logger.debug({
-            "msg": "Training label vector dataset read successfully"
-        })
-
-        plaintext_matrix_train_label_chunks = Chunks.from_ndarray(
-                ndarray      = plaintext_matrix_train_label, 
-                group_id     = plaintext_matrix_train_label_id,
-                num_chunks   = num_chunks,
-                chunk_prefix = Some(plaintext_matrix_train_label_id)
-                )
-        
-        logger.debug({
-            "msg": "Training label vector dataset split into chunks"
-        })
-
-        plaintext_train_label_put_chunk = await RoryCommon.delete_and_put_chunks(
-            client    = STORAGE_CLIENT,
-            bucket_id = BUCKET_ID,
-            key       = plaintext_matrix_train_label_id,
-            chunks    = plaintext_matrix_train_label_chunks.unwrap(),
-            timeout   = MICTLANX_TIMEOUT,
-            max_tries = MICTLANX_MAX_RETRIES,
-            tags = {
-                "shape": str(plaintext_matrix_train_label.shape),
-                "dtype": str(plaintext_matrix_train_label.dtype)
-            }
-        )
-
-        logger.debug({
-            "msg": "Training label vector dataset in cloud storage"
-        })
-
-
-        logger.debug({
-            "msg": "Begin the comunication"
-        })
         # Comunicarse con el manager y con el worker
-        get_worker_start_time       = time.time()
-        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
-            headers = {
-                "Algorithm"             : algorithm,
-                "Start-Request-Time"    : str(arrivalTime),
-                "Start-Get-Worker-Time" : str(get_worker_start_time) 
-            }
-        )
-        if get_worker_result.is_err:
-            error = get_worker_result.unwrap_err()
-            logger.error(str(error))
-            return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
-        logger.debug({
-            "msg": "Complete comunication",
-            "worker id": worker_id
-        })
+        # get_worker_start_time       = time.time()
+        # managerResponse:RoryManager = current_app.config.get("manager")
+        # get_worker_result           = managerResponse.getWorker(
+        #     headers = {
+        #         "Algorithm"             : algorithm,
+        #         "Start-Request-Time"    : str(arrivalTime),
+        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
+        #     }
+        # )
+        # if get_worker_result.is_err:
+        #     error = get_worker_result.unwrap_err()
+        #     logger.error(str(error))
+        #     return Response(str(error), status=500)
+        # (worker_id,port) = get_worker_result.unwrap()
+        # logger.debug({
+        #     "msg": "Complete comunication",
+        #     "worker id": worker_id
+        # })
 
-        worker = RoryWorker( #Allows to establish the connection with the worker
-            workerId  = worker_id,
-            port      = port,
-            session   = s,
-            algorithm = algorithm,
-        )
+        # worker = RoryWorker( #Allows to establish the connection with the worker
+        #     workerId  = worker_id,
+        #     port      = port,
+        #     session   = s,
+        #     algorithm = algorithm,
+        # )
         
-        status = Constants.ClusteringStatus.START #Set the status to start
-        iteration = 0
+        # status = Constants.ClusteringStatus.START #Set the status to start
 
-        worker_headers = {
-            "Clustering-Status"         : str(status),
-            "Experiment-Id"             : experiment_id,
-            "Iterations"                : str(iteration),
-            "Plaintext-Matrix-Train-Id" : plaintext_matrix_train_id,
-            "Plaintext-Matrix-Train-Label-Id" : plaintext_matrix_train_label_id,
-            "Epochs"                 : str(epochs),
-            "Learning-Rate"          : str(learning_rate),
-        }
+        # worker_headers = {
+        #     "Clustering-Status"         : str(status),
+        #     "Experiment-Id"             : experiment_id,
+        #     "Plaintext-Matrix-Train-Id" : plaintext_matrix_train_id,
+        #     "Plaintext-Matrix-Train-Label-Id" : plaintext_matrix_train_label_id,
+        #     "Epochs"                 : str(epochs),
+        #     "Learning-Rate"          : str(learning_rate),
+        # }
 
-        logger.debug({
-            "msg": "Connection with the worker"
-        })
-        # enviarle headers al worker 
-        worker_response = worker.run(
-                timeout = WORKER_TIMEOUT, 
-                headers = worker_headers
-            ) #Run 1 starts
-        worker_status = worker_response.status_code
+        # logger.debug({
+        #     "msg": "Connection with the worker"
+        # })
+        # # enviarle headers al worker 
+        # worker_response = worker.run(
+        #         timeout = WORKER_TIMEOUT, 
+        #         headers = worker_headers
+        #     ) #Run 1 starts
+        # worker_status = worker_response.status_code
 
-        logger.debug({
-            "worker_status": str(worker_response),
-            "worker_id": worker_id,
-            "worker_port" : port,
-        })
+        # logger.debug({
+        #     "worker_status": str(worker_response),
+        #     "worker_id": worker_id,
+        #     "worker_port" : port,
+        # })
 
-        if worker_status !=200:
-            return Response("Worker error: {}".format(worker_response.content),status=500)
+        # if worker_status !=200:
+        #     return Response("Worker error: {}".format(worker_response.content),status=500)
 
-        logger.debug({
-            "msg": "Worker response"
-        })
-        worker_response.raise_for_status()
+        # logger.debug({
+        #     "msg": "Worker response"
+        # })
+        # worker_response.raise_for_status()
 
-        jsonWorkerResponse        = worker_response.json()
-        run1_out_weights_id   = jsonWorkerResponse["out_weights_id"]
-        run1_out_bias_id   = jsonWorkerResponse["out_bias_id"]
+        # jsonWorkerResponse        = worker_response.json()
 
-        logger.debug({
-            "run1_out_weights_id": run1_out_weights_id, 
-            "run1_out_bias_id": run1_out_bias_id,
-        })
-
+        
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."                
