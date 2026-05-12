@@ -378,6 +378,20 @@ async def pplr_predict():
         .build()
     )  
 
+    # Get encrypted_matrix_test_id
+    # await storage_backend.get()
+
+    # Get encrypted_weight
+    # await storage_backend.get()
+
+    # Get encrypted_bias
+    # await storage_backend.get()
+
+    # PPLR.predict()
+
+    # put encrypted_prediction
+    # storage_backend.put()
+
     logger.debug({
             "msg": "storage_backend created"
         })  
