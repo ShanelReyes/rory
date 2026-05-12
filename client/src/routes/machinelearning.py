@@ -182,12 +182,14 @@ async def logistic_regression_train():
        
 
         worker_headers = {
-            "Clustering-Status"         : str(status),
-            "Experiment-Id"             : experiment_id,
-            "Plaintext-Matrix-Train-Id" : plaintext_matrix_train_id,
-            "Plaintext-Label-Vector-Train-Id" : plaintext_label_vector_train_id,
-            "Epochs"                 : str(epochs),
-            "Learning-Rate"          : str(learning_rate),
+            "Clustering-Status"              : str(status),
+            "Experiment-Id"                  : experiment_id,
+            "Plaintext-Matrix-Train-Id"      : plaintext_matrix_train_id,
+            "Plaintext-Label-Vector-Train-Id": plaintext_label_vector_train_id,
+            "Epochs"                         : str(epochs),
+            "Learning-Rate"                  : str(learning_rate),
+            # Enviar weights id
+            # Enviar bias id
         }
 
         logger.debug({

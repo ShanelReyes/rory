@@ -48,6 +48,9 @@ async def logistic_regression():
     plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
     plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
     epochs                      = int(headers.get("Epochs", 1))
+    # Recibir weights id
+    # Recibir bias id
+
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     if not all([plaintext_matrix_train_id, plaintext_matrix_train_label_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
@@ -64,6 +67,13 @@ async def logistic_regression():
         "epoch": epochs, 
         "learning_rate": learning_rate, 
     })
+
+    # Definir storage backend
+    # Get dataset train
+    # Get label vector
+    # utilizar LogisticRegressionBaseline.train_manual()
+    # Put pesos y bias en el storage
+
 
 
     return Response(
