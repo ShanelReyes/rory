@@ -322,6 +322,7 @@ async def pplr_predict():
     scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(request_headers.get("N-Features", 0))
     num_chunks                  = int(request_headers.get("Num-Chunks",-1))
+    encrypted_predictions_id           = "{}encryptedpredictions".format(encrypted_matrix_test_id)
     
     if not all([encrypted_matrix_test_id,encrypted_weights_id,encrypted_bias_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
@@ -376,29 +377,113 @@ async def pplr_predict():
         .with_ckks_params(ckks_params=ckks_params)
         .with_storage_params(StorageParams(num_chunks=2, timeout=300))
         .build()
-    )  
+    )
 
-    # Get encrypted_matrix_test_id
-    # await storage_backend.get()
+    encrypted_matrix_test_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = encrypted_matrix_test_id,
+        segment   = True,
+        encrypt   = True,
+        scheme    = Scheme.CKKS
+    )
 
-    # Get encrypted_weight
-    # await storage_backend.get()
+    if encrypted_matrix_test_result.is_err:
+        logger.error(f"Failed to get encrypted matrix test: {encrypted_matrix_test_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get encrypted matrix test") 
+    encrypted_matrix_test = encrypted_matrix_test_result.unwrap().raw_value
+    
+    logger.debug({
+        "msg": "encrypted matrix test get from storage",
+        "encrypted_matrix_test_id": encrypted_matrix_test_id,
+        "type": str(type(encrypted_matrix_test)),
+        "value":str(encrypted_matrix_test)
+    })
 
-    # Get encrypted_bias
-    # await storage_backend.get()
+    encrypted_weights_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = encrypted_weights_id,
+        segment   = True,
+        encrypt   = True,
+        scheme    = Scheme.CKKS
+    )
 
-    # PPLR.predict()
+    if encrypted_weights_result.is_err:
+        logger.error(f"Failed to get encrypted weights: {encrypted_weights_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get encrypted weights") 
+    encrypted_weights = encrypted_weights_result.unwrap().raw_value
+    
+    logger.debug({
+        "msg": "encrypted weights get from storage",
+        "encrypted_matrix_test_id": encrypted_weights_id,
+        "type": str(type(encrypted_weights)),
+        "value":str(encrypted_weights)
+    })
 
-    # put encrypted_prediction
-    # storage_backend.put()
+    encrypted_bias_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = encrypted_bias_id,
+        segment   = True,
+        encrypt   = True,
+        scheme    = Scheme.CKKS
+    )
+
+    if encrypted_bias_result.is_err:
+        logger.error(f"Failed to get encrypted bias: {encrypted_bias_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get encrypted bias") 
+    encrypted_bias = encrypted_bias_result.unwrap().raw_value
+    
+    logger.debug({
+        "msg": "encrypted bias get from storage",
+        "encrypted_matrix_test_id": encrypted_bias_id,
+        "type": str(type(encrypted_bias)),
+        "value":str(encrypted_bias)
+    })
+
+    encrypted_predictions = PPLR.predict(
+        HE                = ckks.he_object,
+        encrypted_X_test  = encrypted_matrix_test, 
+        encrypted_weights = encrypted_weights[0], 
+        encrypted_bias    = encrypted_bias[0],
+        scale             = scale,
+        n_features        = n_features
+    )
 
     logger.debug({
-            "msg": "storage_backend created"
-        })  
+            "msg": "Finish train",
+            "type": str(type(encrypted_predictions)),
+            "value":str(encrypted_predictions),
+            "type": str(type(encrypted_weights)),
+            "value":str(encrypted_weights),
+            "type": str(type(encrypted_bias)),
+            "value":str(encrypted_bias),
+
+    })
+
+    sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
+    encrypted_predictions_result = await sb_put.put(
+        bucket_id = BUCKET_ID,
+        data      = encrypted_predictions,
+        ball_id   = encrypted_predictions_id,
+        delete    = True,
+        segment   = True,
+        encrypt   = False,
+        scheme    = Scheme.CKKS,
+    )
+
+    if encrypted_predictions_result.is_err:
+        logger.error("Failed to put encrypted predictions in cloud storage: {}".format(encrypted_predictions_result.unwrap_err()))
+        return Response(status=500, response="Failed to put encrypted weights in cloud storage")
+    encrypted_predictions_response = encrypted_predictions_result.unwrap()  
+
+    logger.debug({
+        "msg":"Predictions in storage",
+        "encrypted_predictions_result":str(encrypted_predictions_result)
+    })
+
 
     return Response(
             response = json.dumps({
-                "message": "PPLR prediction completed successfully",
+                "encrypted_predictions_id": encrypted_predictions_id,
             }),
             status   = 200,
             headers  = {}

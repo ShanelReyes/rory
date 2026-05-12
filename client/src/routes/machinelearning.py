@@ -1048,12 +1048,16 @@ async def pplr_predict():
         
         worker_response.raise_for_status()
         jsonWorkerResponse         = worker_response.json()
+        encrypted_predictions                 =jsonWorkerResponse["encrypted_predictions_id"]
 
-
+        logger.debug({
+        "msg": "We are the champions",
+        "encrypted_predictions_result":str(encrypted_predictions)
+        })
 
         return Response(
             response = json.dumps({
-                "x": "This endpoint is under development. Please check back later."
+                "encrypted_predictions": encrypted_predictions,
             }),
             status   = 200,
             headers  = {}
