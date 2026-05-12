@@ -30,18 +30,12 @@ default_headers_pplr_train = {
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
     "Plaintext-Label-Vector-Train-Id": "label_vector_train1",
-    # "Plaintext-Matrix-Test-Id": "dataset1_test",
-    # "Plaintext-Matrix-Test-Label-Id": "label_vector_test",
     "Plaintext-Matrix-Train-Filename": "dataset1_train",
-    # "Plaintext-Matrix-Test-Filename": "dataset1_test",
     "Plaintext-Label-Vector-Train-Filename": "label_vector_train",
-    # "Plaintext-Matrix-Test-Label-Filename": "label_vector_test",
     "Extension": "npy",
     "Epochs": "1",
     "Learning-Rate": "0.01",
     "Accuracy-Threshold": "0.80",
-    # "Plaintext-Weight-Id": "weight-matrix",
-    # "Plaintext-Bias-Id": "bias-vector",
 }
 
 default_headers_pplr_predict = {
@@ -61,10 +55,8 @@ default_headers_pplr_predict = {
 default_headers_pplr_predict_worker = {
     "Experiment-Id": uuid4().hex[:10],
     "Encrypted-Matrix-Test-Id": "encrypteddataset1_test",
-    "Encrypted-Weights-Train-Id": "dataset1_trainencryptedweights",
-    "Encrypted-Bias-Train-Id": "dataset1_trainencryptedbias",
-    "Scale": "40",
-    "N-Features": "2",
+    "Encrypted-Weights-Id": "dataset1_encryptedweights",
+    "Encrypted-Bias-Id": "dataset1_encryptedbias",
 }
 
 def test_client_pplr_train():

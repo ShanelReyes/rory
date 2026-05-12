@@ -95,32 +95,30 @@ async def pplr_train():
     experiment_id               = request_headers.get("Experiment-Id", "")
     epochs                      = int(request_headers.get("Epochs", 1))
     learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
-    accuracy_threshold          = float(request_headers.get("Accuracy-Threshold", "0.80"))
-    iterations                  = int(request_headers.get("Iterations", 1))
-    encrypted_matrix_train_id   = request_headers.get("Encrypted-Matrix-Train-Id")
+    encrypted_matrix_train_id       = request_headers.get("Encrypted-Matrix-Train-Id")
     encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
-    encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
-    encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
-    scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
-    n_features                  = int(request_headers.get("N-Features", 0))
-    n_samples                   = int(request_headers.get("N-Samples", 0))
-    num_chunks                  = int(request_headers.get("Num-Chunks",-1))
+    encrypted_weights_id            = request_headers.get("Encrypted-Weights-Id")
+    encrypted_bias_id               = request_headers.get("Encrypted-Bias-Id")
+    scale                           = int(request_headers.get("Scale", 40))                   # Escala para Pyfhel
+    n_features                      = int(request_headers.get("N-Features", 0))
+    n_samples                       = int(request_headers.get("N-Samples", 0))
+    num_chunks                      = int(request_headers.get("Num-Chunks",-1))
     
     if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     
-    MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY               = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR      = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES         = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-    _round                       = bool(int(current_app.config.get("_round","0"))) #False
-    decimals                     = int(current_app.config.get("DECIMALS","4"))
-    keys_path                    = current_app.config.get("KEYS_PATH","/rory/keys")
-    ctx_filename                 = current_app.config.get("CTX_FILENAME","ctx")
-    pubkey_filename              = current_app.config.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename           = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename            = current_app.config.get("RELINKEY_FILENAME","relinkey")
-    rotatekey_filename           = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+    MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
+    _round                  = bool(int(current_app.config.get("_round","0")))                 #False
+    decimals                = int(current_app.config.get("DECIMALS","4"))
+    keys_path               = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename         = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
+    rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
     
     
     ckks = Ckks.from_pyfhel_server(
@@ -319,13 +317,13 @@ async def pplr_predict():
     experiment_id               = request_headers.get("Experiment-Id", "")
     iterations                  = int(request_headers.get("Iterations", 1))
     encrypted_matrix_test_id    = request_headers.get("Encrypted-Matrix-Test-Id")
-    encrypted_weights_train_id  = request_headers.get("Encrypted-Weights-Train-Id")
-    encrypted_bias_train_id     = request_headers.get("Encrypted-Bias-Train-Id")
+    encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
+    encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
     scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(request_headers.get("N-Features", 0))
     num_chunks                  = int(request_headers.get("Num-Chunks",-1))
     
-    if not all([encrypted_matrix_test_id,encrypted_weights_train_id,encrypted_bias_train_id]):
+    if not all([encrypted_matrix_test_id,encrypted_weights_id,encrypted_bias_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     
     MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
@@ -344,8 +342,8 @@ async def pplr_predict():
     logger.debug({
             "algorithm" : algorithm,
             "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "encrypted_weight_matrix_id": encrypted_weights_train_id,
-            "encrypted_bias_train_id": encrypted_bias_train_id,
+            "encrypted_weight_matrix_id": encrypted_weights_id,
+            "encrypted_bias_train_id": encrypted_bias_id,
             "scale": scale,
             "n_features": n_features,
             "max_iterations": iterations,
@@ -372,11 +370,6 @@ async def pplr_predict():
         _round             = _round
     )
 
-    logger.debug({
-            "msg": "CKKS context and params created"
-        })
-
-
     storage_backend = (
         StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
         .with_ckks(ckks)
@@ -389,13 +382,6 @@ async def pplr_predict():
             "msg": "storage_backend created"
         })  
 
-    # Definir:
-    # headers y parámetros necesarios para la predicción
-    # ckks context
-    # ckks_params = CkksParams()
-    # storage_backend
-
-    # colocar logger debug con todos los parámetros recibidos
     return Response(
             response = json.dumps({
                 "message": "PPLR prediction completed successfully",

@@ -561,7 +561,7 @@ async def pplr_train():
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                       = Constants.MachineLearningAlgorithms.PPLR_TRAIN
-        MODE                            = CkksModes.ML
+        MODE                            = CkksModes.LITE_ML
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
@@ -576,13 +576,12 @@ async def pplr_train():
         plaintext_matrix_train_path       = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)
         plaintext_label_vector_train_path = "{}/{}.{}".format(SOURCE_PATH, plaintext_label_vector_train_filename, extension)
         
-        epochs             = int(request_headers.get("Epochs", "1"))
-        learning_rate      = float(request_headers.get("Learning-Rate", "0.01"))
-        accuracy_threshold = float(request_headers.get("Accuracy-Threshold", "0.80"))
-        encrypted_weights_id = "{}encryptedweights".format(plaintext_matrix_train_id) 
+        epochs               = int(request_headers.get("Epochs", "1"))
+        learning_rate        = float(request_headers.get("Learning-Rate", "0.01"))
+        encrypted_weights_id = "{}encryptedweights".format(plaintext_matrix_train_id)
         encrypted_bias_id    = "{}encryptedbias".format(plaintext_matrix_train_id)
 
-        _round             = bool(int(current_app.config.get("_round","0")))            #False
+        _round             = bool(int(current_app.config.get("_round","0"))) 
         decimals           = int(current_app.config.get("DECIMALS","4"))
         keys_path          = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
         ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
@@ -591,12 +590,7 @@ async def pplr_train():
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
-        MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
-        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         max_workers             = Utils.get_workers(num_chunks=num_chunks)
         ckks                   = Ckks.from_pyfhel_client(
             _round             = _round,
@@ -750,8 +744,6 @@ async def pplr_train():
             "Experiment-Id"       : experiment_id,
             "Epochs"              : str(epochs),
             "Learning-Rate"       : str(learning_rate),
-            "Accuracy-Threshold"  : str(accuracy_threshold),
-            "Iterations"          : str(iteration),
             "Encrypted-Matrix-Train-Id": encrypted_matrix_train_id,
             "Encrypted-Label-Vector-Train-Id": encrypted_label_vector_train_id,
             "Encrypted-Weights-Id": encrypted_weights_id,
@@ -777,16 +769,9 @@ async def pplr_train():
         
         worker_response.raise_for_status()
         jsonWorkerResponse         = worker_response.json()
-        # encrypted_weights_id_train = jsonWorkerResponse["encrypted_weights_id"]
-        # encrypted_bias_id_train    = jsonWorkerResponse["encrypted_bias_id"]
 
         del encrypted_weight_response
         del encrypted_bias_response
-        
-        # logger.debug({
-        #     "encrypted_weights_id": encrypted_weights_id_train,
-        #     "encrypted_bias_id"   : encrypted_bias_id_train,
-        # })
         
         encrypted_weights_result = await storage_backend.get(
             bucket_id = BUCKET_ID,
@@ -933,39 +918,31 @@ async def pplr_predict():
         
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        algorithm                       = Constants.MachineLearningAlgorithms.PPLR_PREDICT
-        MODE                            = CkksModes.ML
-        s                               = Session()
-        request_headers                 = request.headers #Headers for the request
-        experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        experiment_iteration            = request_headers.get("Experiment-Iteration","0")
+        algorithm            = Constants.MachineLearningAlgorithms.PPLR_PREDICT
+        MODE                 = CkksModes.LITE_ML
+        s                    = Session()
+        request_headers      = request.headers                                        #Headers for the request
+        experiment_id        = request_headers.get("Experiment-Id",uuid4().hex[:10])
+        experiment_iteration = request_headers.get("Experiment-Iteration","0")
 
-        plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","test_x")
-        encrypted_matrix_test_id        = "encrypted{}".format(plaintext_matrix_test_id)
-        plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","test_x")
-        extension                       = request_headers.get("Extension","csv")
-        plaintext_matrix_test_path        = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension)
-        plaintext_weight_matrix_id      = request_headers.get("Plaintext-Weight-Matrix-Id","weight")
-        encrypted_weight_matrix_id      = "encrypted{}".format(plaintext_weight_matrix_id)
-        plaintext_bias_vector_id        = request_headers.get("Plaintext-Bias-Vector-Id","bias")
-        encrypted_bias_vector_id        = "encrypted{}".format(plaintext_bias_vector_id)
-        accuracy_threshold              = float(request_headers.get("Accuracy-Threshold", "0.80"))
+        plaintext_matrix_test_id       = request_headers.get("Plaintext-Matrix-Test-Id","test_x")
+        encrypted_matrix_test_id       = "encrypted{}".format(plaintext_matrix_test_id)
+        plaintext_matrix_test_filename = request_headers.get("Plaintext-Matrix-Test-Filename","test_x")
+        extension                      = request_headers.get("Extension","csv")
+        plaintext_matrix_train_id      = request_headers.get("Plaintext-Matrix-Train-Id","train_x")
+        plaintext_matrix_test_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension)
+        accuracy_threshold             = float(request_headers.get("Accuracy-Threshold", "0.80"))
+        encrypted_weights_id           = "{}encryptedweights".format(plaintext_matrix_train_id)
+        encrypted_bias_id              = "{}encryptedbias".format(plaintext_matrix_train_id)
 
-        _round             = bool(int(current_app.config.get("_round","0"))) #False
+        _round             = bool(int(current_app.config.get("_round","0")))            #False
         decimals           = int(current_app.config.get("DECIMALS","4"))
-        keys_path               = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
+        keys_path          = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
         ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
         pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-
-        MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
-        WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
-        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
         
         ckks                   = Ckks.from_pyfhel_client(
             _round             = _round,
@@ -1016,6 +993,45 @@ async def pplr_predict():
             "msg": "Read, segment, encrypt and put in storage dataset test",
             "encrypted_matrix_test_id": encrypted_matrix_test_id
         })
+
+        # descomentar esta parte para comunicarse con manager y worker
+        # get_worker_start_time       = time.time()
+        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+        #     headers = {
+        #         "Algorithm"            : algorithm,
+        #         "Start-Request-Time"   : str(arrivalTime),
+        #         "Start-Get-Worker-Time": str(get_worker_start_time)
+        #     }
+        # )
+        # if get_worker_result.is_err:
+        #     error = get_worker_result.unwrap_err()
+        #     logger.error(str(error))
+        #     return Response(str(error), status=500)
+        # (worker_id,port) = get_worker_result.unwrap()
+        
+        # worker = RoryWorker( #Allows to establish the connection with the worker
+        #     workerId  = worker_id,
+        #     port      = port,
+        #     session   = s,
+        #     algorithm = algorithm,
+        # )
+
+        #LLenar headers con las variables que estan del lado del worker
+        # worker_headers = {}
+
+        # Enviarle headers al worker (descomentar esta parte)
+        # worker_response = worker.run(
+        #         timeout = WORKER_TIMEOUT, 
+        #         headers = worker_headers
+        #     ) #Run 1 starts
+        # worker_status = worker_response.status_code
+
+        # if worker_status !=200:
+        #     return Response("Worker error: {}".format(worker_response.content),status=500)
+        
+        # worker_response.raise_for_status()
+        # jsonWorkerResponse         = worker_response.json()
 
 
         return Response(
