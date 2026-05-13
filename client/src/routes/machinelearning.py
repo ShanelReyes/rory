@@ -62,7 +62,6 @@ async def logistic_regression_train():
         num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
-        
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                       = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_TRAIN
@@ -102,7 +101,6 @@ async def logistic_regression_train():
             "Bias_Id": bias_id
         })
 
-        # definir storage_backend
         storage_backend = (
             StorageBuilder(storage_client = STORAGE_CLIENT)
             .with_storage_params(StorageParams(num_chunks=2, timeout=300))
@@ -126,7 +124,6 @@ async def logistic_regression_train():
         logger.debug({
             "msg": "Read, segment and put in storage dataset train"
         })
-        #_________________
         
         plaintext_label_vector_train = await storage_backend.put_from_file(
             bucket_id = BUCKET_ID,
@@ -146,7 +143,6 @@ async def logistic_regression_train():
             "msg": "Read, segment and put in storage label vector train"
         })
 
-        # Comunicarse con el manager y con el worker
         get_worker_start_time       = time.time()
         managerResponse:RoryManager = current_app.config.get("manager")
         get_worker_result           = managerResponse.getWorker(
@@ -162,7 +158,7 @@ async def logistic_regression_train():
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
 
-        worker = RoryWorker( #Allows to establish the connection with the worker
+        worker = RoryWorker(
             workerId  = worker_id,
             port      = port,
             session   = s,
@@ -174,10 +170,7 @@ async def logistic_regression_train():
             "worker id": worker_id
         })
 
-        status = Constants.ClusteringStatus.START #Set the status to start
-        iteration = 0
-
-       
+        status = Constants.ClusteringStatus.START
 
         worker_headers = {
             "Clustering-Status"              : str(status),
@@ -197,14 +190,14 @@ async def logistic_regression_train():
         worker_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
                 headers = worker_headers
-            ) #Run 1 starts
+            ) 
         worker_status = worker_response.status_code
 
         if worker_status !=200:
             return Response("Worker error: {}".format(worker_response.content),status=500)
         
         worker_response.raise_for_status()
-        jsonWorkerResponse         = worker_response.json()
+        jsonWorkerResponse = worker_response.json()
 
         logger.debug({
             "worker_status": str(worker_response),
@@ -228,6 +221,7 @@ async def logistic_regression_train():
             response = None, 
             status = 500, 
             headers={"Error-Message":str(e)})
+
 
 @machinelearning.route("/logistic-regression/predict",methods = ["POST"])
 async def logistic_regression_predict():
@@ -266,10 +260,8 @@ async def logistic_regression_predict():
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
         # Iniciar storage backend
-
         # Colocar dataset test en storage
         
-
 
         # Comunicarse con el manager y con el worker
         # get_worker_start_time       = time.time()
@@ -315,8 +307,6 @@ async def logistic_regression_predict():
 
         # worker_response.raise_for_status()
         # jsonWorkerResponse        = worker_response.json()
-
-      
 
         return Response(
             response = json.dumps({

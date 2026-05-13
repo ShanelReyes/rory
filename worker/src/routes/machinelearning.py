@@ -60,12 +60,12 @@ async def logistic_regression_train():
     MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
     
     logger.debug({
-        "algorithm" : algorithm,
-        "experiment_id" : experiment_id,
-        "plaintext_matrix_train_id": plaintext_matrix_train_id,
+        "algorithm"                      : algorithm,
+        "experiment_id"                  : experiment_id,
+        "plaintext_matrix_train_id"      : plaintext_matrix_train_id,
         "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
-        "epoch": epochs, 
-        "learning_rate": learning_rate, 
+        "epoch"                          : epochs,
+        "learning_rate"                  : learning_rate,
     })
 
     storage_backend = (
@@ -74,14 +74,13 @@ async def logistic_regression_train():
         .build()
     )
 
-
     plaintext_matrix_train_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
         ball_id   = plaintext_matrix_train_id,
         segment   = True,
         encrypt   = False
     )
-    if  plaintext_matrix_train_result.is_err:
+    if plaintext_matrix_train_result.is_err:
         logger.error(f"Failed to get matrix train: {plaintext_matrix_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get matrix train")
     plaintext_matrix_train = plaintext_matrix_train_result.unwrap().raw_value
@@ -104,8 +103,6 @@ async def logistic_regression_train():
         logger.error(f"Failed to get label vector train: {plaintext_label_vector_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get label vector train") 
     plaintext_label_vector_train = plaintext_label_vector_train_result.unwrap().raw_value
-    # print("Label vector train retrieved successfully",plaintext_label_vector_train)
-
     
     logger.debug({
         "msg": "Label vector train get from storage",
@@ -115,10 +112,10 @@ async def logistic_regression_train():
     })
 
     weights, bias, time_train = LogisticRegressionBaseline.train_manual(
-        epochs            = epochs,
-        learning_rate     = learning_rate,
-        X_train 	  = plaintext_matrix_train,
-        y_train		  = plaintext_label_vector_train[0]
+        epochs        = epochs,
+        learning_rate = learning_rate,
+        X_train       = plaintext_matrix_train,
+        y_train       = plaintext_label_vector_train[0]
     )
 
     logger.debug({
@@ -130,8 +127,8 @@ async def logistic_regression_train():
 
     })
 
-    sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
-    weight_result = await sb_put.put(
+    # sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
+    weight_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = weights,
         ball_id   = weights_id,
@@ -148,7 +145,7 @@ async def logistic_regression_train():
         return Response(status=500, response="Failed to put weights in cloud storage")
     weight_response = weight_result.unwrap()
 
-    bias_result = await sb_put.put(
+    bias_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = bias,
         ball_id   = bias_id,
@@ -164,13 +161,28 @@ async def logistic_regression_train():
 
     return Response(
             response = json.dumps({
-                "weights_id":weights_id,
-                "bias_id":bias_id,       
+                "msg":"Training results in storage",
+                # "weights_id":weights_id,
+                # "bias_id":bias_id,       
             }),
             status   = 200,
             headers  = {}
             )
 
+@machinelearning.route("/logistic-regression/predict", methods=["POST"])
+async def logistic_regression_predict():
+    # colocar headers y parámetros necesarios para la predicción
+
+    # Definir storage backend
+
+    # Logger debbug con los headers
+    return Response(
+            response = json.dumps({
+                "msg":"Predictions in storage",      
+            }),
+            status   = 200,
+            headers  = {}
+            )
 
 
 @machinelearning.route("/pplr/train", methods=["POST"])
@@ -388,8 +400,9 @@ async def pplr_train():
 
     return Response(
             response = json.dumps({
-                "encrypted_weights_id":encrypted_weights_id,
-                "encrypted_bias_id":encrypted_bias_id,       
+                "msg":"Predictions in storage",
+                # "encrypted_weights_id":encrypted_weights_id,
+                # "encrypted_bias_id":encrypted_bias_id,       
             }),
             status   = 200,
             headers  = {}
