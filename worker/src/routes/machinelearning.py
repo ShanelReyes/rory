@@ -183,6 +183,7 @@ async def logistic_regression_predict():
     plaintext_matrix_test_id   = headers.get("Plaintext-Matrix-Test-Id","test_x")
     weights_id                  = headers.get("Weights-Id")
     bias_id                  = headers.get("Bias-Id")
+    predictions_id = "{}predictions".format(plaintext_matrix_test_id)
     if not all([plaintext_matrix_test_id, weights_id, bias_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
@@ -204,17 +205,90 @@ async def logistic_regression_predict():
         .build()
     )
 
-    # Get plaintext matrix test
-    # Get weights
-    # Get bias
+    plaintext_matrix_test_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = plaintext_matrix_test_id,
+        segment   = True,
+        encrypt   = False
+    )
+    if plaintext_matrix_test_result.is_err:
+        logger.error(f"Failed to get matrix test: {plaintext_matrix_test_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get matrix test")
+    plaintext_matrix_test = plaintext_matrix_test_result.unwrap().raw_value
 
-    # Prediction
+    logger.debug({
+        "msg": "matrix test get from storage",
+        "plaintext_matrix_train_id": plaintext_matrix_test_id,
+        "type": str(type(plaintext_matrix_test)),
+        "value":str(plaintext_matrix_test)
+    })
 
-    # Regresar predicciones en response (Label vector) 
+    weights_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = weights_id,
+        segment   = True,
+        encrypt   = False
+    )
+    if weights_result.is_err:
+        logger.error(f"Failed to get weights: {weights_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get weights")
+    weights = weights_result.unwrap().raw_value
+
+    logger.debug({
+        "msg": "weights get from storage",
+        "weights_id": weights_id,
+        "type": str(type(weights)),
+        "value":str(weights)
+    })
+
+    bias_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = bias_id,
+        segment   = False,
+        encrypt   = False
+    )
+    if bias_result.is_err:
+        logger.error(f"Failed to get bias: {bias_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get bias")
+    bias = bias_result.unwrap().raw_value
+
+    logger.debug({
+        "msg": "bias get from storage",
+        "bias_id": bias_id,
+        "type": str(type(bias)),
+        "value":str(bias)
+    })
+
+    predictions, time_inference = LogisticRegressionBaseline.predict_manual(
+            X_test = plaintext_matrix_test, 
+            weights = weights, 
+            bias = bias
+        )
+
+    predictions = await storage_backend.put(
+        bucket_id = BUCKET_ID,
+        data      = predictions,
+        ball_id   = predictions_id,
+        segment   = True,
+        encrypt   = False,
+        delete    = True
+    )
+    logger.debug({
+         "msg":str(predictions)
+    })
+
+    if predictions.is_err:
+        logger.error("Failed to put predictions in cloud storage: {}".format(predictions.unwrap_err()))
+        return Response(status=500, response="Failed to put predictions in cloud storage")
+    predictions_response = predictions.unwrap()
+
+    logger.debug({
+        "msg":"Predictions in storage",
+    })
 
     return Response(
             response = json.dumps({
-                "msg":"Predictions in storage",      
+                "predictions_id": predictions_id,      
             }),
             status   = 200,
             headers  = {}

@@ -335,14 +335,31 @@ async def logistic_regression_predict():
         
         worker_response.raise_for_status()
         jsonWorkerResponse = worker_response.json()
+        predictions_id = jsonWorkerResponse["predictions_id"]
 
-        # Extraer label vector de la respuesta del worker
-      
+        predictions_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = predictions_id,
+            segment   = True,
+            encrypt   = False,
+        )
+        if predictions_result.is_err:
+            logger.error(f"Failed to get predictions: {predictions_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get predictions") 
+        predictions = predictions_result.unwrap().raw_value
+        label_predictions = predictions.tolist()
+        
+        logger.debug({
+            "msg": "Predictions get from storage",
+            "predictions_id": predictions_id,
+            "type": str(type(predictions)),
+        })
 
-        # Colocar label vector en el response
         return Response(
             response = json.dumps({
-                "x": "This endpoint is under development. Please check back later."                
+                "label_predictions":label_predictions,
+                "worker_id":worker_id,
+                "algorithm":algorithm,                
             }),
             status   = 200,
             headers  = {}
