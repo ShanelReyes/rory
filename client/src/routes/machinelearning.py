@@ -338,7 +338,7 @@ async def pplr_train():
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
-        algorithm                       = Constants.MachineLearningAlgorithms.PPLR_TRAIN
+        algorithm                             = Constants.MachineLearningAlgorithms.PPLR_TRAIN
         MODE                                  = CkksModes.ML
         s                                     = Session()
         request_headers                       = request.headers                                                                   #Headers for the request
@@ -352,12 +352,11 @@ async def pplr_train():
         extension                             = request_headers.get("Extension","csv")
         plaintext_matrix_train_path           = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)
         plaintext_label_vector_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_label_vector_train_filename, extension)
-        
-        epochs               = int(request_headers.get("Epochs", "1"))
-        learning_rate        = float(request_headers.get("Learning-Rate", "0.01"))
-        encrypted_weights_id = "{}encryptedweights".format(plaintext_matrix_train_id)
-        encrypted_bias_id    = "{}encryptedbias".format(plaintext_matrix_train_id)
-
+        epochs                                = int(request_headers.get("Epochs", "1"))
+        learning_rate                         = float(request_headers.get("Learning-Rate", "0.01"))
+        encrypted_weights_id                  = "{}encryptedweights".format(plaintext_matrix_train_id)
+        encrypted_bias_id                     = "{}encryptedbias".format(plaintext_matrix_train_id)
+        WORKER_TIMEOUT     = int(current_app.config.get("WORKER_TIMEOUT",300))
         _round             = bool(int(current_app.config.get("_round","0"))) 
         decimals           = int(current_app.config.get("DECIMALS","4"))
         keys_path          = current_app.config.get("KEYS_PATH","/rory/keys/keys128")
@@ -366,8 +365,6 @@ async def pplr_train():
         secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-
-        WORKER_TIMEOUT = int(current_app.config.get("WORKER_TIMEOUT",300))
 
         ckks           = Ckks.from_pyfhel_client(
             _round             = _round,
@@ -565,20 +562,15 @@ async def pplr_train():
             "msg": "encrypted weight get from storage",
             "encrypted_weight_id": encrypted_weights_id,
             "type": str(type(encrypted_weights)),
-            # "value": str(encrypted_weights),
         })
 
-        # weights_plain_vector = ckks.decryptVector(encrypted_weights[0])
         weights_plain_list = ckks.decrypt_list(encrypted_weights, take=n_features)
         weights_plain = weights_plain_list[0].reshape(1, -1).astype(np.float32)
-        # weight_without_noise = Ckks.post_process(weights_plain_vector)
-
+        
         logger.debug({
             "msg": "Decrypted weights",
-            # "weights_plain_vector": str(weights_plain_vector),
             "weights_plain_list": str(weights_plain_list),
             "weights_plain": str(weights_plain),
-            # "weight_without_noise": str(weight_without_noise)
         })
 
         encrypted_weight_result = await storage_backend.put(
@@ -600,7 +592,6 @@ async def pplr_train():
             "msg": "Read, segment, encrypt and put in storage encrypted weights",
             "encrypted_weight_id": encrypted_weights_id,
             "type": str(type(encrypted_weight_response)),
-            # "value": str(encrypted_weight_response),
         })
 
         encrypted_bias_result = await storage_backend.get(
@@ -628,10 +619,8 @@ async def pplr_train():
 
         logger.debug({
             "msg": "Decrypted bias",
-            # "bias_plain_vector": str(bias_plain_vector),
             "bias_plain_list": str(bias_plain_list),
             "bias_plain": str(bias_plain),
-            # "weight_without_noise": str(weight_without_noise)
         })
         
         encrypted_bias_result = await storage_backend.put(
