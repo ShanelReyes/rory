@@ -203,6 +203,15 @@ async def logistic_regression_predict():
         .with_storage_params(StorageParams(num_chunks=2, timeout=300))
         .build()
     )
+
+    # Get plaintext matrix test
+    # Get weights
+    # Get bias
+
+    # Prediction
+
+    # Regresar predicciones en response (Label vector) 
+
     return Response(
             response = json.dumps({
                 "msg":"Predictions in storage",      

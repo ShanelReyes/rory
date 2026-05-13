@@ -336,12 +336,10 @@ async def logistic_regression_predict():
         worker_response.raise_for_status()
         jsonWorkerResponse = worker_response.json()
 
-        logger.debug({
-            "worker_status": str(worker_response),
-            "worker_id": worker_id,
-            "worker_port" : port,
-        })
+        # Extraer label vector de la respuesta del worker
+      
 
+        # Colocar label vector en el response
         return Response(
             response = json.dumps({
                 "x": "This endpoint is under development. Please check back later."                
