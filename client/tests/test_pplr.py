@@ -18,10 +18,7 @@ default_headers_lr_predict = {
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Test-Id": "dataset1_test",
     "Plaintext-Matrix-Test-Filename": "dataset1_test",
-    "Plaintext-Weight-Matrix-Id": "weight-matrix",
-    "Plaintext-Weight-Matrix-Filename": "weight-matrix",
-    "Plaintext-Bias-Vector-Id": "bias-vector",
-    "Plaintext-Bias-Vector-Filename": "bias-vector",
+    "Plaintext-Matrix-Train-Id": "dataset1_train",
     "Extension": "npy",
 }
 

@@ -259,54 +259,88 @@ async def logistic_regression_predict():
         MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
         MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
 
-        # Iniciar storage backend
-        # Colocar dataset test en storage
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT)
+            .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+            .build()
+        )
+
+        plaintext_matrix_test_result = await storage_backend.put_from_file(
+            bucket_id = BUCKET_ID,
+            ball_id   = plaintext_matrix_test_id,
+            path      = plaintext_matrix_test_path,
+            extension = extension,
+            segment   = True,
+            encrypt   = False,
+            delete    = True
+        )
+
+        if plaintext_matrix_test_result.is_err:
+            logger.error("Failed to process test dataset: {}".format(plaintext_matrix_test_result.unwrap_err()))
+            return Response(status=500, response="Failed to process test dataset")
+
+        logger.debug({
+            "msg": "Read, segment and put in storage dataset test"
+        })
+
+        get_worker_start_time       = time.time()
+        managerResponse:RoryManager = current_app.config.get("manager")
+        get_worker_result           = managerResponse.getWorker(
+            headers = {
+                "Algorithm"             : algorithm,
+                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Get-Worker-Time" : str(get_worker_start_time) 
+            }
+        )
+        if get_worker_result.is_err:
+            error = get_worker_result.unwrap_err()
+            logger.error(str(error))
+            return Response(str(error), status=500)
+        (worker_id,port) = get_worker_result.unwrap()
+
+        worker = RoryWorker(
+            workerId  = worker_id,
+            port      = port,
+            session   = s,
+            algorithm = algorithm,
+        )
+
+        logger.debug({
+            "msg": "Complete comunication",
+            "worker id": worker_id
+        })
+
+        status = Constants.ClusteringStatus.START
+
+        worker_headers = {
+            "Clustering-Status"              : str(status),
+            "Experiment-Id"                  : experiment_id,
+            "Plaintext-Matrix-Test-Id"      : plaintext_matrix_test_id,
+            "Weights-Id"                     : weights_id,
+            "Bias-Id"                        : bias_id
+        }
+
+        logger.debug({
+            "msg": "Connection with the worker"
+        })
+
+        worker_response = worker.run(
+                timeout = WORKER_TIMEOUT, 
+                headers = worker_headers
+            ) 
+        worker_status = worker_response.status_code
+
+        if worker_status !=200:
+            return Response("Worker error: {}".format(worker_response.content),status=500)
         
+        worker_response.raise_for_status()
+        jsonWorkerResponse = worker_response.json()
 
-        # Comunicarse con el manager y con el worker
-        # get_worker_start_time       = time.time()
-        # managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-        # get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
-        #     headers = {
-        #         "Algorithm"             : algorithm,
-        #         "Start-Request-Time"    : str(arrivalTime),
-        #         "Start-Get-Worker-Time" : str(get_worker_start_time) 
-        #     }
-        # )
-        # if get_worker_result.is_err:
-        #     error = get_worker_result.unwrap_err()
-        #     logger.error(str(error))
-        #     return Response(str(error), status=500)
-        # (worker_id,port) = get_worker_result.unwrap()
-        # logger.debug({
-        #     "msg": "Complete comunication",
-        #     "worker id": worker_id
-        # })
-
-        # worker = RoryWorker( #Allows to establish the connection with the worker
-        #     workerId  = worker_id,
-        #     port      = port,
-        #     session   = s,
-        #     algorithm = algorithm,
-        # )
-     
-        # Llenar los headers
-        # worker_headers = {
-        #     "Experiment-Id"             : experiment_id,
-        # }
-
-        # enviarle headers al worker 
-        # worker_response = worker.run(
-        #         timeout = WORKER_TIMEOUT, 
-        #         headers = worker_headers
-        #     ) #Run 1 starts
-        # worker_status = worker_response.status_code
-
-        # if worker_status !=200:
-        #     return Response("Worker error: {}".format(worker_response.content),status=500)
-
-        # worker_response.raise_for_status()
-        # jsonWorkerResponse        = worker_response.json()
+        logger.debug({
+            "worker_status": str(worker_response),
+            "worker_id": worker_id,
+            "worker_port" : port,
+        })
 
         return Response(
             response = json.dumps({

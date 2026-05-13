@@ -171,11 +171,38 @@ async def logistic_regression_train():
 
 @machinelearning.route("/logistic-regression/predict", methods=["POST"])
 async def logistic_regression_predict():
-    # colocar headers y parámetros necesarios para la predicción
+    local_start_time            = time.time()
+    logger                      = current_app.config["logger"]
+    worker_id                   = current_app.config["NODE_ID"]
+    STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+    BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
+    headers                     = request.headers
+    experiment_id               = headers.get("Experiment-Id","")
+    iterations                  = int(headers.get("Iterations", 1))
+    algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_PREDICT
+    plaintext_matrix_test_id   = headers.get("Plaintext-Matrix-Test-Id","test_x")
+    weights_id                  = headers.get("Weights-Id")
+    bias_id                  = headers.get("Bias-Id")
+    if not all([plaintext_matrix_test_id, weights_id, bias_id]):
+        return Response("Missing mandatory IDs or shape parameters", status=400)
+    MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
+    MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
+    MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
+    MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
+    
+    logger.debug({
+        "algorithm"                      : algorithm,
+        "experiment_id"                  : experiment_id,
+        "plaintext_matrix_test_id"       : plaintext_matrix_test_id,
+        "weights_id"                     : weights_id,
+        "bias_id"                        : bias_id,
+    })
 
-    # Definir storage backend
-
-    # Logger debbug con los headers
+    storage_backend = (
+        StorageBuilder(storage_client = STORAGE_CLIENT)
+        .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+        .build()
+    )
     return Response(
             response = json.dumps({
                 "msg":"Predictions in storage",      
