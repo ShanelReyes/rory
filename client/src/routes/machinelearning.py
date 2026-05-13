@@ -102,6 +102,8 @@ async def logistic_regression_train():
             "epoch": epochs, 
             "learning_rate": learning_rate, 
             "max_iterations": MAX_ITERATIONS,
+            "Weights_Id": weights_id,
+            "Bias_Id": bias_id
         })
 
         # definir storage_backend
@@ -188,8 +190,8 @@ async def logistic_regression_train():
             "Plaintext-Label-Vector-Train-Id": plaintext_label_vector_train_id,
             "Epochs"                         : str(epochs),
             "Learning-Rate"                  : str(learning_rate),
-            # Enviar weights id
-            # Enviar bias id
+            "Weights-Id"                     : weights_id,
+            "Bias-Id"                        : bias_id
         }
 
         logger.debug({

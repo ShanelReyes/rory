@@ -36,9 +36,10 @@ def test():
     )
 
 @machinelearning.route("/logistic-regression/train", methods=["POST"])
-async def logistic_regression():
+async def logistic_regression_train():
     local_start_time            = time.time()
     logger                      = current_app.config["logger"]
+    worker_id                   = current_app.config["NODE_ID"]
     STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     headers                     = request.headers
@@ -46,13 +47,12 @@ async def logistic_regression():
     iterations                  = int(headers.get("Iterations", 1))
     algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_TRAIN
     plaintext_matrix_train_id   = headers.get("Plaintext-Matrix-Train-Id","train_x")
-    plaintext_matrix_train_label_id = headers.get("Plaintext-Matrix-Train-Label-Id","train_y")
+    plaintext_label_vector_train_id = headers.get("Plaintext-Label-Vector-Train-Id","train_y")
+    weights_id                  = headers.get("Weights-Id")
+    bias_id                  = headers.get("Bias-Id")
     epochs                      = int(headers.get("Epochs", 1))
-    # Recibir weights id
-    # Recibir bias id
-
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
-    if not all([plaintext_matrix_train_id, plaintext_matrix_train_label_id]):
+    if not all([plaintext_matrix_train_id, plaintext_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
     MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
@@ -63,28 +63,114 @@ async def logistic_regression():
         "algorithm" : algorithm,
         "experiment_id" : experiment_id,
         "plaintext_matrix_train_id": plaintext_matrix_train_id,
-        "plaintext_matrix_train_label_id": plaintext_matrix_train_label_id,
+        "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
         "epoch": epochs, 
         "learning_rate": learning_rate, 
     })
 
-    # Definir storage backend
-    # Get dataset train
-    # Get label vector
-    # utilizar LogisticRegressionBaseline.train_manual()
-    # Put pesos y bias en el storage
+    storage_backend = (
+        StorageBuilder(storage_client = STORAGE_CLIENT)
+        .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+        .build()
+    )
 
 
+    plaintext_matrix_train_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = plaintext_matrix_train_id,
+        segment   = True,
+        encrypt   = False
+    )
+    if  plaintext_matrix_train_result.is_err:
+        logger.error(f"Failed to get matrix train: {plaintext_matrix_train_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get matrix train")
+    plaintext_matrix_train = plaintext_matrix_train_result.unwrap().raw_value
+
+    logger.debug({
+        "msg": "matrix train get from storage",
+        "plaintext_matrix_train_id": plaintext_matrix_train_id,
+        "type": str(type(plaintext_matrix_train)),
+        "value":str(plaintext_matrix_train)
+    })
+    
+    plaintext_label_vector_train_result = await storage_backend.get(
+        bucket_id = BUCKET_ID,
+        ball_id   = plaintext_label_vector_train_id,
+        segment   = True,
+        encrypt   = False
+    )
+
+    if plaintext_label_vector_train_result.is_err:
+        logger.error(f"Failed to get label vector train: {plaintext_label_vector_train_result.unwrap_err()}")
+        return Response(status=500, response="Failed to get label vector train") 
+    plaintext_label_vector_train = plaintext_label_vector_train_result.unwrap().raw_value
+    # print("Label vector train retrieved successfully",plaintext_label_vector_train)
+
+    
+    logger.debug({
+        "msg": "Label vector train get from storage",
+        "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
+        "type": str(type(plaintext_label_vector_train)),
+        "value":str(plaintext_label_vector_train)
+    })
+
+    weights, bias, time_train = LogisticRegressionBaseline.train_manual(
+        epochs            = epochs,
+        learning_rate     = learning_rate,
+        X_train 	  = plaintext_matrix_train,
+        y_train		  = plaintext_label_vector_train[0]
+    )
+
+    logger.debug({
+            "msg": "Finish train",
+            "type_W": str(type(weights)),
+            "value_W":str(weights),
+            "type_B": str(type(bias)),
+            "value_B":str(bias),
+
+    })
+
+    sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
+    weight_result = await sb_put.put(
+        bucket_id = BUCKET_ID,
+        data      = weights,
+        ball_id   = weights_id,
+        segment   = True,
+        encrypt   = False,
+        delete    = True
+    )
+    logger.debug({
+         "msg":str(weight_result)
+    })
+
+    if weight_result.is_err:
+        logger.error("Failed to put weights in cloud storage: {}".format(weight_result.unwrap_err()))
+        return Response(status=500, response="Failed to put weights in cloud storage")
+    weight_response = weight_result.unwrap()
+
+    bias_result = await sb_put.put(
+        bucket_id = BUCKET_ID,
+        data      = bias,
+        ball_id   = bias_id,
+        segment   = False,
+        encrypt   = False,
+        delete    = True
+    )
+    
+    if bias_result.is_err:
+        logger.error("Failed to put bias in cloud storage: {}".format(bias_result.unwrap_err()))
+        return Response(status=500, response="Failed to put bias in cloud storage")
+    bias_response = bias_result.unwrap()
 
     return Response(
-        response=json.dumps({
-                "message": "Logistic regression training completed successfully",
-                "algorithm": algorithm,
-                "experiment_id": experiment_id,
-        }),
-        status=200,
-        headers  = {}
-        )
+            response = json.dumps({
+                "weights_id":weights_id,
+                "bias_id":bias_id,       
+            }),
+            status   = 200,
+            headers  = {}
+            )
+
 
 
 @machinelearning.route("/pplr/train", methods=["POST"])
