@@ -5,9 +5,9 @@ default_headers_lr_train = {
     "Experiment-Id": uuid4().hex[:10],
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
-    "Plaintext-Matrix-Train-Label-Id": "label_vector_train",
+    "Plaintext-Label-Vector-Train-Id": "label_vector_train1",
     "Plaintext-Matrix-Train-Filename": "dataset1_train",
-    "Plaintext-Matrix-Train-Label-Filename": "label_vector_train",
+    "Plaintext-Label-Vector-Train-Filename": "label_vector_train",
     "Extension": "npy",
     "Epochs": "1",
     "Learning-Rate": "0.01",
@@ -18,10 +18,7 @@ default_headers_lr_predict = {
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Test-Id": "dataset1_test",
     "Plaintext-Matrix-Test-Filename": "dataset1_test",
-    "Plaintext-Weight-Matrix-Id": "weight-matrix",
-    "Plaintext-Weight-Matrix-Filename": "weight-matrix",
-    "Plaintext-Bias-Vector-Id": "bias-vector",
-    "Plaintext-Bias-Vector-Filename": "bias-vector",
+    "Plaintext-Matrix-Train-Id": "dataset1_train",
     "Extension": "npy",
 }
 
