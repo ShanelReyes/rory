@@ -401,7 +401,8 @@ async def pplr_train():
         extension                             = request_headers.get("Extension","csv")
         plaintext_matrix_train_path           = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)
         plaintext_label_vector_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_label_vector_train_filename, extension)
-        epochs                                = int(request_headers.get("Epochs", "1"))
+        total_epochs                          = int(request_headers.get("Epochs", "1"))
+        # epochs                                = int(request_headers.get("Epochs", "1"))
         learning_rate                         = float(request_headers.get("Learning-Rate", "0.01"))
         encrypted_weights_id                  = "{}encryptedweights".format(plaintext_matrix_train_id)
         encrypted_bias_id                     = "{}encryptedbias".format(plaintext_matrix_train_id)
@@ -461,9 +462,11 @@ async def pplr_train():
         plaintext_matrix_train_respose = plaintext_matrix_train_result.unwrap()
 
         logger.debug({
-            "msg": "Read, segment, encrypt and put in storage dataset train"
+            "msg": "Read, segment, encrypt and put in storage dataset train",
+            "encrypted_matrix_train_id": encrypted_matrix_train_id, 
+            "value": str(plaintext_matrix_train_respose)
         })
-        #_________________
+
         
         plaintext_label_vector_train = await storage_backend.put_from_file(
             bucket_id = BUCKET_ID,
@@ -481,21 +484,23 @@ async def pplr_train():
         plaintext_label_vector_train_response = plaintext_label_vector_train.unwrap()
 
         logger.debug({
-            "msg": "Read, segment, encrypt and put in storage label vector train"
+            "msg": "Read, segment, encrypt and put in storage label vector train",
+            "encrypted_label_vector_train_id": encrypted_label_vector_train_id,
+            "value": str(plaintext_label_vector_train_response)
         })
-        #_________________
+        # #_________________
         
         scale            = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
         n_samples        = plaintext_matrix_train_respose.shape[0]
         n_features       = plaintext_matrix_train_respose.shape[1]
         plaintext_weight = np.zeros((1,n_features), dtype=np.float32)
         
-        logger.debug({
-            "scale"        : scale,
-            "n_features"   : n_features,
-            "n_samples"    : n_samples,
-            "weights shape": plaintext_weight.shape,
-        })
+        # logger.debug({
+        #     "scale"        : scale,
+        #     "n_features"   : n_features,
+        #     "n_samples"    : n_samples,
+        #     "weights shape": plaintext_weight.shape,
+        # })
 
         encrypted_weight_result = await storage_backend.put(
             bucket_id = BUCKET_ID,
@@ -513,7 +518,9 @@ async def pplr_train():
         encrypted_weight_response = encrypted_weight_result.unwrap()
         
         logger.debug({
-            "msg": "Read, segment, encrypt and put in storage encrypted weights"
+            "msg": "Read, segment, encrypt and put in storage encrypted weights",
+            "encrypted_weights_id": encrypted_weights_id,
+            "value": str(encrypted_weight_response)
         })
         
         plaintext_bias = np.array([0.0], dtype=np.float32)
@@ -532,8 +539,13 @@ async def pplr_train():
             logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
             return Response(status=500, response="Failed to put encrypted bias in cloud storage")
         encrypted_bias_response = encrypted_bias_result.unwrap()
-        #__________________________
-
+        
+        logger.debug({
+            "msg": "Read, segment, encrypt and put in storage encrypted bias",
+            "encrypted_bias_id": encrypted_bias_id,
+            "value": str(encrypted_bias_response)
+        })
+        # time.sleep(1000) # Sleep added to ensure that the encrypted weights and bias are available in storage before the worker tries to access them. This is a temporary solution and should be replaced with a more robust mechanism in the future.
 
         get_worker_start_time       = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
@@ -557,147 +569,120 @@ async def pplr_train():
             algorithm = algorithm,
         )
 
-        status = Constants.ClusteringStatus.START #Set the status to start
-        iteration = 0
+        current_epoch = 0
+        status = Constants.ClusteringStatus.START
 
-        worker_headers = {
-            "Clustering-Status"   : str(status),
-            "Experiment-Id"       : experiment_id,
-            "Epochs"              : str(epochs),
-            "Learning-Rate"       : str(learning_rate),
-            "Encrypted-Matrix-Train-Id": encrypted_matrix_train_id,
-            "Encrypted-Label-Vector-Train-Id": encrypted_label_vector_train_id,
-            "Encrypted-Weights-Id": encrypted_weights_id,
-            "Encrypted-Bias-Id"   : encrypted_bias_id,
-            "Scale"               : str(scale),
-            "N-Features"          : str(n_features),
-            "N-Samples"           : str(n_samples),
-            "Num-Chunks"          : str(num_chunks),
-        }
+        while current_epoch < total_epochs:
+            logger.info(f"Starting epoch {current_epoch + 1}/{total_epochs}")
 
-        logger.debug({
-            "msg": "Connection with the worker"
-        })
+            if current_epoch > 0:
+                status = Constants.ClusteringStatus.WORK_IN_PROGRESS
 
-        worker_response = worker.run(
-                timeout = WORKER_TIMEOUT, 
-                headers = worker_headers
-            ) #Run 1 starts
-        worker_status = worker_response.status_code
+            worker_headers = {
+                "Clustering-Status"                : str(status),
+                "Experiment-Id"                    : experiment_id,
+                # "Epochs"                           : "1",
+                "Learning-Rate"                    : str(learning_rate),
+                "Encrypted-Matrix-Train-Id"        : encrypted_matrix_train_id,
+                "Encrypted-Label-Vector-Train-Id"  : encrypted_label_vector_train_id,
+                "Encrypted-Weights-Id"             : encrypted_weights_id,
+                "Encrypted-Bias-Id"                : encrypted_bias_id,
+                "Scale"                            : str(scale),
+                "N-Features"                       : str(n_features),
+                "N-Samples"                        : str(n_samples),
+                "Num-Chunks"                       : str(num_chunks),
+            }
 
-        if worker_status !=200:
-            return Response("Worker error: {}".format(worker_response.content),status=500)
+            worker_response = worker.run(
+                    timeout = WORKER_TIMEOUT,
+                    headers = worker_headers
+                )
+            worker_status = worker_response.status_code
+
+            if worker_status !=200:
+                logger.error(f"Worker execution failed at epoch {current_epoch + 1}: {worker_response.content}")
+                return Response("Worker error: {}".format(worker_response.content),status=500)
+
+            worker_response.raise_for_status()
+
+            current_epoch += 1
+
+            # if current_epoch < total_epochs:
+            encrypted_weights_result = await storage_backend.get(
+                bucket_id = BUCKET_ID,
+                ball_id   = encrypted_weights_id,
+                segment   = True,
+                encrypt   = True,
+                scheme    = Scheme.CKKS
+            )
+
+            if encrypted_weights_result.is_err:
+                logger.error(f"Failed to get encrypted weights: {encrypted_weights_result.unwrap_err()}")
+                return Response(status=500, response="Failed to get encrypted weights")
+            encrypted_weights = encrypted_weights_result.unwrap().raw_value
+
+            weights_plain_list = ckks.decrypt_list(encrypted_weights, take=n_features)
+            weights_plain = weights_plain_list[0].reshape(1, -1).astype(np.float32)
+
+            encrypted_weight_result = await storage_backend.put(
+                bucket_id = BUCKET_ID,
+                data      = weights_plain,
+                ball_id   = encrypted_weights_id,
+                segment   = True,
+                encrypt   = True,
+                scheme    = Scheme.CKKS,
+                delete    = True
+            )
+            # print(encrypted_weight_result)
+            # print(weights_plain_list)
+            # print(weights_plain)
+            # print("_____________________")
+            # time.sleep(1000)
+
+            del weights_plain
+            del encrypted_weights
+            del weights_plain_list
+
+            if encrypted_weight_result.is_err:
+                logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
+                return Response(status=500, response="Failed to put encrypted weights in cloud storage")
+
+            encrypted_bias_result = await storage_backend.get(
+                bucket_id = BUCKET_ID,
+                ball_id   = encrypted_bias_id,
+                segment   = True,
+                encrypt   = True,
+                scheme    = Scheme.CKKS
+            )
+
+            if encrypted_bias_result.is_err:
+                logger.error(f"Failed to get encrypted bias: {encrypted_bias_result.unwrap_err()}")
+                return Response(status=500, response="Failed to get encrypted bias")
+            encrypted_bias = encrypted_bias_result.unwrap().raw_value
+
+            bias_plain_list = ckks.decrypt_list(encrypted_bias, take=1)
+            bias_plain = bias_plain_list[0].reshape(1, -1).astype(np.float32)
+
+            encrypted_bias_result = await storage_backend.put(
+                bucket_id = BUCKET_ID,
+                data      = bias_plain,
+                ball_id   = encrypted_bias_id,
+                segment   = True,
+                encrypt   = True,
+                scheme    = Scheme.CKKS,
+                delete    = True
+            )
+
+            if encrypted_bias_result.is_err:
+                logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
+                return Response(status=500, response="Failed to put encrypted bias in cloud storage")
         
-        worker_response.raise_for_status()
-        jsonWorkerResponse         = worker_response.json()
-
-        del encrypted_weight_response
-        del encrypted_bias_response
         
-        encrypted_weights_result = await storage_backend.get(
-            bucket_id = BUCKET_ID,
-            ball_id   = encrypted_weights_id,
-            segment   = True,
-            encrypt   = True,
-            scheme    = Scheme.CKKS
-        )
-    
-        if encrypted_weights_result.is_err:
-            logger.error(f"Failed to get init encrypted weights: {encrypted_weights_result.unwrap_err()}")
-            return Response(status=500, response="Failed to get init encrypted weights")
-        encrypted_weights = encrypted_weights_result.unwrap().raw_value
-
-        logger.debug({
-            "msg": "encrypted weight get from storage",
-            "encrypted_weight_id": encrypted_weights_id,
-            "type": str(type(encrypted_weights)),
-        })
-
-        weights_plain_list = ckks.decrypt_list(encrypted_weights, take=n_features)
-        weights_plain = weights_plain_list[0].reshape(1, -1).astype(np.float32)
-        
-        logger.debug({
-            "msg": "Decrypted weights",
-            "weights_plain_list": str(weights_plain_list),
-            "weights_plain": str(weights_plain),
-        })
-
-        encrypted_weight_result = await storage_backend.put(
-            bucket_id = BUCKET_ID,
-            data      = weights_plain,
-            ball_id   = encrypted_weights_id,
-            segment   = True,
-            encrypt   = True,
-            scheme    = Scheme.CKKS,
-            delete    = True
-        )
-
-        if encrypted_weight_result.is_err:
-            logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
-            return Response(status=500, response="Failed to put encrypted weights in cloud storage")
-        encrypted_weight_response = encrypted_weight_result.unwrap()
-        
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage encrypted weights",
-            "encrypted_weight_id": encrypted_weights_id,
-            "type": str(type(encrypted_weight_response)),
-        })
-
-        encrypted_bias_result = await storage_backend.get(
-            bucket_id = BUCKET_ID,
-            ball_id   = encrypted_bias_id,
-            segment   = True,
-            encrypt   = True,
-            scheme    = Scheme.CKKS
-        )
-
-        if encrypted_bias_result.is_err:
-            logger.error(f"Failed to get init encrypted bias: {encrypted_bias_result.unwrap_err()}")
-            return Response(status=500, response="Failed to get init encrypted bias")
-        encrypted_bias = encrypted_bias_result.unwrap().raw_value
-
-        logger.debug({
-            "msg": "encrypted bias get from storage",
-            "encrypted_bias_id": encrypted_bias_id,
-            "type": str(type(encrypted_bias)),
-            "value": str(encrypted_bias),
-        })
-        
-        bias_plain_list = ckks.decrypt_list(encrypted_bias, take=1)
-        bias_plain = bias_plain_list[0].reshape(1, -1).astype(np.float32)
-
-        logger.debug({
-            "msg": "Decrypted bias",
-            "bias_plain_list": str(bias_plain_list),
-            "bias_plain": str(bias_plain),
-        })
-        
-        encrypted_bias_result = await storage_backend.put(
-            bucket_id = BUCKET_ID,
-            data      = bias_plain,
-            ball_id   = encrypted_bias_id,
-            segment   = True,
-            encrypt   = True,
-            scheme    = Scheme.CKKS,
-            delete    = True
-        )
-
-        if encrypted_bias_result.is_err:
-            logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
-            return Response(status=500, response="Failed to put encrypted bias in cloud storage")
-        encrypted_bias_response = encrypted_bias_result.unwrap()
-        
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage encrypted bias",
-            "encrypted_bias_id": encrypted_bias_id,
-            "type": str(type(encrypted_bias_response)),
-        })
-
         return Response(
             response = json.dumps({
-                "x": "This endpoint is under development. Please check back later.",
                 "algorithm": algorithm,
                 "worker_id": worker_id,
+                "total_epochs": total_epochs,
             }),
             status   = 200,
             headers  = {}
@@ -806,12 +791,14 @@ async def pplr_predict():
 
         logger.debug({
             "msg": "Read, segment, encrypt and put in storage dataset test",
-            "encrypted_matrix_test_id": encrypted_matrix_test_id
+            "encrypted_matrix_test_id": encrypted_matrix_test_id,
+            "value": str(plaintext_matrix_test_response)
         })
 
         scale            = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
         n_features       = plaintext_matrix_test_response.shape[1]
 
+        
         get_worker_start_time       = time.time()
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
         get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager

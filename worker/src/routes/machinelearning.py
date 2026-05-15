@@ -3,7 +3,7 @@ import numpy as np
 import numpy.typing as npt
 from flask import Blueprint,current_app,request,Response
 from rory.core.machine_learning.secure.pqc.pplr import PPLR
-from rory.core.machine_learning.logistic_regression import LogisticRegressionBaseline
+from rory.core.machine_learning.logistic_regression import LogisticRegression
 from rory.core.utils.constants import Constants
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rorycommon import StorageBuilder, StorageParams, Scheme, CkksParams
@@ -111,11 +111,12 @@ async def logistic_regression_train():
         "value":str(plaintext_label_vector_train)
     })
 
-    weights, bias, time_train = LogisticRegressionBaseline.train_manual(
-        epochs        = epochs,
-        learning_rate = learning_rate,
-        X_train       = plaintext_matrix_train,
-        y_train       = plaintext_label_vector_train[0]
+    weights, bias = LogisticRegression.train(
+        plaintext_matrix   = plaintext_matrix_train,
+        label_vector_train = plaintext_label_vector_train[0],
+        epochs             = epochs,
+        weights            = None,
+        bias               = 0.0,
     )
 
     logger.debug({
@@ -259,10 +260,10 @@ async def logistic_regression_predict():
         "value":str(bias)
     })
 
-    predictions, time_inference = LogisticRegressionBaseline.predict_manual(
-            X_test = plaintext_matrix_test, 
-            weights = weights, 
-            bias = bias
+    predictions = LogisticRegression.predict(
+            plaintext_matrix_test = plaintext_matrix_test,
+            weights               = weights,
+            bias                  = bias
         )
 
     predictions = await storage_backend.put(
@@ -305,7 +306,7 @@ async def pplr_train():
     request_headers             = request.headers
     algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
     experiment_id               = request_headers.get("Experiment-Id", "")
-    epochs                      = int(request_headers.get("Epochs", 1))
+    # epochs                      = int(request_headers.get("Epochs", 1))
     learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
     encrypted_matrix_train_id       = request_headers.get("Encrypted-Matrix-Train-Id")
     encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
@@ -377,7 +378,8 @@ async def pplr_train():
 
     logger.debug({
         "msg": "encrypted matrix train get from storage",
-        "encrypted_matrix_train_id": encrypted_matrix_train_id
+        "encrypted_matrix_train_id": encrypted_matrix_train_id,
+        "value":str(encrypted_matrix_train)
     })
     
     encrypted_label_vector_train_result = await storage_backend.get(
@@ -399,7 +401,7 @@ async def pplr_train():
         "msg": "encrypted label vector train get from storage",
         "encrypted_label_vector_train_id": encrypted_label_vector_train_id,
         "type": str(type(encrypted_label_vector_train)),
-        # "value":str(encrypted_label_vector_train)
+        "value":str(encrypted_label_vector_train)
     })
     
     init_encrypted_weights_result = await storage_backend.get(
@@ -419,7 +421,7 @@ async def pplr_train():
         "msg": "encrypted weight get from storage",
         "encrypted_weight_id": encrypted_weights_id,
         "type": str(type(init_encrypted_weights)),
-        # "value":str(init_encrypted_weights)
+        "value":str(init_encrypted_weights)
     })
 
     
@@ -444,14 +446,13 @@ async def pplr_train():
         "msg": "encrypted bias get from storage",
         "encrypted_bias_id": encrypted_bias_id,
         "type": str(type(init_encrypted_bias)),
-        # "value":str(init_encrypted_bias)
+        "value":str(init_encrypted_bias)
     })
 
     # time.sleep(1000)
 
     encrypted_weights, encrypted_bias = PPLR.train(
         HE                = ckks.he_object,
-        epochs            = epochs,
         learning_rate     = learning_rate,
         encrypted_weights = init_encrypted_weights[0],
         encrypted_bias    = init_encrypted_bias[0],
@@ -462,20 +463,20 @@ async def pplr_train():
         n_samples         = n_samples
     )
     
-    logger.debug({
-            "msg": "Finish train",
-            "type": str(type(encrypted_weights)),
-            # "value":str(encrypted_weights),
-            "type": str(type(encrypted_bias)),
-            # "value":str(encrypted_bias),
+    # logger.debug({
+    #         "msg": "Finish train",
+    #         "type": str(type(encrypted_weights)),
+    #         # "value":str(encrypted_weights),
+    #         "type": str(type(encrypted_bias)),
+    #         # "value":str(encrypted_bias),
 
-    })
+    # })
     # time.sleep(1000)
     del init_encrypted_weights
     del init_encrypted_bias
 
-    sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
-    encrypted_weight_result = await sb_put.put(
+    # sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
+    encrypted_weight_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = [encrypted_weights],
         ball_id   = encrypted_weights_id,
@@ -493,7 +494,7 @@ async def pplr_train():
         return Response(status=500, response="Failed to put encrypted weights in cloud storage")
     encrypted_weight_response = encrypted_weight_result.unwrap()
 
-    encrypted_bias_result = await sb_put.put(
+    encrypted_bias_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = [encrypted_bias],
         ball_id   = encrypted_bias_id,
@@ -609,7 +610,9 @@ async def pplr_predict():
         "msg": "encrypted matrix test get from storage",
         "encrypted_matrix_test_id": encrypted_matrix_test_id,
         "type": str(type(encrypted_matrix_test)),
-        # "value":str(encrypted_matrix_test)
+        "value":str(encrypted_matrix_test),
+        # "level": encrypted_matrix_test.mod_level(),
+        # "scale": encrypted_matrix_test.scale(),
     })
 
     encrypted_weights_result = await storage_backend.get(
@@ -629,7 +632,9 @@ async def pplr_predict():
         "msg": "encrypted weights get from storage",
         "encrypted_matrix_test_id": encrypted_weights_id,
         "type": str(type(encrypted_weights)),
-        # "value":str(encrypted_weights)
+        # "level": encrypted_weights[0].mod_level(),
+        # "scale": encrypted_weights[0].scale(),
+        "value":str(encrypted_weights)
     })
 
     encrypted_bias_result = await storage_backend.get(
@@ -649,7 +654,9 @@ async def pplr_predict():
         "msg": "encrypted bias get from storage",
         "encrypted_matrix_test_id": encrypted_bias_id,
         "type": str(type(encrypted_bias)),
-        "value":str(encrypted_bias)
+        "value":str(encrypted_bias),
+        # "level": encrypted_bias[0].mod_level(), 
+        # "scale": encrypted_bias.scale()
     })
 
     encrypted_predictions = PPLR.predict(

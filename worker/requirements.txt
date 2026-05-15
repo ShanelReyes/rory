@@ -2,5 +2,5 @@ Flask[async]==3.0.0
 gunicorn==21.2.0
 
 --extra-index-url https://test.pypi.org/simple/
-rorycommon==1.0.0a2
+rorycommon==1.0.0a3
 mictlanx==0.1.0a6
