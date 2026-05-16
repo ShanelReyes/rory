@@ -157,7 +157,7 @@ async def logistic_regression_train():
             logger.error(str(error))
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
-
+        worker_id               =  "localhost" if TESTING else worker_id
         worker = RoryWorker(
             workerId  = worker_id,
             port      = port,
@@ -297,6 +297,7 @@ async def logistic_regression_predict():
             logger.error(str(error))
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
+        worker_id               =  "localhost" if TESTING else worker_id
 
         worker = RoryWorker(
             workerId  = worker_id,

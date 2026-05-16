@@ -54,11 +54,6 @@ async def logistic_regression_train():
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     if not all([plaintext_matrix_train_id, plaintext_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
-    MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
-    
     logger.debug({
         "algorithm"                      : algorithm,
         "experiment_id"                  : experiment_id,
@@ -67,7 +62,6 @@ async def logistic_regression_train():
         "epoch"                          : epochs,
         "learning_rate"                  : learning_rate,
     })
-
     storage_backend = (
         StorageBuilder(storage_client = STORAGE_CLIENT)
         .with_storage_params(StorageParams(num_chunks=2, timeout=300))
@@ -83,6 +77,7 @@ async def logistic_regression_train():
     if plaintext_matrix_train_result.is_err:
         logger.error(f"Failed to get matrix train: {plaintext_matrix_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get matrix train")
+
     plaintext_matrix_train = plaintext_matrix_train_result.unwrap().raw_value
 
     logger.debug({
@@ -113,21 +108,30 @@ async def logistic_regression_train():
 
     weights, bias = LogisticRegression.train(
         plaintext_matrix   = plaintext_matrix_train,
-        label_vector_train = plaintext_label_vector_train[0],
+        label_vector_train = plaintext_label_vector_train,
         epochs             = epochs,
         weights            = None,
         bias               = 0.0,
     )
 
+
     logger.debug({
             "msg": "Finish train",
+            "X_value":str(plaintext_matrix_train),
+            "X_dtype": str(plaintext_matrix_train.dtype),
+            "X_shape":str(plaintext_matrix_train.shape),
+            "y_value":str(plaintext_label_vector_train),
+            "y_dtype": str(plaintext_label_vector_train.dtype),
+            "y_shape":str(plaintext_label_vector_train.shape),
             "type_W": str(type(weights)),
             "value_W":str(weights),
             "type_B": str(type(bias)),
             "value_B":str(bias),
 
     })
+    # time.sleep(100)
 
+    
     # sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
     weight_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
@@ -148,7 +152,7 @@ async def logistic_regression_train():
 
     bias_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
-        data      = bias,
+        data      = [bias],
         ball_id   = bias_id,
         segment   = False,
         encrypt   = False,
@@ -159,7 +163,6 @@ async def logistic_regression_train():
         logger.error("Failed to put bias in cloud storage: {}".format(bias_result.unwrap_err()))
         return Response(status=500, response="Failed to put bias in cloud storage")
     bias_response = bias_result.unwrap()
-
     return Response(
             response = json.dumps({
                 "msg":"Training results in storage",
@@ -242,6 +245,7 @@ async def logistic_regression_predict():
         "value":str(weights)
     })
 
+
     bias_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
         ball_id   = bias_id,
@@ -263,10 +267,11 @@ async def logistic_regression_predict():
     predictions = LogisticRegression.predict(
             plaintext_matrix_test = plaintext_matrix_test,
             weights               = weights,
-            bias                  = bias
-        )
+            bias                  = bias[0]
+    )
 
-    predictions = await storage_backend.put(
+
+    predictions_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = predictions,
         ball_id   = predictions_id,
@@ -275,13 +280,17 @@ async def logistic_regression_predict():
         delete    = True
     )
     logger.debug({
-         "msg":str(predictions)
+         "msg":"parameters",
+         "plaintext_matrix_test":str(plaintext_matrix_test),
+         "weights":str(weights),
+         "bias":str(bias[0]),
+         "predictions":str(predictions)
     })
 
-    if predictions.is_err:
-        logger.error("Failed to put predictions in cloud storage: {}".format(predictions.unwrap_err()))
+    if predictions_result.is_err:
+        logger.error("Failed to put predictions in cloud storage: {}".format(predictions_result.unwrap_err()))
         return Response(status=500, response="Failed to put predictions in cloud storage")
-    predictions_response = predictions.unwrap()
+    predictions_response = predictions_result.unwrap()
 
     logger.debug({
         "msg":"Predictions in storage",
