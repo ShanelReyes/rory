@@ -52,15 +52,12 @@ def test():
 @machinelearning.route("/logistic-regression/train",methods = ["POST"])
 async def logistic_regression_train():
     try:
-        arrivalTime                  = time.time()
+        local_start_time             = time.time()
         logger                       = current_app.config["logger"]
         BUCKET_ID:str                = current_app.config.get("BUCKET_ID","rory")
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        max_workers                  = current_app.config.get("MAX_WORKERS",2)
-        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
-        np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
@@ -68,7 +65,6 @@ async def logistic_regression_train():
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","train_x")
         plaintext_label_vector_train_id = request_headers.get("Plaintext-Label-Vector-Train-Id","train_y")
         plaintext_matrix_train_filename = request_headers.get("Plaintext-Matrix-Train-Filename","train_x")
@@ -77,29 +73,11 @@ async def logistic_regression_train():
         plaintext_matrix_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)    
         plaintext_label_vector_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_label_vector_train_filename, extension) 
 
-        epochs               = int(request_headers.get("Epochs", "1"))
-        learning_rate        = float(request_headers.get("Learning-Rate", "0.01"))
-        weights_id = "{}weights".format(plaintext_matrix_train_id)
-        bias_id    = "{}bias".format(plaintext_matrix_train_id)
-
-        MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
-        WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
-        
-        logger.debug({
-            "algorithm" : algorithm,
-            "plaintext_matrix_train_id": plaintext_matrix_train_id,
-            "plaintext_matrix_train_path": plaintext_matrix_train_path,  
-            "plaintext_matrix_train_filename": plaintext_matrix_train_filename,
-            "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
-            "plaintext_label_vector_train_path": plaintext_label_vector_train_path,
-            "plaintext_label_vector_train_filename": plaintext_label_vector_train_filename,
-            "extension" : extension,
-            "epoch": epochs, 
-            "learning_rate": learning_rate, 
-            "max_iterations": MAX_ITERATIONS,
-            "Weights_Id": weights_id,
-            "Bias_Id": bias_id
-        })
+        epochs         = int(request_headers.get("Epochs", "1"))
+        learning_rate  = float(request_headers.get("Learning-Rate", "0.01"))
+        weights_id     = "{}weights".format(plaintext_matrix_train_id)
+        bias_id        = "{}bias".format(plaintext_matrix_train_id)
+        WORKER_TIMEOUT = int(current_app.config.get("WORKER_TIMEOUT",300))
 
         storage_backend = (
             StorageBuilder(storage_client = STORAGE_CLIENT)
@@ -121,10 +99,6 @@ async def logistic_regression_train():
             logger.error("Failed to process training dataset: {}".format(plaintext_matrix_train_result.unwrap_err()))
             return Response(status=500, response="Failed to process training dataset")
 
-        logger.debug({
-            "msg": "Read, segment and put in storage dataset train"
-        })
-        
         plaintext_label_vector_train = await storage_backend.put_from_file(
             bucket_id = BUCKET_ID,
             ball_id   = plaintext_label_vector_train_id,
@@ -139,16 +113,13 @@ async def logistic_regression_train():
             logger.error("Failed to process label vector: {}".format(plaintext_label_vector_train.unwrap_err()))
             return Response(status=500, response="Failed to process label vector")
 
-        logger.debug({
-            "msg": "Read, segment and put in storage label vector train"
-        })
-
+        service_time_client         = time.time() - local_start_time
         get_worker_start_time       = time.time()
         managerResponse:RoryManager = current_app.config.get("manager")
         get_worker_result           = managerResponse.getWorker(
             headers = {
                 "Algorithm"             : algorithm,
-                "Start-Request-Time"    : str(arrivalTime),
+                "Start-Request-Time"    : str(local_start_time),
                 "Start-Get-Worker-Time" : str(get_worker_start_time) 
             }
         )
@@ -156,7 +127,12 @@ async def logistic_regression_train():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else _worker_id
+        worker_start_time = time.time()
 
         worker = RoryWorker(
             workerId  = worker_id,
@@ -164,11 +140,6 @@ async def logistic_regression_train():
             session   = s,
             algorithm = algorithm,
         )
-
-        logger.debug({
-            "msg": "Complete comunication",
-            "worker id": worker_id
-        })
 
         status = Constants.ClusteringStatus.START
 
@@ -183,10 +154,6 @@ async def logistic_regression_train():
             "Bias-Id"                        : bias_id
         }
 
-        logger.debug({
-            "msg": "Connection with the worker"
-        })
-
         worker_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
                 headers = worker_headers
@@ -198,19 +165,23 @@ async def logistic_regression_train():
         
         worker_response.raise_for_status()
         jsonWorkerResponse = worker_response.json()
-
-        logger.debug({
-            "worker_status": str(worker_response),
-            "worker_id": worker_id,
-            "worker_port" : port,
-        })
         
         worker_response.raise_for_status()
         jsonWorkerResponse         = worker_response.json()
+        worker_service_time = jsonWorkerResponse["service_time"]
+        worker_end_time     = time.time()
+
+        worker_response_time = worker_end_time - worker_start_time
+        response_time        = time.time() - local_start_time 
         
         return Response(
             response = json.dumps({
-                "x": "This endpoint is under development. Please check back later."                
+                "worker_id":worker_id,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "service_time_train":response_time,
+                "algorithm":algorithm,                
             }),
             status   = 200,
             headers  = {}
@@ -232,9 +203,6 @@ async def logistic_regression_predict():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        max_workers                  = current_app.config.get("MAX_WORKERS",2)
-        num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
-        np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         
         if executor == None:
@@ -243,22 +211,15 @@ async def logistic_regression_predict():
         s                               = Session()
         request_headers                 = request.headers #Headers for the request
         experiment_id                   = request_headers.get("Experiment-Id",uuid4().hex[:10])
-        experiment_iteration            = request_headers.get("Experiment-Iteration","0")
         plaintext_matrix_train_id       = request_headers.get("Plaintext-Matrix-Train-Id","train_x")
         plaintext_matrix_test_id        = request_headers.get("Plaintext-Matrix-Test-Id","test_x")
         plaintext_matrix_test_filename  = request_headers.get("Plaintext-Matrix-Test-Filename","test_x")
         extension                       = request_headers.get("Extension","csv")
         plaintext_matrix_test_path      = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_test_filename, extension)
-        weights_id = "{}weights".format(plaintext_matrix_train_id)
-        bias_id    = "{}bias".format(plaintext_matrix_train_id)
-
-        MAX_ITERATIONS          = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
-        WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
-        MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-
+        weights_id     = "{}weights".format(plaintext_matrix_train_id)
+        bias_id        = "{}bias".format(plaintext_matrix_train_id)
+        WORKER_TIMEOUT = int(current_app.config.get("WORKER_TIMEOUT",300))
+    
         storage_backend = (
             StorageBuilder(storage_client = STORAGE_CLIENT)
             .with_storage_params(StorageParams(num_chunks=2, timeout=300))
@@ -279,12 +240,9 @@ async def logistic_regression_predict():
             logger.error("Failed to process test dataset: {}".format(plaintext_matrix_test_result.unwrap_err()))
             return Response(status=500, response="Failed to process test dataset")
 
-        logger.debug({
-            "msg": "Read, segment and put in storage dataset test"
-        })
-
-        get_worker_start_time       = time.time()
+        service_time_client = time.time() - arrivalTime
         managerResponse:RoryManager = current_app.config.get("manager")
+        get_worker_start_time       = time.time()
         get_worker_result           = managerResponse.getWorker(
             headers = {
                 "Algorithm"             : algorithm,
@@ -296,7 +254,13 @@ async def logistic_regression_predict():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else _worker_id
+        
+        worker_start_time = time.time()
 
         worker = RoryWorker(
             workerId  = worker_id,
@@ -305,24 +269,15 @@ async def logistic_regression_predict():
             algorithm = algorithm,
         )
 
-        logger.debug({
-            "msg": "Complete comunication",
-            "worker id": worker_id
-        })
-
         status = Constants.ClusteringStatus.START
 
         worker_headers = {
-            "Clustering-Status"              : str(status),
-            "Experiment-Id"                  : experiment_id,
-            "Plaintext-Matrix-Test-Id"      : plaintext_matrix_test_id,
-            "Weights-Id"                     : weights_id,
-            "Bias-Id"                        : bias_id
+            "Clustering-Status"       : str(status),
+            "Experiment-Id"           : experiment_id,
+            "Plaintext-Matrix-Test-Id": plaintext_matrix_test_id,
+            "Weights-Id"              : weights_id,
+            "Bias-Id"                 : bias_id
         }
-
-        logger.debug({
-            "msg": "Connection with the worker"
-        })
 
         worker_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
@@ -336,6 +291,9 @@ async def logistic_regression_predict():
         worker_response.raise_for_status()
         jsonWorkerResponse = worker_response.json()
         predictions_id = jsonWorkerResponse["predictions_id"]
+        worker_service_time  = jsonWorkerResponse["service_time"]
+        worker_end_time      = time.time()
+        worker_response_time = worker_end_time - worker_start_time
 
         predictions_result = await storage_backend.get(
             bucket_id = BUCKET_ID,
@@ -347,19 +305,19 @@ async def logistic_regression_predict():
             logger.error(f"Failed to get predictions: {predictions_result.unwrap_err()}")
             return Response(status=500, response="Failed to get predictions") 
         predictions = predictions_result.unwrap().raw_value
-        label_predictions = predictions.tolist()
-        
-        logger.debug({
-            "msg": "Predictions get from storage",
-            "predictions_id": predictions_id,
-            "type": str(type(predictions)),
-        })
+        label_vector = predictions.tolist()
+
+        response_time = time.time() - arrivalTime
 
         return Response(
             response = json.dumps({
-                "label_predictions":label_predictions,
+                "label_vector":label_vector,
+                "algorithm":algorithm,
                 "worker_id":worker_id,
-                "algorithm":algorithm,                
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "service_time_predict":response_time,               
             }),
             status   = 200,
             headers  = {}
@@ -380,9 +338,7 @@ async def pplr_train():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        max_workers                  = current_app.config.get("MAX_WORKERS",2)
         num_chunks                   = current_app.config.get("NUM_CHUNKS",2)
-        np_random                    = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
@@ -402,7 +358,6 @@ async def pplr_train():
         plaintext_matrix_train_path           = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_train_filename, extension)
         plaintext_label_vector_train_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_label_vector_train_filename, extension)
         total_epochs                          = int(request_headers.get("Epochs", "1"))
-        # epochs                                = int(request_headers.get("Epochs", "1"))
         learning_rate                         = float(request_headers.get("Learning-Rate", "0.01"))
         encrypted_weights_id                  = "{}encryptedweights".format(plaintext_matrix_train_id)
         encrypted_bias_id                     = "{}encryptedbias".format(plaintext_matrix_train_id)
@@ -461,13 +416,6 @@ async def pplr_train():
             return Response(status=500, response="Failed to process training dataset")
         plaintext_matrix_train_respose = plaintext_matrix_train_result.unwrap()
 
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage dataset train",
-            "encrypted_matrix_train_id": encrypted_matrix_train_id, 
-            "value": str(plaintext_matrix_train_respose)
-        })
-
-        
         plaintext_label_vector_train = await storage_backend.put_from_file(
             bucket_id = BUCKET_ID,
             ball_id   = encrypted_label_vector_train_id,
@@ -482,26 +430,12 @@ async def pplr_train():
             logger.error("Failed to process label vector: {}".format(plaintext_label_vector_train.unwrap_err()))
             return Response(status=500, response="Failed to process label vector")
         plaintext_label_vector_train_response = plaintext_label_vector_train.unwrap()
-
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage label vector train",
-            "encrypted_label_vector_train_id": encrypted_label_vector_train_id,
-            "value": str(plaintext_label_vector_train_response)
-        })
-        # #_________________
         
         scale            = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
         n_samples        = plaintext_matrix_train_respose.shape[0]
         n_features       = plaintext_matrix_train_respose.shape[1]
         plaintext_weight = np.zeros((1,n_features), dtype=np.float32)
         
-        # logger.debug({
-        #     "scale"        : scale,
-        #     "n_features"   : n_features,
-        #     "n_samples"    : n_samples,
-        #     "weights shape": plaintext_weight.shape,
-        # })
-
         encrypted_weight_result = await storage_backend.put(
             bucket_id = BUCKET_ID,
             data      = plaintext_weight,
@@ -516,12 +450,6 @@ async def pplr_train():
             logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
             return Response(status=500, response="Failed to put encrypted weights in cloud storage")
         encrypted_weight_response = encrypted_weight_result.unwrap()
-        
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage encrypted weights",
-            "encrypted_weights_id": encrypted_weights_id,
-            "value": str(encrypted_weight_response)
-        })
         
         plaintext_bias = np.array([0.0], dtype=np.float32)
 
@@ -539,17 +467,11 @@ async def pplr_train():
             logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
             return Response(status=500, response="Failed to put encrypted bias in cloud storage")
         encrypted_bias_response = encrypted_bias_result.unwrap()
-        
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage encrypted bias",
-            "encrypted_bias_id": encrypted_bias_id,
-            "value": str(encrypted_bias_response)
-        })
-        # time.sleep(1000) # Sleep added to ensure that the encrypted weights and bias are available in storage before the worker tries to access them. This is a temporary solution and should be replaced with a more robust mechanism in the future.
 
+        service_time_client         = time.time() - arrivalTime
         get_worker_start_time       = time.time()
-        managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
-        get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
+        managerResponse:RoryManager = current_app.config.get("manager")
+        get_worker_result           = managerResponse.getWorker( 
             headers = {
                 "Algorithm"            : algorithm,
                 "Start-Request-Time"   : str(arrivalTime),
@@ -561,8 +483,13 @@ async def pplr_train():
             logger.error(str(error))
             return Response(str(error), status=500)
         (worker_id,port) = get_worker_result.unwrap()
+
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else worker_id
         
-        worker = RoryWorker( #Allows to establish the connection with the worker
+        worker_start_time = time.time()
+        worker = RoryWorker(
             workerId  = worker_id,
             port      = port,
             session   = s,
@@ -573,24 +500,22 @@ async def pplr_train():
         status = Constants.ClusteringStatus.START
 
         while current_epoch < total_epochs:
-            logger.info(f"Starting epoch {current_epoch + 1}/{total_epochs}")
-
+            
             if current_epoch > 0:
                 status = Constants.ClusteringStatus.WORK_IN_PROGRESS
 
             worker_headers = {
-                "Clustering-Status"                : str(status),
-                "Experiment-Id"                    : experiment_id,
-                # "Epochs"                           : "1",
-                "Learning-Rate"                    : str(learning_rate),
-                "Encrypted-Matrix-Train-Id"        : encrypted_matrix_train_id,
-                "Encrypted-Label-Vector-Train-Id"  : encrypted_label_vector_train_id,
-                "Encrypted-Weights-Id"             : encrypted_weights_id,
-                "Encrypted-Bias-Id"                : encrypted_bias_id,
-                "Scale"                            : str(scale),
-                "N-Features"                       : str(n_features),
-                "N-Samples"                        : str(n_samples),
-                "Num-Chunks"                       : str(num_chunks),
+                "Clustering-Status"              : str(status),
+                "Experiment-Id"                  : experiment_id,
+                "Learning-Rate"                  : str(learning_rate),
+                "Encrypted-Matrix-Train-Id"      : encrypted_matrix_train_id,
+                "Encrypted-Label-Vector-Train-Id": encrypted_label_vector_train_id,
+                "Encrypted-Weights-Id"           : encrypted_weights_id,
+                "Encrypted-Bias-Id"              : encrypted_bias_id,
+                "Scale"                          : str(scale),
+                "N-Features"                     : str(n_features),
+                "N-Samples"                      : str(n_samples),
+                "Num-Chunks"                     : str(num_chunks),
             }
 
             worker_response = worker.run(
@@ -604,10 +529,12 @@ async def pplr_train():
                 return Response("Worker error: {}".format(worker_response.content),status=500)
 
             worker_response.raise_for_status()
+            jsonWorkerResponse  = worker_response.json()
+            worker_service_time = jsonWorkerResponse["service_time"]
+            worker_end_time     = time.time()
 
             current_epoch += 1
 
-            # if current_epoch < total_epochs:
             encrypted_weights_result = await storage_backend.get(
                 bucket_id = BUCKET_ID,
                 ball_id   = encrypted_weights_id,
@@ -621,8 +548,10 @@ async def pplr_train():
                 return Response(status=500, response="Failed to get encrypted weights")
             encrypted_weights = encrypted_weights_result.unwrap().raw_value
 
-            weights_plain_list = ckks.decrypt_list(encrypted_weights, take=n_features)
-            weights_plain = weights_plain_list[0].reshape(1, -1).astype(np.float32)
+            start_time_decryption = time.time()
+            weights_plain_list    = ckks.decrypt_list(encrypted_weights, take=n_features)
+            weights_plain         = weights_plain_list[0].reshape(1, -1).astype(np.float32)
+            end_time_decryption   = time.time() - start_time_decryption
 
             encrypted_weight_result = await storage_backend.put(
                 bucket_id = BUCKET_ID,
@@ -633,11 +562,6 @@ async def pplr_train():
                 scheme    = Scheme.CKKS,
                 delete    = True
             )
-            # print(encrypted_weight_result)
-            # print(weights_plain_list)
-            # print(weights_plain)
-            # print("_____________________")
-            # time.sleep(1000)
 
             del weights_plain
             del encrypted_weights
@@ -660,8 +584,10 @@ async def pplr_train():
                 return Response(status=500, response="Failed to get encrypted bias")
             encrypted_bias = encrypted_bias_result.unwrap().raw_value
 
-            bias_plain_list = ckks.decrypt_list(encrypted_bias, take=1)
-            bias_plain = bias_plain_list[0].reshape(1, -1).astype(np.float32)
+            start_time_decryption = time.time()
+            bias_plain_list       = ckks.decrypt_list(encrypted_bias, take=1)
+            bias_plain            = bias_plain_list[0].reshape(1, -1).astype(np.float32)
+            end_time_decryption   = time.time() - start_time_decryption
 
             encrypted_bias_result = await storage_backend.put(
                 bucket_id = BUCKET_ID,
@@ -676,13 +602,19 @@ async def pplr_train():
             if encrypted_bias_result.is_err:
                 logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
                 return Response(status=500, response="Failed to put encrypted bias in cloud storage")
-        
-        
+            endTime    = time.time() 
+
+        worker_response_time = worker_end_time - worker_start_time
+        response_time        = endTime - arrivalTime 
         return Response(
             response = json.dumps({
                 "algorithm": algorithm,
                 "worker_id": worker_id,
-                "total_epochs": total_epochs,
+                "epochs": total_epochs,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "service_time_train":response_time,
             }),
             status   = 200,
             headers  = {}
@@ -742,8 +674,7 @@ async def pplr_predict():
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
         
         WORKER_TIMEOUT          = int(current_app.config.get("WORKER_TIMEOUT",300))
-        max_workers             = Utils.get_workers(num_chunks=num_chunks)
-
+        
         ckks                   = Ckks.from_pyfhel_client(
             _round             = _round,
             decimals           = decimals,
@@ -789,18 +720,12 @@ async def pplr_predict():
             return Response(status=500, response="Failed to process test dataset")
         plaintext_matrix_test_response = plaintext_matrix_test_result.unwrap()
 
-        logger.debug({
-            "msg": "Read, segment, encrypt and put in storage dataset test",
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "value": str(plaintext_matrix_test_response)
-        })
-
         scale            = ckks.SECURITY_LEVELS[MODE.value][security_level]["scale"]
         n_features       = plaintext_matrix_test_response.shape[1]
 
-        
-        get_worker_start_time       = time.time()
+        service_time_client = time.time() - arrivalTime
         managerResponse:RoryManager = current_app.config.get("manager") # Communicates with the manager
+        get_worker_start_time       = time.time()
         get_worker_result           = managerResponse.getWorker( #Gets the worker from the manager
             headers = {
                 "Algorithm"            : algorithm,
@@ -812,16 +737,19 @@ async def pplr_predict():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        get_worker_end_time     = time.time() 
+        get_worker_service_time = get_worker_end_time - get_worker_start_time
+        worker_id               =  "localhost" if TESTING else _worker_id
         
+        worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
             workerId  = worker_id,
             port      = port,
             session   = s,
             algorithm = algorithm,
         )
-
-        iteration = 0
 
         worker_headers = {
             "Experiment-Id"       : experiment_id,
@@ -833,10 +761,6 @@ async def pplr_predict():
             "Num-Chunks"          : str(num_chunks),
         }
 
-        logger.debug({
-            "msg": "Connection with the worker"
-        })
-
         worker_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
                 headers = worker_headers
@@ -847,13 +771,11 @@ async def pplr_predict():
             return Response("Worker error: {}".format(worker_response.content),status=500)
         
         worker_response.raise_for_status()
-        jsonWorkerResponse    = worker_response.json()
+        jsonWorkerResponse       = worker_response.json()
         encrypted_predictions_id = jsonWorkerResponse["encrypted_predictions_id"]
-
-        # logger.debug({
-        # "msg": "We are the champions",
-        # "encrypted_predictions_result":str(encrypted_predictions)
-        # })
+        worker_service_time      = jsonWorkerResponse["service_time"]
+        worker_end_time          = time.time()
+        worker_response_time     = worker_end_time - worker_start_time
 
         encrypted_predictions_result = await storage_backend.get(
             bucket_id = BUCKET_ID,
@@ -868,27 +790,21 @@ async def pplr_predict():
             return Response(status=500, response="Failed to get encrypted predictions") 
         encrypted_predictions = encrypted_predictions_result.unwrap().raw_value
         
-        logger.debug({
-            "msg": "encrypted predictions get from storage",
-            "encrypted_predictions_id": encrypted_predictions_id,
-            "type": str(type(encrypted_predictions)),
-        })
-
         predictions_plain_list = ckks.decrypt_list(encrypted_predictions, take=1)
         predictions_plain = np.array([p[0] for p in predictions_plain_list], dtype=np.float32)
 
-        logger.debug({
-            "msg": "Decrypt predictions",
-        })
-
-        label_predictions = [1 if v >= 0.5 else 0 for v in predictions_plain]
-
+        label_vector = [1 if v >= 0.5 else 0 for v in predictions_plain]
+        response_time = time.time() - arrivalTime
 
         return Response(
             response = json.dumps({
-                "label_predictions":label_predictions,
-                "worker_id":worker_id,
+                "label_vector":label_vector,
                 "algorithm":algorithm,
+                "worker_id":worker_id,
+                "service_time_manager":get_worker_service_time,
+                "service_time_worker":worker_response_time,
+                "service_time_client":service_time_client,
+                "service_time_predict":response_time,
             }),
             status   = 200,
             headers  = {}

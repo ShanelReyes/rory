@@ -54,20 +54,7 @@ async def logistic_regression_train():
     learning_rate               = float(headers.get("Learning-Rate", "0.01"))
     if not all([plaintext_matrix_train_id, plaintext_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
-    MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
     
-    logger.debug({
-        "algorithm"                      : algorithm,
-        "experiment_id"                  : experiment_id,
-        "plaintext_matrix_train_id"      : plaintext_matrix_train_id,
-        "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
-        "epoch"                          : epochs,
-        "learning_rate"                  : learning_rate,
-    })
-
     storage_backend = (
         StorageBuilder(storage_client = STORAGE_CLIENT)
         .with_storage_params(StorageParams(num_chunks=2, timeout=300))
@@ -84,13 +71,6 @@ async def logistic_regression_train():
         logger.error(f"Failed to get matrix train: {plaintext_matrix_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get matrix train")
     plaintext_matrix_train = plaintext_matrix_train_result.unwrap().raw_value
-
-    logger.debug({
-        "msg": "matrix train get from storage",
-        "plaintext_matrix_train_id": plaintext_matrix_train_id,
-        "type": str(type(plaintext_matrix_train)),
-        "value":str(plaintext_matrix_train)
-    })
     
     plaintext_label_vector_train_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -104,13 +84,7 @@ async def logistic_regression_train():
         return Response(status=500, response="Failed to get label vector train") 
     plaintext_label_vector_train = plaintext_label_vector_train_result.unwrap().raw_value
     
-    logger.debug({
-        "msg": "Label vector train get from storage",
-        "plaintext_label_vector_train_id": plaintext_label_vector_train_id,
-        "type": str(type(plaintext_label_vector_train)),
-        "value":str(plaintext_label_vector_train)
-    })
-
+    start_time_train = time.time()
     weights, bias = LogisticRegression.train(
         plaintext_matrix   = plaintext_matrix_train,
         label_vector_train = plaintext_label_vector_train[0],
@@ -118,17 +92,8 @@ async def logistic_regression_train():
         weights            = None,
         bias               = 0.0,
     )
+    end_time_train = time.time() - start_time_train
 
-    logger.debug({
-            "msg": "Finish train",
-            "type_W": str(type(weights)),
-            "value_W":str(weights),
-            "type_B": str(type(bias)),
-            "value_B":str(bias),
-
-    })
-
-    # sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
     weight_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = weights,
@@ -137,9 +102,6 @@ async def logistic_regression_train():
         encrypt   = False,
         delete    = True
     )
-    logger.debug({
-         "msg":str(weight_result)
-    })
 
     if weight_result.is_err:
         logger.error("Failed to put weights in cloud storage: {}".format(weight_result.unwrap_err()))
@@ -159,12 +121,12 @@ async def logistic_regression_train():
         logger.error("Failed to put bias in cloud storage: {}".format(bias_result.unwrap_err()))
         return Response(status=500, response="Failed to put bias in cloud storage")
     bias_response = bias_result.unwrap()
-
+    end_time = time.time() - local_start_time
     return Response(
             response = json.dumps({
-                "msg":"Training results in storage",
-                # "weights_id":weights_id,
-                # "bias_id":bias_id,       
+                "service_time":end_time,
+                "train_time":end_time_train,   
+                "algorithm":algorithm,  
             }),
             status   = 200,
             headers  = {}
@@ -179,7 +141,6 @@ async def logistic_regression_predict():
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     headers                     = request.headers
     experiment_id               = headers.get("Experiment-Id","")
-    iterations                  = int(headers.get("Iterations", 1))
     algorithm                   = Constants.MachineLearningAlgorithms.LOGISTIC_REGRESSION_PREDICT
     plaintext_matrix_test_id   = headers.get("Plaintext-Matrix-Test-Id","test_x")
     weights_id                  = headers.get("Weights-Id")
@@ -187,18 +148,6 @@ async def logistic_regression_predict():
     predictions_id = "{}predictions".format(plaintext_matrix_test_id)
     if not all([plaintext_matrix_test_id, weights_id, bias_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
-    MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT", 3600))
-    MICTLANX_DELAY              = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR     = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES        = int(current_app.config.get("MICTLANX_MAX_RETRIES", 10))
-    
-    logger.debug({
-        "algorithm"                      : algorithm,
-        "experiment_id"                  : experiment_id,
-        "plaintext_matrix_test_id"       : plaintext_matrix_test_id,
-        "weights_id"                     : weights_id,
-        "bias_id"                        : bias_id,
-    })
 
     storage_backend = (
         StorageBuilder(storage_client = STORAGE_CLIENT)
@@ -217,13 +166,6 @@ async def logistic_regression_predict():
         return Response(status=500, response="Failed to get matrix test")
     plaintext_matrix_test = plaintext_matrix_test_result.unwrap().raw_value
 
-    logger.debug({
-        "msg": "matrix test get from storage",
-        "plaintext_matrix_train_id": plaintext_matrix_test_id,
-        "type": str(type(plaintext_matrix_test)),
-        "value":str(plaintext_matrix_test)
-    })
-
     weights_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
         ball_id   = weights_id,
@@ -234,13 +176,6 @@ async def logistic_regression_predict():
         logger.error(f"Failed to get weights: {weights_result.unwrap_err()}")
         return Response(status=500, response="Failed to get weights")
     weights = weights_result.unwrap().raw_value
-
-    logger.debug({
-        "msg": "weights get from storage",
-        "weights_id": weights_id,
-        "type": str(type(weights)),
-        "value":str(weights)
-    })
 
     bias_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -253,18 +188,13 @@ async def logistic_regression_predict():
         return Response(status=500, response="Failed to get bias")
     bias = bias_result.unwrap().raw_value
 
-    logger.debug({
-        "msg": "bias get from storage",
-        "bias_id": bias_id,
-        "type": str(type(bias)),
-        "value":str(bias)
-    })
-
+    start_time_predict = time.time()
     predictions = LogisticRegression.predict(
-            plaintext_matrix_test = plaintext_matrix_test,
-            weights               = weights,
-            bias                  = bias
-        )
+        plaintext_matrix_test = plaintext_matrix_test,
+        weights               = weights,
+        bias                  = bias
+    )
+    end_time_predict = time.time() - start_time_predict
 
     predictions = await storage_backend.put(
         bucket_id = BUCKET_ID,
@@ -274,26 +204,24 @@ async def logistic_regression_predict():
         encrypt   = False,
         delete    = True
     )
-    logger.debug({
-         "msg":str(predictions)
-    })
 
     if predictions.is_err:
         logger.error("Failed to put predictions in cloud storage: {}".format(predictions.unwrap_err()))
         return Response(status=500, response="Failed to put predictions in cloud storage")
     predictions_response = predictions.unwrap()
 
-    logger.debug({
-        "msg":"Predictions in storage",
-    })
+    end_time     = time.time()
+    service_time = end_time - local_start_time
 
     return Response(
-            response = json.dumps({
-                "predictions_id": predictions_id,      
-            }),
-            status   = 200,
-            headers  = {}
-            )
+        response = json.dumps({
+            "predictions_id": predictions_id,
+            "predict_time": end_time_predict,
+            "service_time":service_time
+        }),
+        status   = 200,
+        headers  = {}
+        )
 
 
 @machinelearning.route("/pplr/train", methods=["POST"])
@@ -306,13 +234,12 @@ async def pplr_train():
     request_headers             = request.headers
     algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
     experiment_id               = request_headers.get("Experiment-Id", "")
-    # epochs                      = int(request_headers.get("Epochs", 1))
     learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
     encrypted_matrix_train_id       = request_headers.get("Encrypted-Matrix-Train-Id")
     encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
     encrypted_weights_id            = request_headers.get("Encrypted-Weights-Id")
     encrypted_bias_id               = request_headers.get("Encrypted-Bias-Id")
-    scale                           = int(request_headers.get("Scale", 40))                   # Escala para Pyfhel
+    scale                           = int(request_headers.get("Scale", 40))
     n_features                      = int(request_headers.get("N-Features", 0))
     n_samples                       = int(request_headers.get("N-Samples", 0))
     num_chunks                      = int(request_headers.get("Num-Chunks",-1))
@@ -320,11 +247,7 @@ async def pplr_train():
     if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     
-    MICTLANX_TIMEOUT        = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY          = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES    = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-    _round                  = bool(int(current_app.config.get("_round","0")))                 #False
+    _round                  = bool(int(current_app.config.get("_round","0")))
     decimals                = int(current_app.config.get("DECIMALS","4"))
     keys_path               = current_app.config.get("KEYS_PATH","/rory/keys")
     ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
@@ -362,7 +285,6 @@ async def pplr_train():
         .with_storage_params(StorageParams(num_chunks=2, timeout=300))
         .build()
     )
-    #___________________
 
     encrypted_matrix_train_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -376,12 +298,6 @@ async def pplr_train():
         return Response(status=500, response="Failed to get encrypted matrix train")
     encrypted_matrix_train = encrypted_matrix_train_result.unwrap().raw_value
 
-    logger.debug({
-        "msg": "encrypted matrix train get from storage",
-        "encrypted_matrix_train_id": encrypted_matrix_train_id,
-        "value":str(encrypted_matrix_train)
-    })
-    
     encrypted_label_vector_train_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
         ball_id   = encrypted_label_vector_train_id,
@@ -394,15 +310,6 @@ async def pplr_train():
         logger.error(f"Failed to get encrypted label vector train: {encrypted_label_vector_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get encrypted label vector train") 
     encrypted_label_vector_train = encrypted_label_vector_train_result.unwrap().raw_value
-    # print("Encrypted label vector train retrieved successfully",encrypted_label_vector_train)
-
-    
-    logger.debug({
-        "msg": "encrypted label vector train get from storage",
-        "encrypted_label_vector_train_id": encrypted_label_vector_train_id,
-        "type": str(type(encrypted_label_vector_train)),
-        "value":str(encrypted_label_vector_train)
-    })
     
     init_encrypted_weights_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -416,14 +323,6 @@ async def pplr_train():
         logger.error(f"Failed to get init encrypted weights: {init_encrypted_weights_result.unwrap_err()}")
         return Response(status=500, response="Failed to get init encrypted weights")
     init_encrypted_weights = init_encrypted_weights_result.unwrap().raw_value
-
-    logger.debug({
-        "msg": "encrypted weight get from storage",
-        "encrypted_weight_id": encrypted_weights_id,
-        "type": str(type(init_encrypted_weights)),
-        "value":str(init_encrypted_weights)
-    })
-
     
     init_encrypted_bias_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -432,25 +331,13 @@ async def pplr_train():
         encrypt   = True,
         scheme    = Scheme.CKKS
     )
-    # logger.debug({
-    #     "type":"BIAS",
-    #     # "msg":str(init_encrypted_bias_result)
-    # })
-    
+
     if init_encrypted_bias_result.is_err:
         logger.error(f"Failed to get init encrypted bias: {init_encrypted_bias_result.unwrap_err()}")
         return Response(status=500, response="Failed to get init encrypted bias")
     init_encrypted_bias = init_encrypted_bias_result.unwrap().raw_value
 
-    logger.debug({
-        "msg": "encrypted bias get from storage",
-        "encrypted_bias_id": encrypted_bias_id,
-        "type": str(type(init_encrypted_bias)),
-        "value":str(init_encrypted_bias)
-    })
-
-    # time.sleep(1000)
-
+    start_time_train = time.time()
     encrypted_weights, encrypted_bias = PPLR.train(
         HE                = ckks.he_object,
         learning_rate     = learning_rate,
@@ -462,20 +349,11 @@ async def pplr_train():
         scale             = scale,
         n_samples         = n_samples
     )
+    end_time_train = time.time() - start_time_train
     
-    # logger.debug({
-    #         "msg": "Finish train",
-    #         "type": str(type(encrypted_weights)),
-    #         # "value":str(encrypted_weights),
-    #         "type": str(type(encrypted_bias)),
-    #         # "value":str(encrypted_bias),
-
-    # })
-    # time.sleep(1000)
     del init_encrypted_weights
     del init_encrypted_bias
 
-    # sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
     encrypted_weight_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = [encrypted_weights],
@@ -485,10 +363,6 @@ async def pplr_train():
         encrypt   = False,
         scheme    = Scheme.CKKS,
     )
-    # logger.debug({
-    #     "msg":str(encrypted_weight_result)
-    # })
-
     if encrypted_weight_result.is_err:
         logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
         return Response(status=500, response="Failed to put encrypted weights in cloud storage")
@@ -508,12 +382,13 @@ async def pplr_train():
         logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
         return Response(status=500, response="Failed to put encrypted bias in cloud storage")
     encrypted_bias_response = encrypted_bias_result.unwrap()
+    end_time = time.time() - local_start_time
 
     return Response(
             response = json.dumps({
-                "msg":"Predictions in storage",
-                # "encrypted_weights_id":encrypted_weights_id,
-                # "encrypted_bias_id":encrypted_bias_id,       
+                "service_time":end_time,  
+                "train_time":end_time_train, 
+                "algorithm":algorithm,
             }),
             status   = 200,
             headers  = {}
@@ -529,40 +404,25 @@ async def pplr_predict():
     request_headers             = request.headers
     algorithm                   = Constants.MachineLearningAlgorithms.PPLR_PREDICT
     experiment_id               = request_headers.get("Experiment-Id", "")
-    iterations                  = int(request_headers.get("Iterations", 1))
     encrypted_matrix_test_id    = request_headers.get("Encrypted-Matrix-Test-Id")
     encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
     encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
     scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
     n_features                  = int(request_headers.get("N-Features", 0))
-    num_chunks                  = int(request_headers.get("Num-Chunks",-1))
     encrypted_predictions_id           = "{}encryptedpredictions".format(encrypted_matrix_test_id)
     
     if not all([encrypted_matrix_test_id,encrypted_weights_id,encrypted_bias_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
     
-    MICTLANX_TIMEOUT             = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    MICTLANX_DELAY               = int(current_app.config.get("MICTLANX_DELAY","2"))
-    MICTLANX_BACKOFF_FACTOR      = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-    MICTLANX_MAX_RETRIES         = int(current_app.config.get("MICTLANX_MAX_RETRIES","10"))
-    _round                       = bool(int(current_app.config.get("_round","0"))) #False
-    decimals                     = int(current_app.config.get("DECIMALS","4"))
-    keys_path                    = current_app.config.get("KEYS_PATH","/rory/keys")
-    ctx_filename                 = current_app.config.get("CTX_FILENAME","ctx")
-    pubkey_filename              = current_app.config.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename           = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename            = current_app.config.get("RELINKEY_FILENAME","relinkey")
-    rotatekey_filename           = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-    
-    logger.debug({
-            "algorithm" : algorithm,
-            "encrypted_matrix_test_id": encrypted_matrix_test_id,
-            "encrypted_weight_matrix_id": encrypted_weights_id,
-            "encrypted_bias_train_id": encrypted_bias_id,
-            "scale": scale,
-            "n_features": n_features,
-            "max_iterations": iterations,
-        })
+    MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+    _round             = bool(int(current_app.config.get("_round","0")))            #False
+    decimals           = int(current_app.config.get("DECIMALS","4"))
+    keys_path          = current_app.config.get("KEYS_PATH","/rory/keys")
+    ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+    pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+    secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+    relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
+    rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
     
     ckks = Ckks.from_pyfhel_server(
         _round             = _round,
@@ -606,15 +466,6 @@ async def pplr_predict():
         return Response(status=500, response="Failed to get encrypted matrix test") 
     encrypted_matrix_test = encrypted_matrix_test_result.unwrap().raw_value
     
-    logger.debug({
-        "msg": "encrypted matrix test get from storage",
-        "encrypted_matrix_test_id": encrypted_matrix_test_id,
-        "type": str(type(encrypted_matrix_test)),
-        "value":str(encrypted_matrix_test),
-        # "level": encrypted_matrix_test.mod_level(),
-        # "scale": encrypted_matrix_test.scale(),
-    })
-
     encrypted_weights_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
         ball_id   = encrypted_weights_id,
@@ -627,15 +478,6 @@ async def pplr_predict():
         logger.error(f"Failed to get encrypted weights: {encrypted_weights_result.unwrap_err()}")
         return Response(status=500, response="Failed to get encrypted weights") 
     encrypted_weights = encrypted_weights_result.unwrap().raw_value
-    
-    logger.debug({
-        "msg": "encrypted weights get from storage",
-        "encrypted_matrix_test_id": encrypted_weights_id,
-        "type": str(type(encrypted_weights)),
-        # "level": encrypted_weights[0].mod_level(),
-        # "scale": encrypted_weights[0].scale(),
-        "value":str(encrypted_weights)
-    })
 
     encrypted_bias_result = await storage_backend.get(
         bucket_id = BUCKET_ID,
@@ -650,15 +492,7 @@ async def pplr_predict():
         return Response(status=500, response="Failed to get encrypted bias") 
     encrypted_bias = encrypted_bias_result.unwrap().raw_value
     
-    logger.debug({
-        "msg": "encrypted bias get from storage",
-        "encrypted_matrix_test_id": encrypted_bias_id,
-        "type": str(type(encrypted_bias)),
-        "value":str(encrypted_bias),
-        # "level": encrypted_bias[0].mod_level(), 
-        # "scale": encrypted_bias.scale()
-    })
-
+    start_time_predict = time.time()
     encrypted_predictions = PPLR.predict(
         HE                = ckks.he_object,
         encrypted_X_test  = encrypted_matrix_test, 
@@ -667,15 +501,8 @@ async def pplr_predict():
         scale             = scale,
         n_features        = n_features
     )
+    end_time_predict = time.time() - start_time_predict
 
-    logger.debug({
-            "msg": "Finish train",
-            "type": str(type(encrypted_predictions)),
-            "type": str(type(encrypted_weights)),
-            "type": str(type(encrypted_bias)),
-
-    })
-    # time.sleep(100)
     sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
     encrypted_predictions_result = await sb_put.put(
         bucket_id = BUCKET_ID,
@@ -692,15 +519,15 @@ async def pplr_predict():
         return Response(status=500, response="Failed to put encrypted weights in cloud storage")
     encrypted_predictions_response = encrypted_predictions_result.unwrap()  
 
-    logger.debug({
-        "msg":"Predictions in storage",
-        # "encrypted_predictions_result":str(encrypted_predictions_result)
-    })
-
+    end_time     = time.time()
+    service_time = end_time - local_start_time
 
     return Response(
             response = json.dumps({
                 "encrypted_predictions_id": encrypted_predictions_id,
+                "predict_time": end_time_predict,
+                "service_time":service_time,
+                "algorithm":algorithm,
             }),
             status   = 200,
             headers  = {}
