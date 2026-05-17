@@ -70,6 +70,7 @@ async def logistic_regression_train():
     if plaintext_matrix_train_result.is_err:
         logger.error(f"Failed to get matrix train: {plaintext_matrix_train_result.unwrap_err()}")
         return Response(status=500, response="Failed to get matrix train")
+
     plaintext_matrix_train = plaintext_matrix_train_result.unwrap().raw_value
     
     plaintext_label_vector_train_result = await storage_backend.get(
@@ -87,7 +88,7 @@ async def logistic_regression_train():
     start_time_train = time.time()
     weights, bias = LogisticRegression.train(
         plaintext_matrix   = plaintext_matrix_train,
-        label_vector_train = plaintext_label_vector_train[0],
+        label_vector_train = plaintext_label_vector_train,
         epochs             = epochs,
         weights            = None,
         bias               = 0.0,
@@ -110,7 +111,7 @@ async def logistic_regression_train():
 
     bias_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
-        data      = bias,
+        data      = [bias],
         ball_id   = bias_id,
         segment   = False,
         encrypt   = False,
@@ -196,7 +197,8 @@ async def logistic_regression_predict():
     )
     end_time_predict = time.time() - start_time_predict
 
-    predictions = await storage_backend.put(
+
+    predictions_result = await storage_backend.put(
         bucket_id = BUCKET_ID,
         data      = predictions,
         ball_id   = predictions_id,
@@ -205,10 +207,10 @@ async def logistic_regression_predict():
         delete    = True
     )
 
-    if predictions.is_err:
-        logger.error("Failed to put predictions in cloud storage: {}".format(predictions.unwrap_err()))
+    if predictions_result.is_err:
+        logger.error("Failed to put predictions in cloud storage: {}".format(predictions_result.unwrap_err()))
         return Response(status=500, response="Failed to put predictions in cloud storage")
-    predictions_response = predictions.unwrap()
+    predictions_response = predictions_result.unwrap()
 
     end_time     = time.time()
     service_time = end_time - local_start_time

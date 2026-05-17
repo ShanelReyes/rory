@@ -9,15 +9,15 @@ default_headers_lr_train = {
     "Plaintext-Matrix-Train-Filename": "dataset1_train",
     "Plaintext-Label-Vector-Train-Filename": "label_vector_train",
     "Extension": "npy",
-    "Epochs": "30",
-    "Learning-Rate": "0.01",
+    "Epochs": "1",
+    "Learning-Rate": "0.1",
 }
 
 default_headers_lr_predict = {
     "Experiment-Id": uuid4().hex[:10],
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Test-Id": "dataset1_test",
-    "Plaintext-Matrix-Test-Filename": "dataset1_test",
+    "Plaintext-Matrix-Test-Filename": "dataset1_train",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
     "Extension": "npy",
 }
