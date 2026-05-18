@@ -1,7 +1,7 @@
 import time, json, os
 from flask import Blueprint,current_app,request,Response
 from rory.core.utils.constants import Constants
-from rory.core.classification.secure.distributed.sknn import SecureKNearestNeighbors as SKNN
+from rory.core.classification.secure.conventional.sknn import SecureKNearestNeighbors as SKNN
 from rory.core.classification.secure.pqc.sknn import SecureKNearestNeighbors as SKNNPQC
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rory.core.classification.knn import KNearestNeighbors as KNN

@@ -89,21 +89,41 @@ ASYNC_STORAGE_CLIENT = AsyncClient(
 
 
 
-def console_handler_filter(record:logging.LogRecord):
-    if DEBUG:
-        return True
-    elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
-        return True
-    else:
-        return False   
+# def console_handler_filter(record:logging.LogRecord):
+#     if DEBUG:
+#         return True
+#     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
+#         return True
+#     else:
+#         return False   
+
+
+from mictlanx.logger.log import JsonFormatter
+# LOGGER_NAME                           = os.environ.get("LOGGER_NAME","rory-worker")
+RORY_WORKER_LOG_INTERVAL              = int(os.environ.get("RORY_WORKER_LOG_INTERVAL",24))
+RORY_WORKER_LOG_WHEN                  = os.environ.get("RORY_WORKER_LOG_WHEN","h")
+RORY_WORKER_LOG_JSON_FORMATTER_INDENT = os.environ.get("RORY_WORKER_LOG_JSON_FORMATTER_INDENT",4)
+RORY_WORKER_LOG_DISABLED              = bool(int(os.environ.get("RORY_WORKER_LOG_DISABLED","1")))
+RORY_WORKER_LOG_ERROR_TO_FILE         = bool(int(os.environ.get("RORY_WORKER_LOG_ERROR_TO_FILE","1")))
+RORY_WORKER_LOG_FILE_HANDLER_LEVEL    = int(os.environ.get("RORY_WORKER_LOG_FILE_HANDLER_LEVEL",logging.INFO))
+RORY_WORKER_LOG_LEVEL                 = int(os.environ.get("RORY_WORKER_LOG_LEVEL",logging.DEBUG))
+RORY_WORKER_LOG_TO_FILE               = bool(int(os.environ.get("RORY_WORKER_LOG_TO_FILE","1")))
+RORY_WORKER_LOG_USE_RICH              = bool( int(os.environ.get("RORY_WORKER_LOG_USE_RICH","0") ) )
 
 
 LOGGER = Log(
     name                   = NODE_ID,
     path                   = LOG_PATH,
-    console_handler_filter = console_handler_filter,
-    interval               = 24,
-    when                   = "h"
+    interval               = RORY_WORKER_LOG_INTERVAL,
+    when                   = RORY_WORKER_LOG_WHEN,
+    console_formatter      = JsonFormatter(indent=int(RORY_WORKER_LOG_JSON_FORMATTER_INDENT) if RORY_WORKER_LOG_JSON_FORMATTER_INDENT is not None else None),
+    console_handler_level  = RORY_WORKER_LOG_LEVEL,
+    disabled               = RORY_WORKER_LOG_DISABLED,
+    error_log              = RORY_WORKER_LOG_ERROR_TO_FILE,
+    file_handler_level     = RORY_WORKER_LOG_FILE_HANDLER_LEVEL,
+    log_level              = RORY_WORKER_LOG_LEVEL,
+    to_file                = RORY_WORKER_LOG_TO_FILE,
+    use_rich               = RORY_WORKER_LOG_USE_RICH
 )
 
 
