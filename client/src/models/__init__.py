@@ -20,6 +20,8 @@ class ExperimentLogEntry(BaseModel):
     client_time:Optional[float] = 0
     manager_time:Optional[float] = 0
     description:Optional[str] = ""
+    epochs:Optional[int] = None
+    learning_rate:Optional[float] = None
 
     @model_validator(mode='after')
     def compute_time(self) -> 'ExperimentLogEntry':

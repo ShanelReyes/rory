@@ -1,8 +1,7 @@
 import requests as R
 from uuid import uuid4
 
-
-default_headers_pplr_train = {
+default_headers_lr_train = {
     "Experiment-Id": uuid4().hex[:10],
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
@@ -10,46 +9,41 @@ default_headers_pplr_train = {
     "Plaintext-Matrix-Train-Filename": "dataset1_train",
     "Plaintext-Label-Vector-Train-Filename": "label_vector_train",
     "Extension": "npy",
-    "Epochs": "3",
+    "Epochs": "1",
     "Learning-Rate": "0.1",
-    "Accuracy-Threshold": "0.80",
 }
 
-default_headers_pplr_predict = {
+default_headers_lr_predict = {
     "Experiment-Id": uuid4().hex[:10],
     "Experiment-Iteration": "0",
     "Plaintext-Matrix-Test-Id": "dataset1_test",
-    "Plaintext-Matrix-Test-Filename": "dataset1_test",
-    "Extension": "npy",
+    "Plaintext-Matrix-Test-Filename": "dataset1_train",
     "Plaintext-Matrix-Train-Id": "dataset1_train",
-    # "Plaintext-Weight-Matrix-Id": "weight-matrix",
-    # "Plaintext-Bias-Vector-Id": "bias-vector",
-    # "Accuracy-Threshold": "0.80",
+    "Extension": "npy",
 }
 
-
-def test_client_pplr_train():
+def test_client_logistic_regression_train():
     result = R.post(
-        "http://localhost:3000/machine-learning/pplr/train",
-        headers=default_headers_pplr_train
-           )
+        "http://localhost:3000/machine-learning/logistic-regression/train",
+        headers=default_headers_lr_train
+    )
     if result.status_code != 200:
         print("Error:", result.status_code, result.text)
     else:   
         print("Training response:", result.json())
     assert result.status_code == 200
 
-def test_client_pplr_predict():
+def test_client_logistic_regression_predict():
     result = R.post(
-        "http://localhost:3000/machine-learning/pplr/predict",
-        headers=default_headers_pplr_predict
-           )
+        "http://localhost:3000/machine-learning/logistic-regression/predict",
+        headers=default_headers_lr_predict
+    )
     if result.status_code != 200:
         print("Error:", result.status_code, result.text)
     else:   
         print("Prediction response:", result.json())
     assert result.status_code == 200
 
-def test_pplr():
-    test_client_pplr_train()
-    test_client_pplr_predict()
+def test_logistic_regression():
+    test_client_logistic_regression_train()
+    test_client_logistic_regression_predict()

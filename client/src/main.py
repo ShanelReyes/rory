@@ -99,20 +99,46 @@ MANAGER = RoryManager(
     port     = RORY_MANAGER_PORT,
 )
 
-def console_handler_filter(record:logging.LogRecord):
-    if DEBUG:
-        return True
-    elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
-        return True
-    else:
-        return False
+# def console_handler_filter(record:logging.LogRecord):
+#     if DEBUG:
+#         return True
+#     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
+#         return True
+#     else:
+#         return False
+from mictlanx.logger.log import JsonFormatter
+# Intervalo en la se generan los archivos de logs (default = cada 24 horas)
+RORY_CLIENT_LOG_INTERVAL              = int(os.environ.get("RORY_CLIENT_LOG_INTERVAL",24))
+RORY_CLIENT_LOG_WHEN                  = os.environ.get("RORY_CLIENT_LOG_WHEN","h")
+# Indentacion de los json al imprimirse en consola 
+RORY_CLIENT_LOG_JSON_FORMATTER_INDENT = os.environ.get("RORY_CLIENT_LOG_JSON_FORMATTER_INDENT",None)
+# Desactiva los logs si se pasa el valor 1.  (default = 0, muestra logs)
+RORY_CLIENT_LOG_DISABLED              = bool(int(os.environ.get("RORY_CLIENT_LOG_DISABLED","0")))
+# Permite generar log de error separado (default = 1, genera archivo de log de error )
+RORY_CLIENT_LOG_ERROR_TO_FILE         = bool(int(os.environ.get("RORY_CLIENT_LOG_ERROR_TO_FILE","1")))
+# El nivel de log que se escriben en el archivo de log (default = INFO)
+RORY_CLIENT_LOG_FILE_HANDLER_LEVEL    = int(os.environ.get("RORY_CLIENT_LOG_FILE_HANDLER_LEVEL",logging.INFO))
+# El nivel de log general que se muestran en consola (default = DEBUG)
+RORY_CLIENT_LOG_LEVEL                 = int(os.environ.get("RORY_CLIENT_LOG_LEVEL",logging.DEBUG))
+# Permite activar la generacion del archivo de log (Default = 1, genera archivo de log y lo gurda en <LOG_PATH>/<LOGGER_NAME>.log) 
+RORY_CLIENT_LOG_TO_FILE               = bool(int(os.environ.get("RORY_CLIENT_LOG_TO_FILE","1")))
+# Muestra los logs con un formato 
+RORY_CLIENT_LOG_USE_RICH              = bool(int(os.environ.get("RORY_CLIENT_LOG_USE_RICH","0")))
+
 
 LOGGER = Log(
     name                   = LOGGER_NAME,
     path                   = LOG_PATH,
-    console_handler_filter = console_handler_filter,
-    interval               = 24,
-    when                   = "h"
+    interval               = RORY_CLIENT_LOG_INTERVAL,
+    when                   = RORY_CLIENT_LOG_WHEN,
+    console_formatter      = JsonFormatter(indent=int(RORY_CLIENT_LOG_JSON_FORMATTER_INDENT) if RORY_CLIENT_LOG_JSON_FORMATTER_INDENT is not None else None),
+    console_handler_level  = RORY_CLIENT_LOG_LEVEL,
+    disabled               = RORY_CLIENT_LOG_DISABLED,
+    error_log              = RORY_CLIENT_LOG_ERROR_TO_FILE,
+    file_handler_level     = RORY_CLIENT_LOG_FILE_HANDLER_LEVEL,
+    log_level              = RORY_CLIENT_LOG_LEVEL,
+    to_file                = RORY_CLIENT_LOG_TO_FILE,
+    use_rich               = RORY_CLIENT_LOG_USE_RICH
 )
 
 LIU  = Liu(
