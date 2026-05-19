@@ -8,6 +8,9 @@ The **Rory Client** acts as the **Data Owner (DO)** and primary security authori
 
 Its main mission is to ensure that confidential dataset never leave the local environment in plain text. Using a hybrid cryptographic approach, combining homomorphic encryption (Liu, CKKS) for secure arithmetic operations and order-preserving encryption (FDHOPE) for secure comparisons, the client enables distributed computing on remote nodes without compromising data privacy.
 
+!!! info "Batch Automation"
+    For running experiments in bulk, use the [**Dataowner**](/dataowner) module. It automates experiment execution by reading trace CSV files and submitting workloads to the Client service concurrently.
+
 ---
 
 ## Key Responsibilities

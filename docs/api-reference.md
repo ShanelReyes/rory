@@ -4,7 +4,7 @@ icon: material/xml
 
 # API Reference
 
-Comprehensive technical documentation for the Rory platform, detailing the endpoints for the Client, Manager, and Worker components. This reference covers secure data mining protocols using homomorphic (Liu, CKKS) and order-preserving (FDHOPE) encryption schemes.
+Comprehensive technical documentation for the Rory platform, detailing the endpoints for the Client, Manager, Worker, and Dataowner components. This reference covers secure data mining protocols using homomorphic (Liu, CKKS) and order-preserving (FDHOPE) encryption schemes.
 
 ---
 
@@ -70,6 +70,18 @@ Endpoints for task status tracking, worker registration, and resource allocation
       show_root_heading: false
       show_root_toc_entry: false
       heading_level: 4
+
+---
+
+## Rory Dataowner
+
+The **Dataowner** module is a **batch experiment runner** — not a web service. It processes a trace CSV file and submits experiments concurrently to the Client service using the `roryclient` library. It has no HTTP endpoints of its own.
+
+| Component | Type | Communication |
+|:---|:---|:---|
+| `dataowner/src/main.py` | CLI/Batch Script | `roryclient` → Client (port 3000) |
+
+See the [Dataowner](/dataowner) documentation for configuration, trace file format, and deployment instructions.
 
 ---
 

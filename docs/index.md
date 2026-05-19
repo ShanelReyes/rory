@@ -6,14 +6,21 @@ icon: lucide/rocket
 
 </p>
 
+<div class="badge-container" markdown>
+  [![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)](https://python.org)
+  [![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/ShanelReyes/rory/blob/master/LICENSE.txt)
+  [![GitHub](https://img.shields.io/badge/GitHub-ShanelReyes%2Frory-8A2BE2?logo=github)](https://github.com/ShanelReyes/rory)
+</div>
+
 # System Overview
 
 Rory is a distributed and privacy-preserving data mining system designed to execute clustering and classification tasks over encrypted datasets. The architecture leverages Post-Quantum Cryptography (PQC) and Homomorphic Encryption (HE) to ensure data confidentiality throughout the entire mining lifecycle.
 
 ## Architecture
 
-The system follows a decentralized orchestration model composed of four primary layers:
+The system follows a decentralized orchestration model composed of five primary layers:
 
+* **Dataowner Layer**: A batch runner that automates experiment execution by processing trace CSV files and submitting concurrent workloads to the Client.
 * **Orchestration Layer (Manager)**: Acts as the brain of the system, managing worker registration, load balancing, and task distribution.
 * **Computational Layer (Workers)**: High-performance nodes that execute the data mining algorithms (SKMeans, DBSKMeans, SKNN) on encrypted data.
 * **Storage Layer (CSS/Mictlanx):** A distributed and asynchronous storage service that handles data fragmentation and persistence.
@@ -46,7 +53,17 @@ Follow these steps to deploy the complete ecosystem (Storage + Rory Nodes) using
     docker compose -f ./docker-compose.yml up --build
     ```
 
-This command will build the images and orchestrate the three main nodes, linking them automatically to the Mictlanx storage network.
+3. **Run Experiments (Dataowner)**
+
+    Launch the Dataowner batch runner to execute experiments against the deployed cluster:
+
+    ```bash
+    cd rory/dataowner
+    chmod +x deploy.sh
+    ./deploy.sh ./envs/.env-kmeans
+    ```
+
+These commands will build and orchestrate all the Rory nodes, linking them automatically to the Mictlanx storage network. See each component's documentation page for detailed configuration options.
 
 
 ## Security & Privacy Model
@@ -82,3 +99,4 @@ The interaction between components follows a structured protocol to ensure effic
 * **WSGI Server**: Gunicorn
 * **Storage**: Mictlanx (Distributed CSS)
 * **Crypto Libraries**: Pyfhel (CKKS implementation)
+* **Batch Runner**: Rory Dataowner (roryclient, pandas, numpy)
