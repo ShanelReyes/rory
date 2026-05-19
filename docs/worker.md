@@ -28,7 +28,7 @@ The Worker is configured via environment variables, typically loaded from `/rory
 | `RORY_MANAGER_IP_ADDR` | IP address of the Manager node. | `localhost` |
 | `RORY_MANAGER_PORT` | Communication port for the Manager. | `6000` |
 | `SERVER_IP_ADDR` | Network interface for the app server. | `0.0.0.0` |
-| `DISTANCE` | Distance metric for mining algorithms. | `MANHATHAN` |
+| `DISTANCE` | Distance metric for mining algorithms. | `MANHATTAN` |
 | `MIN_ERROR` | Minimum error tolerance for convergence. | `0.015` |
 
 ### Cryptographic Parameters (Liu & CKKS)
@@ -235,7 +235,7 @@ services:
     container_name: rory-worker-0
     hostname: rory-worker-0
     ports:
-      - 3000:3000
+      - 9000:9000
     environment:
       - NODE_ID=rory-worker-0
       - RORY_MANAGER_IP_ADDR=rory-manager-0

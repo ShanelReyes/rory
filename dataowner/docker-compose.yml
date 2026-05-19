@@ -1,5 +1,8 @@
 services:
   rory-dataowner-0:
+    build: 
+      context: .
+      dockerfile: Dockerfile
     image: shanelreyes/rory:dataowner
     container_name: rory-dataowner-0
     environment:

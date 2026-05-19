@@ -226,7 +226,7 @@ services:
     container_name: rory-manager-0
     hostname: rory-manager-0
     ports:
-      - 3000:3000
+      - 6000:6000
     environment:
       - NODE_ID=rory-manager-0
       - RORY_MANAGER_IP_ADDR=rory-manager-0

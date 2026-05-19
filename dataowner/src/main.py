@@ -13,12 +13,12 @@ from option import Result,Ok,Err
 from log import Log
 from roryclient.client import RoryClient
 
-RORY_CLIENT_HOSTNAME = os.environ.get("RORY_CLIENT_HOSTNAME","localhost")
-RORY_CLIENT_PORT = int(os.environ.get("RORY_CLIENT_PORT","3001"))
-RORY_CLIENT_TIMEOUT = int(os.environ.get("RORY_CLIENT_TIMEOUT","120"))
-client = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT,timeout=RORY_CLIENT_TIMEOUT)
+RORY_CLIENT_HOSTNAME = os.environ.get("CLIENT_IP_ADDR","localhost")
+RORY_CLIENT_PORT     = int(os.environ.get("RORY_CLIENT_PORT","3000"))
+RORY_CLIENT_TIMEOUT  = int(os.environ.get("RORY_CLIENT_TIMEOUT","120"))
+client               = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT,timeout=RORY_CLIENT_TIMEOUT)
 
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/home/sreyes/rory/dataowner/envs/.env-kmeans") 
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/home/sreyes/rory/dataowner/envs/.env-pplr") 
 if os.path.exists(ENV_FILE_PATH):
     load_dotenv(ENV_FILE_PATH)
 
@@ -46,6 +46,8 @@ ALGORITHM_MAP = {
     "KNN":"CLASSIFICATION",
     "SKNN":"CLASSIFICATION",
     "SKNNPQC":"CLASSIFICATION",
+    "LOGISTICREGRESSION":"MACHINELEARNING",
+    "PPLR":"MACHINELEARNING",
 }
 # TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
 
@@ -87,7 +89,7 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
     model_id = row.get("MODEL_ID","")
     plaintext_matrix_id = f"{dataset_id}-{current_experiment_iteration}"
     model_id            = f"{model_id}-{current_experiment_iteration}"
-    label_vector_id     = "{}{}{}".format( plaintext_matrix_id if TASK_ID == "CLUSTERING" else model_id ,algorithm,current_experiment_iteration)
+    label_vector_id     = "{}{}{}".format( plaintext_matrix_id if TASK_ID == "CLUSTERING" else (model_id if TASK_ID == "CLASSIFICATION" else row.get("DATASET_TEST","")),algorithm,current_experiment_iteration)
 
     if algorithm == "KMEANS":
         result = client.kmeans(
@@ -184,6 +186,31 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             # num_chunks            = int(row["NUM_CHUNKS"]),
             extension             = row["EXTENSION"],
         )
+    elif algorithm == "LOGISTICREGRESSION":
+        # print(row.get("DATASET_TRAIN"),row.get("DATASET TRAIN"))
+        result = client.logistic_regression(
+            plaintext_matrix_train_id       = f"{row['DATASET_ID']}-{current_experiment_iteration}",
+            plaintext_matrix_train_filename = row["DATASET_ID"],
+            plaintext_label_vector_train_id = f"{row['LABEL_VECTOR_TRAIN']}-{current_experiment_iteration}",
+            plaintext_label_vector_train_filename = row["LABEL_VECTOR_TRAIN"],
+            plaintext_matrix_test_id        = f"{row['DATASET_TEST']}-{current_experiment_iteration}",
+            plaintext_matrix_test_filename  = row["DATASET_TEST"],
+            extension                       = row["EXTENSION"],
+            epochs                          = int(row["EPOCHS"]),
+            learning_rate                   = float(row["LEARNING_RATE"]),
+        )
+    elif algorithm == "PPLR":
+        result = client.pplr(
+            plaintext_matrix_train_id       = f"{row['DATASET_ID']}-{current_experiment_iteration}",
+            plaintext_matrix_train_filename = row["DATASET_ID"],
+            plaintext_label_vector_train_id = f"{row['LABEL_VECTOR_TRAIN']}-{current_experiment_iteration}",
+            plaintext_label_vector_train_filename = row["LABEL_VECTOR_TRAIN"],
+            plaintext_matrix_test_id        = f"{row['DATASET_TEST']}-{current_experiment_iteration}",
+            plaintext_matrix_test_filename  = row["DATASET_TEST"],
+            extension                       = row["EXTENSION"],
+            epochs                          = int(row["EPOCHS"]),
+            learning_rate                   = float(row["LEARNING_RATE"]),
+        )
     else:
         print("UNKNOWN ALGORITM", algorithm)
         return Err((row, Exception("Unknown algorithm"), current_experiment_iteration))
@@ -224,6 +251,19 @@ def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple
             "service_time_client":response.service_time_client,
             "service_time_predict":response.service_time_predict
         })
+    elif TASK_ID=="MACHINELEARNING":
+        LOGGER.info({
+            "event":"COMPLETED",
+            "algorithm":algorithm,
+            "response_time":response_time,
+            "worker_id":response.worker_id,
+            "current_iteration":current_experiment_iteration,
+            "service_time_manager":response.service_time_manager,
+            "service_time_worker":response.service_time_worker,
+            "service_time_client":response.service_time_client,
+            "service_time_predict":response.service_time_predict,
+            "service_time_train":response.service_time_train,
+        })
     return Ok((row, current_experiment_iteration))
 
 def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, pd.DataFrame]:
@@ -240,7 +280,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                     LOGGER.debug({
                         "event":"SUBMITTED",
                         "index":index,
-                        "dataset_id":row["DATASET_ID"],
+                        "dataset_id":row.get("DATASET_ID", ""),
                         "experiment_iteration":experiment_iteration
 
                     })
@@ -252,7 +292,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                     
                     if result.is_err: # Si falla                         
                         (failed_row, error_response, experiment_iteration) = result.unwrap_err() # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
-                        datasetId = failed_row["DATASET_ID"] # Sacamos el DatasetID
+                        datasetId = failed_row.get("DATASET_ID", "") # Sacamos el DatasetID
                         LOGGER.error({
                             "dataset_id":datasetId,
                             "msg":str(error_response),
@@ -263,7 +303,7 @@ def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, p
                         failed_operations.append(failed_row) # Añadimos la fila a la lista de operaciones fallidas
                     else:
                         (_row, experiment_iteration) = result.unwrap() # Extrae la parte buena con unwrap()
-                        datasetId = _row["DATASET_ID"] # Mostramos informacion de la operacion exitosa.
+                        datasetId = _row.get("DATASET_ID","") # Mostramos informacion de la operacion exitosa.
                         LOGGER.debug({
                             "event":"DATASET.COMPLETED",
                             "dataset_id": datasetId,
