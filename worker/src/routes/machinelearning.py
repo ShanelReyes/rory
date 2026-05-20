@@ -1,4 +1,4 @@
-import time, json
+import time, json, gc
 from flask import Blueprint,current_app,request,Response
 from rory.core.classification.secure.pqc.pplr import PPLR
 from rory.core.classification.logistic_regression import LogisticRegression
@@ -7,6 +7,7 @@ from rory.core.security.cryptosystem.pqc.ckks import Ckks
 from rorycommon import StorageBuilder, StorageParams, Scheme, CkksParams
 from models import ExperimentLogEntry
 from mictlanx import AsyncClient
+import gc
 
 machinelearning = Blueprint("machinelearning", __name__, url_prefix="/machine-learning")
 
@@ -368,482 +369,540 @@ async def logistic_regression_predict():
 
 @machinelearning.route("/pplr/train", methods=["POST"])
 async def pplr_train():
-    local_start_time            = time.time()
-    logger                      = current_app.config["logger"]
-    worker_id                   = current_app.config["NODE_ID"]
-    STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-    BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
-    MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    # num_chunks                  = current_app.config.get("NUM_CHUNKS",2)
-    request_headers             = request.headers
-    algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
-    experiment_id               = request_headers.get("Experiment-Id", "")
-    learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
-    encrypted_matrix_train_id       = request_headers.get("Encrypted-Matrix-Train-Id")
-    encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
-    encrypted_weights_id            = request_headers.get("Encrypted-Weights-Id")
-    encrypted_bias_id               = request_headers.get("Encrypted-Bias-Id")
-    scale                           = int(request_headers.get("Scale", 40))
-    n_features                      = int(request_headers.get("N-Features", 0))
-    n_samples                       = int(request_headers.get("N-Samples", 0))
-    num_chunks                      = int(request_headers.get("Num-Chunks",1))
-    
-    if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
-        return Response("Missing mandatory IDs or shape parameters", status=400)
-    
-    _round                  = bool(int(current_app.config.get("_round","0")))
-    decimals                = int(current_app.config.get("DECIMALS","4"))
-    keys_path               = current_app.config.get("KEYS_PATH","/rory/keys")
-    ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
-    pubkey_filename         = current_app.config.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
-    rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-    logger.debug({
-        "event":"PPLR_TRAIN_STARTED",
-        "worker_id":worker_id,
-        "num_chunks":num_chunks,
-        "algorithm":algorithm,
-        "experiment_id":experiment_id,
-        "learning_rate":learning_rate,
-        "encrypted_matrix_train_id":encrypted_matrix_train_id,
-        "encrypted_label_vector_train_id":encrypted_label_vector_train_id, 
-        "encrypted_weights_id":encrypted_weights_id,
-        "encrypted_bias_id":encrypted_bias_id,
-        "scale":scale, 
-        "n_features":n_features,
-        "n_samples":n_samples,
-        # "nu"
-    })
-    
-    ckks = Ckks.from_pyfhel_server(
-        _round             = _round,
-        decimals           = decimals,
-        path               = keys_path,
-        ctx_filename       = ctx_filename,
-        pubkey_filename    = pubkey_filename,
-        relinkey_filename  = relinkey_filename,
-        rotatekey_filename = rotatekey_filename
-    )
-    
-    ckks_params = CkksParams(
-        keys_path          = keys_path,
-        ctx_filename       = ctx_filename,
-        pubkey_filename    = pubkey_filename,
-        secretkey_filename = secretkey_filename,
-        relinkey_filename  = relinkey_filename,
-        rotatekey_filename = rotatekey_filename,
-        decimals           = decimals,
-        _round             = _round
-    )
+    encrypted_matrix_train                = None
+    encrypted_label_vector_train          = None
+    init_encrypted_weights                = None
+    init_encrypted_bias                   = None
+    encrypted_weights                     = None
+    encrypted_bias                        = None
+    encrypted_weight_response             = None
+    encrypted_bias_response               = None
+    encrypted_matrix_train_result         = None
+    encrypted_matrix_train_response       = None
+    encrypted_label_vector_train_result   = None
+    encrypted_label_vector_train_response = None
+    init_encrypted_weights_result         = None
+    init_encrypted_weights_response       = None
+    init_encrypted_bias_result            = None
+    init_encrypted_bias_response          = None
+    encrypted_weight_result               = None
+    encrypted_bias_result                 = None
+    ckks_params                           = None
+    storage_backend                       = None
 
-    storage_backend = (
-        StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
-        .with_ckks(ckks)
-        .with_ckks_params(ckks_params=ckks_params)
-        .with_storage_params(StorageParams(num_chunks=1, timeout=300))
-        .build()
-    )
+    try:
+        local_start_time            = time.time()
+        logger                      = current_app.config["logger"]
+        worker_id                   = current_app.config["NODE_ID"]
+        STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+        BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
+        MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        # num_chunks                  = current_app.config.get("NUM_CHUNKS",2)
+        request_headers             = request.headers
+        algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
+        experiment_id               = request_headers.get("Experiment-Id", "")
+        learning_rate               = float(request_headers.get("Learning-Rate", "0.01"))
+        encrypted_matrix_train_id       = request_headers.get("Encrypted-Matrix-Train-Id")
+        encrypted_label_vector_train_id = request_headers.get("Encrypted-Label-Vector-Train-Id")
+        encrypted_weights_id            = request_headers.get("Encrypted-Weights-Id")
+        encrypted_bias_id               = request_headers.get("Encrypted-Bias-Id")
+        scale                           = int(request_headers.get("Scale", 40))
+        n_features                      = int(request_headers.get("N-Features", 0))
+        n_samples                       = int(request_headers.get("N-Samples", 0))
+        num_chunks                      = int(request_headers.get("Num-Chunks",1))
+        
+        if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
+            return Response("Missing mandatory IDs or shape parameters", status=400)
+        
+        _round                  = bool(int(current_app.config.get("_round","0")))
+        decimals                = int(current_app.config.get("DECIMALS","4"))
+        keys_path               = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename            = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename         = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
+        rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+        logger.debug({
+            "event":"PPLR_TRAIN_STARTED",
+            "worker_id":worker_id,
+            "num_chunks":num_chunks,
+            "algorithm":algorithm,
+            "experiment_id":experiment_id,
+            "learning_rate":learning_rate,
+            "encrypted_matrix_train_id":encrypted_matrix_train_id,
+            "encrypted_label_vector_train_id":encrypted_label_vector_train_id, 
+            "encrypted_weights_id":encrypted_weights_id,
+            "encrypted_bias_id":encrypted_bias_id,
+            "scale":scale, 
+            "n_features":n_features,
+            "n_samples":n_samples,
+        })
+        
+        ckks = current_app.config["ckks"]
+        
+        ckks_params = CkksParams(
+            keys_path          = keys_path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            decimals           = decimals,
+            _round             = _round
+        )
 
-    encrypted_matrix_train_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_matrix_train_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
-    if encrypted_matrix_train_result.is_err:
-        logger.error(f"Failed to get encrypted matrix train: {encrypted_matrix_train_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get encrypted matrix train")
-    encrypted_matrix_train_response = encrypted_matrix_train_result.unwrap()
-    encrypted_matrix_train = encrypted_matrix_train_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_matrix_train_id,
-        "matrix_id"    : encrypted_matrix_train_id,
-        "shape"        : str((n_samples, n_features)),
-        "read_time"    : encrypted_matrix_train_response.read_time,
-    })
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
+            .with_ckks(ckks)
+            .with_ckks_params(ckks_params=ckks_params)
+            .with_storage_params(StorageParams(num_chunks=1, timeout=300))
+            .build()
+        )
 
-    encrypted_label_vector_train_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_label_vector_train_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
+        encrypted_matrix_train_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_matrix_train_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
+        if encrypted_matrix_train_result.is_err:
+            logger.error(f"Failed to get encrypted matrix train: {encrypted_matrix_train_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted matrix train")
+        encrypted_matrix_train_response = encrypted_matrix_train_result.unwrap()
+        encrypted_matrix_train = encrypted_matrix_train_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_matrix_train_id,
+            "matrix_id"    : encrypted_matrix_train_id,
+            "shape"        : str((n_samples, n_features)),
+            "read_time"    : encrypted_matrix_train_response.read_time,
+        })
 
-    if encrypted_label_vector_train_result.is_err:
-        logger.error(f"Failed to get encrypted label vector train: {encrypted_label_vector_train_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get encrypted label vector train") 
-    encrypted_label_vector_train_response = encrypted_label_vector_train_result.unwrap()
-    encrypted_label_vector_train = encrypted_label_vector_train_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_label_vector_train_id,
-        "matrix_id"    : encrypted_label_vector_train_id,
-        "shape"        : str((n_samples, 1)),
-        "dtype"        : "PyCtxt",
-        "read_time"    : encrypted_label_vector_train_response.read_time,
-    })
+        encrypted_label_vector_train_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_label_vector_train_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-    init_encrypted_weights_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_weights_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
-  
-    if init_encrypted_weights_result.is_err:
-        logger.error(f"Failed to get init encrypted weights: {init_encrypted_weights_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get init encrypted weights")
-    init_encrypted_weights_response = init_encrypted_weights_result.unwrap()
-    init_encrypted_weights = init_encrypted_weights_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_weights_id,
-        "matrix_id"    : encrypted_weights_id,
-        "shape"        : str((1, n_features)),
-        "read_time"    : init_encrypted_weights_response.read_time,
-    })
+        if encrypted_label_vector_train_result.is_err:
+            logger.error(f"Failed to get encrypted label vector train: {encrypted_label_vector_train_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted label vector train") 
+        encrypted_label_vector_train_response = encrypted_label_vector_train_result.unwrap()
+        encrypted_label_vector_train = encrypted_label_vector_train_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_label_vector_train_id,
+            "matrix_id"    : encrypted_label_vector_train_id,
+            "shape"        : str((n_samples, 1)),
+            "dtype"        : "PyCtxt",
+            "read_time"    : encrypted_label_vector_train_response.read_time,
+        })
 
-    init_encrypted_bias_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_bias_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
+        init_encrypted_weights_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_weights_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
+      
+        if init_encrypted_weights_result.is_err:
+            logger.error(f"Failed to get init encrypted weights: {init_encrypted_weights_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get init encrypted weights")
+        init_encrypted_weights_response = init_encrypted_weights_result.unwrap()
+        init_encrypted_weights = init_encrypted_weights_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_weights_id,
+            "matrix_id"    : encrypted_weights_id,
+            "shape"        : str((1, n_features)),
+            "read_time"    : init_encrypted_weights_response.read_time,
+        })
 
-    if init_encrypted_bias_result.is_err:
-        logger.error(f"Failed to get init encrypted bias: {init_encrypted_bias_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get init encrypted bias")
-    init_encrypted_bias_response = init_encrypted_bias_result.unwrap()
-    init_encrypted_bias = init_encrypted_bias_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_bias_id,
-        "matrix_id"    : encrypted_bias_id,
-        "shape"        : str((1,)),
-        "read_time"    : init_encrypted_bias_response.read_time,
-    })
+        init_encrypted_bias_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_bias_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-    start_time_train = time.time()
-    encrypted_weights, encrypted_bias = PPLR.fit(
-        HE                     = ckks.he_object,
-        learning_rate          = learning_rate,
-        encrypted_weights      = init_encrypted_weights[0],
-        encrypted_bias         = init_encrypted_bias[0],
-        encrypted_matrix       = encrypted_matrix_train,
-        encrypted_labelvector = encrypted_label_vector_train,
-        n_features             = n_features,
-        scale                  = scale,
-        n_samples              = n_samples
-    )
-    end_time_train = time.time() - start_time_train
-    logger.debug({
-        "event"                   : "TRAIN",
-        "experiment_id"           : experiment_id,
-        "encrypted_matrix_id"     : encrypted_matrix_train_id,
-        "encrypted_labelvector_id": encrypted_label_vector_train_id,
-        "encrypted_weights_id"    : encrypted_weights_id,
-        "encrypted_bias_id"       : encrypted_bias_id,
-        "n_features"              : n_features,
-        "n_samples"               : n_samples,
-        "scale"                   : scale,
-        "train_time"              : end_time_train,
-    })
+        if init_encrypted_bias_result.is_err:
+            logger.error(f"Failed to get init encrypted bias: {init_encrypted_bias_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get init encrypted bias")
+        init_encrypted_bias_response = init_encrypted_bias_result.unwrap()
+        init_encrypted_bias = init_encrypted_bias_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_bias_id,
+            "matrix_id"    : encrypted_bias_id,
+            "shape"        : str((1,)),
+            "read_time"    : init_encrypted_bias_response.read_time,
+        })
 
-    del init_encrypted_weights
-    del init_encrypted_bias
+        start_time_train = time.time()
+        encrypted_weights, encrypted_bias = PPLR.fit(
+            HE                     = ckks.he_object,
+            learning_rate          = learning_rate,
+            encrypted_weights      = init_encrypted_weights[0],
+            encrypted_bias         = init_encrypted_bias[0],
+            encrypted_matrix       = encrypted_matrix_train,
+            encrypted_labelvector = encrypted_label_vector_train,
+            n_features             = n_features,
+            scale                  = scale,
+            n_samples              = n_samples
+        )
+        end_time_train = time.time() - start_time_train
+        logger.debug({
+            "event"                   : "TRAIN",
+            "experiment_id"           : experiment_id,
+            "encrypted_matrix_id"     : encrypted_matrix_train_id,
+            "encrypted_labelvector_id": encrypted_label_vector_train_id,
+            "encrypted_weights_id"    : encrypted_weights_id,
+            "encrypted_bias_id"       : encrypted_bias_id,
+            "n_features"              : n_features,
+            "n_samples"               : n_samples,
+            "scale"                   : scale,
+            "train_time"              : end_time_train,
+        })
 
-    encrypted_weight_result = await storage_backend.put(
-        bucket_id = BUCKET_ID,
-        data      = [encrypted_weights],
-        ball_id   = encrypted_weights_id,
-        delete    = True,
-        segment   = True,
-        encrypt   = False,
-        scheme    = Scheme.CKKS,
-    )
-    if encrypted_weight_result.is_err:
-        logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
-        return Response(status=500, response="Failed to put encrypted weights in cloud storage")
-    encrypted_weight_response = encrypted_weight_result.unwrap()
-    logger.debug({
-        "event"        : "PUT",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_weights_id,
-        "matrix_id"    : encrypted_weights_id,
-        "shape"        : str(encrypted_weight_response.shape),
-        "dtype"        : str(encrypted_weight_response.dtype),
-        "read_time"    : getattr(encrypted_weight_response, "read_time", 0.0),
-        "segment_time" : getattr(encrypted_weight_response, "segment_time", 0.0),
-        "encrypt_time" : getattr(encrypted_weight_response, "encrypt_time", 0.0),
-        "upload_time"  : getattr(encrypted_weight_response, "upload_time", 0.0),
-    })
+        encrypted_weight_result = await storage_backend.put(
+            bucket_id = BUCKET_ID,
+            data      = [encrypted_weights],
+            ball_id   = encrypted_weights_id,
+            delete    = True,
+            segment   = True,
+            encrypt   = False,
+            scheme    = Scheme.CKKS,
+        )
+        if encrypted_weight_result.is_err:
+            logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
+            return Response(status=500, response="Failed to put encrypted weights in cloud storage")
+        encrypted_weight_response = encrypted_weight_result.unwrap()
+        logger.debug({
+            "event"        : "PUT",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_weights_id,
+            "matrix_id"    : encrypted_weights_id,
+            "shape"        : str(encrypted_weight_response.shape),
+            "dtype"        : str(encrypted_weight_response.dtype),
+            "read_time"    : getattr(encrypted_weight_response, "read_time", 0.0),
+            "segment_time" : getattr(encrypted_weight_response, "segment_time", 0.0),
+            "encrypt_time" : getattr(encrypted_weight_response, "encrypt_time", 0.0),
+            "upload_time"  : getattr(encrypted_weight_response, "upload_time", 0.0),
+        })
 
-    encrypted_bias_result = await storage_backend.put(
-        bucket_id = BUCKET_ID,
-        data      = [encrypted_bias],
-        ball_id   = encrypted_bias_id,
-        segment   = False,
-        encrypt   = False,
-        scheme    = Scheme.CKKS,
-        delete    = True
-    )
-    
-    if encrypted_bias_result.is_err:
-        logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
-        return Response(status=500, response="Failed to put encrypted bias in cloud storage")
-    encrypted_bias_response = encrypted_bias_result.unwrap()
-    logger.debug({
-        "event"        : "PUT",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_bias_id,
-        "matrix_id"    : encrypted_bias_id,
-        "shape"        : str(encrypted_bias_response.shape),
-        "dtype"        : str(encrypted_bias_response.dtype),
-        "read_time"    : getattr(encrypted_bias_response, "read_time", 0.0),
-        "segment_time" : getattr(encrypted_bias_response, "segment_time", 0.0),
-        "encrypt_time" : getattr(encrypted_bias_response, "encrypt_time", 0.0),
-        "upload_time"  : getattr(encrypted_bias_response, "upload_time", 0.0),
-    })
+        encrypted_bias_result = await storage_backend.put(
+            bucket_id = BUCKET_ID,
+            data      = [encrypted_bias],
+            ball_id   = encrypted_bias_id,
+            segment   = False,
+            encrypt   = False,
+            scheme    = Scheme.CKKS,
+            delete    = True
+        )
+        
+        if encrypted_bias_result.is_err:
+            logger.error("Failed to put encrypted bias in cloud storage: {}".format(encrypted_bias_result.unwrap_err()))
+            return Response(status=500, response="Failed to put encrypted bias in cloud storage")
+        encrypted_bias_response = encrypted_bias_result.unwrap()
+        logger.debug({
+            "event"        : "PUT",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_bias_id,
+            "matrix_id"    : encrypted_bias_id,
+            "shape"        : str(encrypted_bias_response.shape),
+            "dtype"        : str(encrypted_bias_response.dtype),
+            "read_time"    : getattr(encrypted_bias_response, "read_time", 0.0),
+            "segment_time" : getattr(encrypted_bias_response, "segment_time", 0.0),
+            "encrypt_time" : getattr(encrypted_bias_response, "encrypt_time", 0.0),
+            "upload_time"  : getattr(encrypted_bias_response, "upload_time", 0.0),
+        })
 
-    end_time = time.time() - local_start_time
+        end_time = time.time() - local_start_time
 
-    logger.info(ExperimentLogEntry(
-        event         = "COMPLETED",
-        experiment_id = experiment_id,
-        algorithm     = algorithm,
-        start_time    = local_start_time,
-        end_time      = time.time(),
-        id            = encrypted_matrix_train_id,
-        learning_rate = learning_rate,
-        worker_id     = worker_id,
-        worker_time   = end_time,
-    ).model_dump())
+        logger.info(ExperimentLogEntry(
+            event         = "COMPLETED",
+            experiment_id = experiment_id,
+            algorithm     = algorithm,
+            start_time    = local_start_time,
+            end_time      = time.time(),
+            id            = encrypted_matrix_train_id,
+            learning_rate = learning_rate,
+            worker_id     = worker_id,
+            worker_time   = end_time,
+        ).model_dump())
 
-    return Response(
-            response = json.dumps({
-                "service_time":end_time,  
-                "train_time":end_time_train, 
-                "algorithm":algorithm,
-            }),
-            status   = 200,
-            headers  = {}
-            )
+        return Response(
+                response = json.dumps({
+                    "service_time":end_time,  
+                    "train_time":end_time_train, 
+                    "algorithm":algorithm,
+                }),
+                status   = 200,
+                headers  = {}
+                )
+    finally:
+        del encrypted_matrix_train
+        del encrypted_label_vector_train
+        del init_encrypted_weights
+        del init_encrypted_bias
+        del encrypted_weights
+        del encrypted_bias
+        del encrypted_weight_response
+        del encrypted_bias_response
+        del encrypted_matrix_train_result
+        del encrypted_matrix_train_response
+        del encrypted_label_vector_train_result
+        del encrypted_label_vector_train_response
+        del init_encrypted_weights_result
+        del init_encrypted_weights_response
+        del init_encrypted_bias_result
+        del init_encrypted_bias_response
+        del encrypted_weight_result
+        del encrypted_bias_result
+        del ckks_params
+        del storage_backend
+        gc.collect()
     
 @machinelearning.route("/pplr/predict", methods=["POST"])
 async def pplr_predict():
-    local_start_time            = time.time()
-    logger                      = current_app.config["logger"]
-    worker_id                   = current_app.config["NODE_ID"]
-    STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
-    BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
-    request_headers             = request.headers
-    algorithm                   = Constants.MachineLearningAlgorithms.PPLR_PREDICT
-    experiment_id               = request_headers.get("Experiment-Id", "")
-    encrypted_matrix_test_id    = request_headers.get("Encrypted-Matrix-Test-Id")
-    encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
-    encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
-    scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
-    n_features                  = int(request_headers.get("N-Features", 0))
-    encrypted_predictions_id    = "{}encryptedpredictions".format(encrypted_matrix_test_id)
-    
-    if not all([encrypted_matrix_test_id,encrypted_weights_id,encrypted_bias_id]):
-        return Response("Missing mandatory IDs or shape parameters", status=400)
-    
-    MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    _round             = bool(int(current_app.config.get("_round","0")))            #False
-    decimals           = int(current_app.config.get("DECIMALS","4"))
-    keys_path          = current_app.config.get("KEYS_PATH","/rory/keys")
-    ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
-    pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
-    secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
-    relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
-    rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-    
-    ckks = Ckks.from_pyfhel_server(
-        _round             = _round,
-        decimals           = decimals,
-        path               = keys_path,
-        ctx_filename       = ctx_filename,
-        pubkey_filename    = pubkey_filename,
-        relinkey_filename  = relinkey_filename,
-        rotatekey_filename = rotatekey_filename
-    )
-    
-    ckks_params = CkksParams(
-        keys_path          = keys_path,
-        ctx_filename       = ctx_filename,
-        pubkey_filename    = pubkey_filename,
-        secretkey_filename = secretkey_filename,
-        relinkey_filename  = relinkey_filename,
-        rotatekey_filename = rotatekey_filename,
-        decimals           = decimals,
-        _round             = _round
-    )
+    encrypted_matrix_test          = None
+    encrypted_weights              = None
+    encrypted_bias                 = None
+    encrypted_predictions          = None
+    encrypted_matrix_test_result   = None
+    encrypted_matrix_test_response = None
+    encrypted_weights_result       = None
+    encrypted_weights_response     = None
+    encrypted_bias_result          = None
+    encrypted_bias_response        = None
+    encrypted_predictions_result   = None
+    encrypted_predictions_response = None
+    ckks_params                    = None
+    storage_backend                = None
+    sb_put                         = None
 
-    storage_backend = (
-        StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
-        .with_ckks(ckks)
-        .with_ckks_params(ckks_params=ckks_params)
-        .with_storage_params(StorageParams(num_chunks=2, timeout=300))
-        .build()
-    )
+    try:
+        local_start_time            = time.time()
+        logger                      = current_app.config["logger"]
+        worker_id                   = current_app.config["NODE_ID"]
+        STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
+        BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
+        request_headers             = request.headers
+        algorithm                   = Constants.MachineLearningAlgorithms.PPLR_PREDICT
+        experiment_id               = request_headers.get("Experiment-Id", "")
+        encrypted_matrix_test_id    = request_headers.get("Encrypted-Matrix-Test-Id")
+        encrypted_weights_id        = request_headers.get("Encrypted-Weights-Id")
+        encrypted_bias_id           = request_headers.get("Encrypted-Bias-Id")
+        scale                       = int(request_headers.get("Scale", 40)) # Escala para Pyfhel
+        n_features                  = int(request_headers.get("N-Features", 0))
+        encrypted_predictions_id    = "{}encryptedpredictions".format(encrypted_matrix_test_id)
+        
+        if not all([encrypted_matrix_test_id,encrypted_weights_id,encrypted_bias_id]):
+            return Response("Missing mandatory IDs or shape parameters", status=400)
+        
+        MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+        _round             = bool(int(current_app.config.get("_round","0")))            #False
+        decimals           = int(current_app.config.get("DECIMALS","4"))
+        keys_path          = current_app.config.get("KEYS_PATH","/rory/keys")
+        ctx_filename       = current_app.config.get("CTX_FILENAME","ctx")
+        pubkey_filename    = current_app.config.get("PUBKEY_FILENAME","pubkey")
+        secretkey_filename = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
+        relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
+        rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
+        
+        ckks = current_app.config["ckks"]
+        
+        ckks_params = CkksParams(
+            keys_path          = keys_path,
+            ctx_filename       = ctx_filename,
+            pubkey_filename    = pubkey_filename,
+            secretkey_filename = secretkey_filename,
+            relinkey_filename  = relinkey_filename,
+            rotatekey_filename = rotatekey_filename,
+            decimals           = decimals,
+            _round             = _round
+        )
 
-    encrypted_matrix_test_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_matrix_test_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
+            .with_ckks(ckks)
+            .with_ckks_params(ckks_params=ckks_params)
+            .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+            .build()
+        )
 
-    if encrypted_matrix_test_result.is_err:
-        logger.error(f"Failed to get encrypted matrix test: {encrypted_matrix_test_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get encrypted matrix test") 
-    encrypted_matrix_test_response = encrypted_matrix_test_result.unwrap()
-    encrypted_matrix_test = encrypted_matrix_test_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_matrix_test_id,
-        "matrix_id"    : encrypted_matrix_test_id,
-        "shape"        : str((0, n_features)),
-        "dtype"        : "PyCtxt",
-        "read_time"    : encrypted_matrix_test_response.read_time,
-    })
+        encrypted_matrix_test_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_matrix_test_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-    encrypted_weights_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_weights_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
+        if encrypted_matrix_test_result.is_err:
+            logger.error(f"Failed to get encrypted matrix test: {encrypted_matrix_test_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted matrix test") 
+        encrypted_matrix_test_response = encrypted_matrix_test_result.unwrap()
+        encrypted_matrix_test = encrypted_matrix_test_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_matrix_test_id,
+            "matrix_id"    : encrypted_matrix_test_id,
+            "shape"        : str((0, n_features)),
+            "dtype"        : "PyCtxt",
+            "read_time"    : encrypted_matrix_test_response.read_time,
+        })
 
-    if encrypted_weights_result.is_err:
-        logger.error(f"Failed to get encrypted weights: {encrypted_weights_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get encrypted weights") 
-    encrypted_weights_response = encrypted_weights_result.unwrap()
-    encrypted_weights = encrypted_weights_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_weights_id,
-        "matrix_id"    : encrypted_weights_id,
-        "shape"        : str((1, n_features)),
-        "read_time"    : encrypted_weights_response.read_time,
-    })
+        encrypted_weights_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_weights_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-    encrypted_bias_result = await storage_backend.get(
-        bucket_id = BUCKET_ID,
-        ball_id   = encrypted_bias_id,
-        segment   = True,
-        encrypt   = True,
-        scheme    = Scheme.CKKS
-    )
+        if encrypted_weights_result.is_err:
+            logger.error(f"Failed to get encrypted weights: {encrypted_weights_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted weights") 
+        encrypted_weights_response = encrypted_weights_result.unwrap()
+        encrypted_weights = encrypted_weights_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_weights_id,
+            "matrix_id"    : encrypted_weights_id,
+            "shape"        : str((1, n_features)),
+            "read_time"    : encrypted_weights_response.read_time,
+        })
 
-    if encrypted_bias_result.is_err:
-        logger.error(f"Failed to get encrypted bias: {encrypted_bias_result.unwrap_err()}")
-        return Response(status=500, response="Failed to get encrypted bias") 
-    encrypted_bias_response = encrypted_bias_result.unwrap()
-    encrypted_bias = encrypted_bias_response.raw_value
-    logger.debug({
-        "event"        : "GET",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_bias_id,
-        "matrix_id"    : encrypted_bias_id,
-        "read_time"    : encrypted_bias_response.read_time,
-    })
+        encrypted_bias_result = await storage_backend.get(
+            bucket_id = BUCKET_ID,
+            ball_id   = encrypted_bias_id,
+            segment   = True,
+            encrypt   = True,
+            scheme    = Scheme.CKKS
+        )
 
-    start_time_predict = time.time()
-    encrypted_predictions = PPLR.predict(
-        HE                = ckks.he_object,
-        encrypted_matrix  = encrypted_matrix_test, 
-        encrypted_weights = encrypted_weights[0], 
-        encrypted_bias    = encrypted_bias[0],
-        scale             = scale,
-        n_features        = n_features
-    )
-    end_time_predict = time.time() - start_time_predict
-    logger.debug({
-        "event"               : "PREDICT",
-        "experiment_id"       : experiment_id,
-        "encrypted_matrix_id" : encrypted_matrix_test_id,
-        "encrypted_weights_id": encrypted_weights_id,
-        "encrypted_bias_id"   : encrypted_bias_id,
-        "n_features"          : n_features,
-        "scale"               : scale,
-        "predict_time"        : end_time_predict,
-    })
+        if encrypted_bias_result.is_err:
+            logger.error(f"Failed to get encrypted bias: {encrypted_bias_result.unwrap_err()}")
+            return Response(status=500, response="Failed to get encrypted bias") 
+        encrypted_bias_response = encrypted_bias_result.unwrap()
+        encrypted_bias = encrypted_bias_response.raw_value
+        logger.debug({
+            "event"        : "GET",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_bias_id,
+            "matrix_id"    : encrypted_bias_id,
+            "read_time"    : encrypted_bias_response.read_time,
+        })
 
-    sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
-    encrypted_predictions_result = await sb_put.put(
-        bucket_id = BUCKET_ID,
-        data      = encrypted_predictions,
-        ball_id   = encrypted_predictions_id,
-        delete    = True,
-        segment   = True,
-        encrypt   = False,
-        scheme    = Scheme.CKKS,
-    )
+        start_time_predict = time.time()
+        encrypted_predictions = PPLR.predict(
+            HE                = ckks.he_object,
+            encrypted_matrix  = encrypted_matrix_test, 
+            encrypted_weights = encrypted_weights[0], 
+            encrypted_bias    = encrypted_bias[0],
+            scale             = scale,
+            n_features        = n_features
+        )
+        end_time_predict = time.time() - start_time_predict
+        logger.debug({
+            "event"               : "PREDICT",
+            "experiment_id"       : experiment_id,
+            "encrypted_matrix_id" : encrypted_matrix_test_id,
+            "encrypted_weights_id": encrypted_weights_id,
+            "encrypted_bias_id"   : encrypted_bias_id,
+            "n_features"          : n_features,
+            "scale"               : scale,
+            "predict_time"        : end_time_predict,
+        })
 
-    if encrypted_predictions_result.is_err:
-        logger.error("Failed to put encrypted predictions in cloud storage: {}".format(encrypted_predictions_result.unwrap_err()))
-        return Response(status=500, response="Failed to put encrypted weights in cloud storage")
-    encrypted_predictions_response = encrypted_predictions_result.unwrap()
-    logger.debug({
-        "event"        : "PUT",
-        "experiment_id": experiment_id,
-        "bucket_id"    : BUCKET_ID,
-        "ball_id"      : encrypted_predictions_id,
-        "matrix_id"    : encrypted_predictions_id,
-        "shape"        : str(encrypted_predictions_response.shape),
-        "dtype"        : str(encrypted_predictions_response.dtype),
-        "read_time"    : getattr(encrypted_predictions_response, "read_time", 0.0),
-        "segment_time" : getattr(encrypted_predictions_response, "segment_time", 0.0),
-        "encrypt_time" : getattr(encrypted_predictions_response, "encrypt_time", 0.0),
-        "upload_time"  : getattr(encrypted_predictions_response, "upload_time", 0.0),
-    })
+        sb_put = storage_backend.as_builder().with_storage_params(StorageParams(num_chunks=1, timeout=MICTLANX_TIMEOUT)).build()
+        encrypted_predictions_result = await sb_put.put(
+            bucket_id = BUCKET_ID,
+            data      = encrypted_predictions,
+            ball_id   = encrypted_predictions_id,
+            delete    = True,
+            segment   = True,
+            encrypt   = False,
+            scheme    = Scheme.CKKS,
+        )
 
-    end_time     = time.time()
-    service_time = end_time - local_start_time
+        if encrypted_predictions_result.is_err:
+            logger.error("Failed to put encrypted predictions in cloud storage: {}".format(encrypted_predictions_result.unwrap_err()))
+            return Response(status=500, response="Failed to put encrypted weights in cloud storage")
+        encrypted_predictions_response = encrypted_predictions_result.unwrap()
+        logger.debug({
+            "event"        : "PUT",
+            "experiment_id": experiment_id,
+            "bucket_id"    : BUCKET_ID,
+            "ball_id"      : encrypted_predictions_id,
+            "matrix_id"    : encrypted_predictions_id,
+            "shape"        : str(encrypted_predictions_response.shape),
+            "dtype"        : str(encrypted_predictions_response.dtype),
+            "read_time"    : getattr(encrypted_predictions_response, "read_time", 0.0),
+            "segment_time" : getattr(encrypted_predictions_response, "segment_time", 0.0),
+            "encrypt_time" : getattr(encrypted_predictions_response, "encrypt_time", 0.0),
+            "upload_time"  : getattr(encrypted_predictions_response, "upload_time", 0.0),
+        })
 
-    logger.info(ExperimentLogEntry(
-        event         = "COMPLETED",
-        experiment_id = experiment_id,
-        algorithm     = algorithm,
-        start_time    = local_start_time,
-        end_time      = time.time(),
-        id            = encrypted_matrix_test_id,
-        worker_id     = worker_id,
-        worker_time   = service_time,
-    ).model_dump())
+        end_time     = time.time()
+        service_time = end_time - local_start_time
 
-    return Response(
-            response = json.dumps({
-                "encrypted_predictions_id": encrypted_predictions_id,
-                "predict_time": end_time_predict,
-                "service_time":service_time,
-                "algorithm":algorithm,
-            }),
-            status   = 200,
-            headers  = {}
-            )
+        logger.info(ExperimentLogEntry(
+            event         = "COMPLETED",
+            experiment_id = experiment_id,
+            algorithm     = algorithm,
+            start_time    = local_start_time,
+            end_time      = time.time(),
+            id            = encrypted_matrix_test_id,
+            worker_id     = worker_id,
+            worker_time   = service_time,
+        ).model_dump())
+
+        return Response(
+                response = json.dumps({
+                    "encrypted_predictions_id": encrypted_predictions_id,
+                    "predict_time": end_time_predict,
+                    "service_time":service_time,
+                    "algorithm":algorithm,
+                }),
+                status   = 200,
+                headers  = {}
+                )
+    finally:
+        del encrypted_matrix_test
+        del encrypted_weights
+        del encrypted_bias
+        del encrypted_predictions
+        del encrypted_matrix_test_result
+        del encrypted_matrix_test_response
+        del encrypted_weights_result
+        del encrypted_weights_response
+        del encrypted_bias_result
+        del encrypted_bias_response
+        del encrypted_predictions_result
+        del encrypted_predictions_response
+        del ckks_params
+        del storage_backend
+        del sb_put
+        gc.collect()

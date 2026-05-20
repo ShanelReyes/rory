@@ -10,3 +10,4 @@ threads    = int(os.environ.get("GUNICORN_MAX_THREADS","1"))
 workers    = int(os.environ.get("GUNICORN_WORKERS","1"))
 
 timeout    = int(os.environ.get("GUNICORN_WORKER_TIMEOUT",3600))
+max_requests = int(os.environ.get("RORY_MAX_REQUESTS", "100"))

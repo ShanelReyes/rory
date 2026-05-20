@@ -10,7 +10,7 @@ from routes.classification import classification
 from routes.machinelearning import machinelearning
 from mictlanx.logger.log import Log
 from mictlanx import AsyncClient
-
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 
 app = Flask(__name__)
 
@@ -163,6 +163,17 @@ max_workers = cores if MAX_WORKERS > cores else MAX_WORKERS
 # print("MAX_WORKERS", max_workers)
 executor    = ProcessPoolExecutor(max_workers=max_workers)
 
+CKKS = Ckks.from_pyfhel_client(
+    _round             = CKKS_ROUND,
+    decimals           = CKKS_DECIMALS,
+    path               = KEYS_PATH,
+    ctx_filename       = CTX_FILENAME,
+    pubkey_filename    = PUBKEY_FILENAME,
+    secretkey_filename = SECRET_KEY_FILENAME,
+    relinkey_filename  = RELINKEY_FILENAME,
+    rotatekey_filename = ROTATEKEY_FILENAME,
+)
+
 """
 Description:
     Function that create a context using Flask. Establishes the connection between client, manager and worker. 
@@ -205,6 +216,7 @@ def create_app(*args):
         current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
         current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
         current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
+        current_app.config["ckks"]                    = CKKS
     # return app
 
 

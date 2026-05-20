@@ -1,6 +1,7 @@
 import os
-import time, json
+import time, json, gc
 import numpy as np
+import gc
 from uuid import uuid4
 from requests import Session
 from flask import Blueprint,current_app,request,Response
@@ -408,6 +409,25 @@ async def logistic_regression_predict():
 
 @machinelearning.route("/pplr/train",methods = ["POST"])
 async def pplr_train():
+    encrypted_weights             = None
+    encrypted_bias                = None
+    weights_plain_list            = None
+    weights_plain                 = None
+    bias_plain_list               = None
+    bias_plain                    = None
+    plaintext_weight              = None
+    plaintext_bias                = None
+    encrypted_weight_result       = None
+    encrypted_weight_response     = None
+    encrypted_weights_result      = None
+    encrypted_weights_response    = None
+    encrypted_bias_result         = None
+    encrypted_bias_response       = None
+    encrypted_weight_put_response = None
+    encrypted_bias_put_response   = None
+    ckks_params                   = None
+    storage_backend               = None
+
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -450,16 +470,7 @@ async def pplr_train():
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
-        ckks           = Ckks.from_pyfhel_client(
-            _round             = _round,
-            decimals           = decimals,
-            path               = keys_path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename
-        )
+        ckks           = current_app.config["ckks"]
 
         ckks_params = CkksParams(
             keys_path          = keys_path,
@@ -741,10 +752,6 @@ async def pplr_train():
                 delete    = True
             )
 
-            del weights_plain
-            del encrypted_weights
-            del weights_plain_list
-
             if encrypted_weight_result.is_err:
                 logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
                 return Response(status=500, response="Failed to put encrypted weights in cloud storage")
@@ -762,6 +769,14 @@ async def pplr_train():
                 "encrypt_time" : getattr(encrypted_weight_put_response, "encrypt_time", 0.0),
                 "upload_time"  : getattr(encrypted_weight_put_response, "upload_time", 0.0),
             })
+
+            encrypted_weight_result = None
+            encrypted_weight_put_response = None
+            encrypted_weights_result = None
+            encrypted_weights_response = None
+            weights_plain = None
+            encrypted_weights = None
+            weights_plain_list = None
 
             encrypted_bias_result = await storage_backend.get(
                 bucket_id = BUCKET_ID,
@@ -825,6 +840,12 @@ async def pplr_train():
                 "encrypt_time" : getattr(encrypted_bias_put_response, "encrypt_time", 0.0),
                 "upload_time"  : getattr(encrypted_bias_put_response, "upload_time", 0.0),
             })
+            encrypted_bias_result = None
+            encrypted_bias_response = None
+            encrypted_bias_put_response = None
+            encrypted_bias = None
+            bias_plain_list = None
+            bias_plain = None
             endTime    = time.time() 
 
         worker_response_time = worker_end_time - worker_start_time
@@ -869,10 +890,38 @@ async def pplr_train():
             status = 500, 
             headers={"Error-Message":str(e)}
         )
+    finally:
+        del encrypted_weights
+        del encrypted_bias
+        del weights_plain_list
+        del weights_plain
+        del bias_plain_list
+        del bias_plain
+        del plaintext_weight
+        del plaintext_bias
+        del encrypted_weight_result
+        del encrypted_weight_response
+        del encrypted_weights_result
+        del encrypted_weights_response
+        del encrypted_bias_result
+        del encrypted_bias_response
+        del encrypted_weight_put_response
+        del encrypted_bias_put_response
+        del ckks_params
+        del storage_backend
+        gc.collect()
 
 
 @machinelearning.route("/pplr/predict",methods = ["POST"])
 async def pplr_predict():
+    encrypted_predictions          = None
+    encrypted_predictions_result   = None
+    encrypted_predictions_response = None
+    predictions_plain_list         = None
+    predictions_plain              = None
+    ckks_params                    = None
+    storage_backend                = None
+
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -921,16 +970,7 @@ async def pplr_predict():
             "num_chunks":num_chunks
         })
 
-        ckks = Ckks.from_pyfhel_client(
-            _round             = _round,
-            decimals           = decimals,
-            path               = keys_path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename
-        )
+        ckks = current_app.config["ckks"]
 
         ckks_params = CkksParams(
             keys_path          = keys_path,
@@ -1110,6 +1150,12 @@ async def pplr_predict():
             status = 500, 
             headers={"Error-Message":str(e)}
         )
-    
-
-    
+    finally:
+        del encrypted_predictions
+        del encrypted_predictions_result
+        del encrypted_predictions_response
+        del predictions_plain_list
+        del predictions_plain
+        del ckks_params
+        del storage_backend
+        gc.collect()
