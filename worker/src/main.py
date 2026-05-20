@@ -71,7 +71,7 @@ MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
 MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
 MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","http")
 MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","4"))
-
+MICTLANX_LOG_DISABLE       = bool(int(os.environ.get("MICTLANX_LOG_DISABLE","1")))
 MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
 ASYNC_STORAGE_CLIENT = AsyncClient(
@@ -84,7 +84,8 @@ ASYNC_STORAGE_CLIENT = AsyncClient(
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
-    log_when         = MICTLANX_LOG_WHEN
+    log_when         = MICTLANX_LOG_WHEN,
+    enable_logging   = not MICTLANX_LOG_DISABLE
 )
 
 
@@ -206,6 +207,8 @@ if __name__ == 'main' or __name__ == "__main__":
         "debug":DEBUG,
         "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
         "mictlanx_timeout":MICTLANX_TIMEOUT,
+        "log_disabled":RORY_WORKER_LOG_DISABLED,
+        "mictlanx_log_disable": MICTLANX_LOG_DISABLE
     })
     create_app()
     t1 = Thread(target= started_completed, daemon= True, args = () )

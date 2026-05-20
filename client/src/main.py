@@ -78,6 +78,7 @@ MICTLANX_BACKOFF_FACTOR = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
 MICTLANX_MAX_RETRIES    = int(os.environ.get("MICTLANX_MAX_RETRIES","10"))
 MICTLANX_PROTOCOL       = os.environ.get("MICTLANX_PROTOCOL","http")
 MICTLANX_API_VERSION    = int(os.environ.get("MICTLANX_API_VERSION","4"))
+MICTLANX_LOG_DISABLE       = bool(int(os.environ.get("MICTLANX_LOG_DISABLE","1")))
 
 MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
 
@@ -91,7 +92,8 @@ ASYNC_STORAGE_CLIENT = AsyncClient(
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
-    log_when         = MICTLANX_LOG_WHEN
+    log_when         = MICTLANX_LOG_WHEN,
+    enable_logging   = not MICTLANX_LOG_DISABLE
 )
 
 MANAGER = RoryManager(
@@ -223,7 +225,9 @@ if __name__ == 'main' or __name__ == "__main__":
             "testing":TESTING,
             "num_chunks":NUM_CHUNKS,
             "mictlanx_timeout":MICTLANX_TIMEOUT,
-            "worker_timeout":WORKER_TIMEOUT 
+            "worker_timeout":WORKER_TIMEOUT,
+            "log_disabled":RORY_CLIENT_LOG_DISABLED,
+            "mictlanx_log_disable": MICTLANX_LOG_DISABLE
         })
         create_app()
     except Exception as e:

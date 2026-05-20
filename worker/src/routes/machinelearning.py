@@ -374,7 +374,7 @@ async def pplr_train():
     STORAGE_CLIENT: AsyncClient = current_app.config["ASYNC_STORAGE_CLIENT"]
     BUCKET_ID: str              = current_app.config.get("BUCKET_ID", "rory")
     MICTLANX_TIMEOUT            = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-    num_chunks                  = current_app.config.get("NUM_CHUNKS",2)
+    # num_chunks                  = current_app.config.get("NUM_CHUNKS",2)
     request_headers             = request.headers
     algorithm                   = Constants.MachineLearningAlgorithms.PPLR_TRAIN
     experiment_id               = request_headers.get("Experiment-Id", "")
@@ -386,7 +386,7 @@ async def pplr_train():
     scale                           = int(request_headers.get("Scale", 40))
     n_features                      = int(request_headers.get("N-Features", 0))
     n_samples                       = int(request_headers.get("N-Samples", 0))
-    num_chunks                      = int(request_headers.get("Num-Chunks",-1))
+    num_chunks                      = int(request_headers.get("Num-Chunks",1))
     
     if not all([encrypted_matrix_train_id,encrypted_weights_id,encrypted_bias_id,encrypted_label_vector_train_id]):
         return Response("Missing mandatory IDs or shape parameters", status=400)
@@ -399,7 +399,22 @@ async def pplr_train():
     secretkey_filename      = current_app.config.get("SECRET_KEY_FILENAME","secretkey")
     relinkey_filename       = current_app.config.get("RELINKEY_FILENAME","relinkey")
     rotatekey_filename      = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
-    
+    logger.debug({
+        "event":"PPLR_TRAIN_STARTED",
+        "worker_id":worker_id,
+        "num_chunks":num_chunks,
+        "algorithm":algorithm,
+        "experiment_id":experiment_id,
+        "learning_rate":learning_rate,
+        "encrypted_matrix_train_id":encrypted_matrix_train_id,
+        "encrypted_label_vector_train_id":encrypted_label_vector_train_id, 
+        "encrypted_weights_id":encrypted_weights_id,
+        "encrypted_bias_id":encrypted_bias_id,
+        "scale":scale, 
+        "n_features":n_features,
+        "n_samples":n_samples,
+        # "nu"
+    })
     
     ckks = Ckks.from_pyfhel_server(
         _round             = _round,
@@ -426,7 +441,7 @@ async def pplr_train():
         StorageBuilder(storage_client = STORAGE_CLIENT, scheme = Scheme.CKKS)
         .with_ckks(ckks)
         .with_ckks_params(ckks_params=ckks_params)
-        .with_storage_params(StorageParams(num_chunks=2, timeout=300))
+        .with_storage_params(StorageParams(num_chunks=1, timeout=300))
         .build()
     )
 

@@ -415,7 +415,7 @@ async def pplr_train():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        num_chunks                   = current_app.config.get("NUM_CHUNKS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",1)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
@@ -614,11 +614,18 @@ async def pplr_train():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        logger.debug({
+            "event":"GET.WORKER",
+            "worker_id":_worker_id,
+            "port":port,
+            "is_local": TESTING
+        })
 
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
-        worker_id               =  "localhost" if TESTING else worker_id
+        worker_id               =  "localhost" if TESTING else _worker_id
         
         worker_start_time = time.time()
         worker = RoryWorker(
@@ -649,7 +656,24 @@ async def pplr_train():
                 "N-Samples"                      : str(n_samples),
                 "Num-Chunks"                     : str(num_chunks),
             }
-
+            logger.debug({
+                "event":"WORKER.RUN",
+                "worker_id":_worker_id,
+                "status":str(status),
+                "experiment_id":experiment_id,
+                "learning_rate":learning_rate,
+                "encrypted_matrix_train_id": encrypted_matrix_train_id,
+                "encrypted_label_vector_train_id":encrypted_label_vector_train_id,
+                "encrypted_weights_id":encrypted_weights_id,
+                "encrypted_bais_id":encrypted_bias_id,
+                "scale":scale,
+                "n_features": n_features,
+                "n_samples": n_samples,
+                "num_chunks": num_chunks,
+                "total_epochs":total_epochs,
+                "current_epoch": current_epoch
+            })
+            worker_run_start_time = time.time()
             worker_response = worker.run(
                     timeout = WORKER_TIMEOUT,
                     headers = worker_headers
@@ -665,6 +689,12 @@ async def pplr_train():
             worker_service_time = jsonWorkerResponse["service_time"]
             worker_end_time     = time.time()
 
+            logger.info({
+                "event":"WORKER.RUN.COMPLETED",
+                "total_epochs":total_epochs,
+                "current_epoch":current_epoch,
+                "response_time":worker_end_time - worker_run_start_time
+            })
             current_epoch += 1
 
             encrypted_weights_result = await storage_backend.get(
@@ -762,8 +792,9 @@ async def pplr_train():
             bias_plain            = bias_plain_list[0].reshape(1, -1).astype(np.float32)
             end_time_decryption   = time.time() - start_time_decryption
             logger.debug({
-                "event"        : "DECRYPT",
+                "event"        : "DECRYPT.BIAS",
                 "experiment_id": experiment_id,
+                "encrypted_bias_id": encrypted_bias_id,
                 "decrypt_time" : end_time_decryption,
             })
 
@@ -883,6 +914,12 @@ async def pplr_predict():
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
         WORKER_TIMEOUT     = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
+
+        logger.debug({
+            "event":"PPLR.PREDICT.STARTED",
+            "experiment_id":experiment_id,
+            "num_chunks":num_chunks
+        })
 
         ckks = Ckks.from_pyfhel_client(
             _round             = _round,
