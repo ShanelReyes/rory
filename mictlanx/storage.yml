@@ -13,6 +13,7 @@ services:
     volumes:
       - mictlanx-router-0-logs:/log
       - ./profiler:/profiler
+    shm_size: '4gb'
     command: > 
       sh -c 'gunicorn --worker-class uvicorn.workers.UvicornWorker
       mictlanxrouter.server:app

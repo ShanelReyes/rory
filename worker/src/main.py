@@ -8,6 +8,7 @@ from mictlanx import AsyncClient
 from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
+from rory.core.security.cryptosystem.pqc.ckks import Ckks
 app = Flask(__name__)
 
 RORY_WORKER_ENV_FILE_PATH = os.environ.get("RORY_WORKER_ENV_FILE_PATH",".env")
@@ -71,8 +72,18 @@ MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
 MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
 MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","http")
 MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","4"))
-
+MICTLANX_LOG_DISABLE       = bool(int(os.environ.get("MICTLANX_LOG_DISABLE","1")))
 MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
+
+CKKS = Ckks.from_pyfhel_server(
+    _round             = CKKS_ROUND,
+    decimals           = CKKS_DECIMALS,
+    path               = KEYS_PATH,
+    ctx_filename       = CTX_FILENAME,
+    pubkey_filename    = PUBKEY_FILENAME,
+    relinkey_filename  = RELINKEY_FILENAME,
+    rotatekey_filename = ROTATEKEY_FILENAME,
+)
 
 ASYNC_STORAGE_CLIENT = AsyncClient(
     client_id        = MICTLANX_CLIENT_ID,
@@ -84,19 +95,9 @@ ASYNC_STORAGE_CLIENT = AsyncClient(
     verify           = False,
     log_output_path  = MICTLANX_LOG_PATH,
     log_interval     = MICTLANX_LOG_INTERVAL,
-    log_when         = MICTLANX_LOG_WHEN
+    log_when         = MICTLANX_LOG_WHEN,
+    enable_logging   = not MICTLANX_LOG_DISABLE
 )
-
-
-
-# def console_handler_filter(record:logging.LogRecord):
-#     if DEBUG:
-#         return True
-#     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
-#         return True
-#     else:
-#         return False   
-
 
 from mictlanx.logger.log import JsonFormatter
 # LOGGER_NAME                           = os.environ.get("LOGGER_NAME","rory-worker")
@@ -161,6 +162,7 @@ def create_app():
         current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
         current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
         current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
+        current_app.config["ckks"]                    = CKKS
 """
 Description:
   Initialize worker
@@ -206,6 +208,8 @@ if __name__ == 'main' or __name__ == "__main__":
         "debug":DEBUG,
         "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
         "mictlanx_timeout":MICTLANX_TIMEOUT,
+        "log_disabled":RORY_WORKER_LOG_DISABLED,
+        "mictlanx_log_disable": MICTLANX_LOG_DISABLE
     })
     create_app()
     t1 = Thread(target= started_completed, daemon= True, args = () )

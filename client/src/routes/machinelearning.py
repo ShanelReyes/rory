@@ -1,6 +1,7 @@
 import os
-import time, json
+import time, json, gc
 import numpy as np
+import gc
 from uuid import uuid4
 from requests import Session
 from flask import Blueprint,current_app,request,Response
@@ -408,6 +409,25 @@ async def logistic_regression_predict():
 
 @machinelearning.route("/pplr/train",methods = ["POST"])
 async def pplr_train():
+    encrypted_weights             = None
+    encrypted_bias                = None
+    weights_plain_list            = None
+    weights_plain                 = None
+    bias_plain_list               = None
+    bias_plain                    = None
+    plaintext_weight              = None
+    plaintext_bias                = None
+    encrypted_weight_result       = None
+    encrypted_weight_response     = None
+    encrypted_weights_result      = None
+    encrypted_weights_response    = None
+    encrypted_bias_result         = None
+    encrypted_bias_response       = None
+    encrypted_weight_put_response = None
+    encrypted_bias_put_response   = None
+    ckks_params                   = None
+    storage_backend               = None
+
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -415,7 +435,7 @@ async def pplr_train():
         TESTING                      = current_app.config.get("TESTING",True)
         SOURCE_PATH                  = current_app.config["SOURCE_PATH"]
         STORAGE_CLIENT:AsyncClient   = current_app.config.get("ASYNC_STORAGE_CLIENT")
-        num_chunks                   = current_app.config.get("NUM_CHUNKS",2)
+        num_chunks                   = current_app.config.get("NUM_CHUNKS",1)
         executor:ProcessPoolExecutor = current_app.config.get("executor")
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
         if executor == None:
@@ -450,16 +470,7 @@ async def pplr_train():
         relinkey_filename  = current_app.config.get("RELINKEY_FILENAME","relinkey")
         rotatekey_filename = current_app.config.get("ROTATEKEY_FILENAME","rotatekey")
 
-        ckks           = Ckks.from_pyfhel_client(
-            _round             = _round,
-            decimals           = decimals,
-            path               = keys_path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename
-        )
+        ckks           = current_app.config["ckks"]
 
         ckks_params = CkksParams(
             keys_path          = keys_path,
@@ -614,11 +625,18 @@ async def pplr_train():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        logger.debug({
+            "event":"GET.WORKER",
+            "worker_id":_worker_id,
+            "port":port,
+            "is_local": TESTING
+        })
 
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
-        worker_id               =  "localhost" if TESTING else worker_id
+        worker_id               =  "localhost" if TESTING else _worker_id
         
         worker_start_time = time.time()
         worker = RoryWorker(
@@ -649,7 +667,24 @@ async def pplr_train():
                 "N-Samples"                      : str(n_samples),
                 "Num-Chunks"                     : str(num_chunks),
             }
-
+            logger.debug({
+                "event":"WORKER.RUN",
+                "worker_id":_worker_id,
+                "status":str(status),
+                "experiment_id":experiment_id,
+                "learning_rate":learning_rate,
+                "encrypted_matrix_train_id": encrypted_matrix_train_id,
+                "encrypted_label_vector_train_id":encrypted_label_vector_train_id,
+                "encrypted_weights_id":encrypted_weights_id,
+                "encrypted_bais_id":encrypted_bias_id,
+                "scale":scale,
+                "n_features": n_features,
+                "n_samples": n_samples,
+                "num_chunks": num_chunks,
+                "total_epochs":total_epochs,
+                "current_epoch": current_epoch
+            })
+            worker_run_start_time = time.time()
             worker_response = worker.run(
                     timeout = WORKER_TIMEOUT,
                     headers = worker_headers
@@ -665,6 +700,12 @@ async def pplr_train():
             worker_service_time = jsonWorkerResponse["service_time"]
             worker_end_time     = time.time()
 
+            logger.info({
+                "event":"WORKER.RUN.COMPLETED",
+                "total_epochs":total_epochs,
+                "current_epoch":current_epoch,
+                "response_time":worker_end_time - worker_run_start_time
+            })
             current_epoch += 1
 
             encrypted_weights_result = await storage_backend.get(
@@ -711,10 +752,6 @@ async def pplr_train():
                 delete    = True
             )
 
-            del weights_plain
-            del encrypted_weights
-            del weights_plain_list
-
             if encrypted_weight_result.is_err:
                 logger.error("Failed to put encrypted weights in cloud storage: {}".format(encrypted_weight_result.unwrap_err()))
                 return Response(status=500, response="Failed to put encrypted weights in cloud storage")
@@ -732,6 +769,14 @@ async def pplr_train():
                 "encrypt_time" : getattr(encrypted_weight_put_response, "encrypt_time", 0.0),
                 "upload_time"  : getattr(encrypted_weight_put_response, "upload_time", 0.0),
             })
+
+            encrypted_weight_result = None
+            encrypted_weight_put_response = None
+            encrypted_weights_result = None
+            encrypted_weights_response = None
+            weights_plain = None
+            encrypted_weights = None
+            weights_plain_list = None
 
             encrypted_bias_result = await storage_backend.get(
                 bucket_id = BUCKET_ID,
@@ -762,8 +807,9 @@ async def pplr_train():
             bias_plain            = bias_plain_list[0].reshape(1, -1).astype(np.float32)
             end_time_decryption   = time.time() - start_time_decryption
             logger.debug({
-                "event"        : "DECRYPT",
+                "event"        : "DECRYPT.BIAS",
                 "experiment_id": experiment_id,
+                "encrypted_bias_id": encrypted_bias_id,
                 "decrypt_time" : end_time_decryption,
             })
 
@@ -794,6 +840,12 @@ async def pplr_train():
                 "encrypt_time" : getattr(encrypted_bias_put_response, "encrypt_time", 0.0),
                 "upload_time"  : getattr(encrypted_bias_put_response, "upload_time", 0.0),
             })
+            encrypted_bias_result = None
+            encrypted_bias_response = None
+            encrypted_bias_put_response = None
+            encrypted_bias = None
+            bias_plain_list = None
+            bias_plain = None
             endTime    = time.time() 
 
         worker_response_time = worker_end_time - worker_start_time
@@ -838,10 +890,38 @@ async def pplr_train():
             status = 500, 
             headers={"Error-Message":str(e)}
         )
+    finally:
+        del encrypted_weights
+        del encrypted_bias
+        del weights_plain_list
+        del weights_plain
+        del bias_plain_list
+        del bias_plain
+        del plaintext_weight
+        del plaintext_bias
+        del encrypted_weight_result
+        del encrypted_weight_response
+        del encrypted_weights_result
+        del encrypted_weights_response
+        del encrypted_bias_result
+        del encrypted_bias_response
+        del encrypted_weight_put_response
+        del encrypted_bias_put_response
+        del ckks_params
+        del storage_backend
+        gc.collect()
 
 
 @machinelearning.route("/pplr/predict",methods = ["POST"])
 async def pplr_predict():
+    encrypted_predictions          = None
+    encrypted_predictions_result   = None
+    encrypted_predictions_response = None
+    predictions_plain_list         = None
+    predictions_plain              = None
+    ckks_params                    = None
+    storage_backend                = None
+
     try:
         arrivalTime                  = time.time()
         logger                       = current_app.config["logger"]
@@ -884,16 +964,13 @@ async def pplr_predict():
         WORKER_TIMEOUT     = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT   = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
 
-        ckks = Ckks.from_pyfhel_client(
-            _round             = _round,
-            decimals           = decimals,
-            path               = keys_path,
-            ctx_filename       = ctx_filename,
-            pubkey_filename    = pubkey_filename,
-            secretkey_filename = secretkey_filename,
-            relinkey_filename  = relinkey_filename,
-            rotatekey_filename = rotatekey_filename
-        )
+        logger.debug({
+            "event":"PPLR.PREDICT.STARTED",
+            "experiment_id":experiment_id,
+            "num_chunks":num_chunks
+        })
+
+        ckks = current_app.config["ckks"]
 
         ckks_params = CkksParams(
             keys_path          = keys_path,
@@ -1073,6 +1150,12 @@ async def pplr_predict():
             status = 500, 
             headers={"Error-Message":str(e)}
         )
-    
-
-    
+    finally:
+        del encrypted_predictions
+        del encrypted_predictions_result
+        del encrypted_predictions_response
+        del predictions_plain_list
+        del predictions_plain
+        del ckks_params
+        del storage_backend
+        gc.collect()
