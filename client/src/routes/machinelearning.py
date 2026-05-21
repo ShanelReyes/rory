@@ -700,7 +700,7 @@ async def pplr_train():
             worker_service_time = jsonWorkerResponse["service_time"]
             worker_end_time     = time.time()
 
-            logger.info({
+            logger.debug({
                 "event":"WORKER.RUN.COMPLETED",
                 "total_epochs":total_epochs,
                 "current_epoch":current_epoch,
