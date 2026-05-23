@@ -18,6 +18,7 @@ from mictlanx.utils.segmentation import Chunks
 from concurrent.futures import ProcessPoolExecutor
 from utils.utils import Utils
 from rorycommon import Common as RoryCommon
+from rorycommon import StorageBuilder, StorageParams, Scheme, CkksParams, LiuParams
 from uuid import uuid4
 from models import ExperimentLogEntry
 clustering = Blueprint("clustering",__name__,url_prefix = "/clustering")
@@ -318,190 +319,155 @@ async def skmeans():
         max_workers                  = current_app.config.get("MAX_WORKERS",2)
         num_chunks                   = current_app.config.get("NUM_CHUNKS",4)
         security_level               = current_app.config.get("LIU_SECURITY_LEVEL",128)
-        np_random:bool               = current_app.config.get("np_random")
         executor:ProcessPoolExecutor = current_app.config.get("executor")
-        
         if executor == None:
             raise Response(None, status=500, headers={"Error-Message":"No process pool executor available"})
         algorithm                 = Constants.ClusteringAlgorithms.SKMEANS
         s                         = Session()
-        request_headers           = request.headers #Headers for the request
-        # num_chunks                = int(request_headers.get("Num-Chunks",_num_chunks))
+        request_headers           = request.headers 
         plaintext_matrix_id       = request_headers.get("Plaintext-Matrix-Id","matrix0")
-        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) # The id of the encrypted matrix is built
-        udm_id                    = "{}udm".format(plaintext_matrix_id) # The iudm id is built
+        encrypted_matrix_id       = "encrypted{}".format(plaintext_matrix_id) 
+        udm_id                    = "{}udm".format(plaintext_matrix_id)    
         plaintext_matrix_filename = request_headers.get("Plaintext-Matrix-Filename","matrix0")
         extension                 = request_headers.get("Extension","csv")
         experiment_id             = request_headers.get("Experiment-Id",uuid4().hex[:10])
         k                         = int(request_headers.get("K"))
         experiment_iteration      = request_headers.get("Experiment-Iteration","0")
-        
         requestId                 = "request-{}".format(plaintext_matrix_id)
         m                         = dataowner.m
+        convergence_threshold     = float(request_headers.get("Convergence-Threshold", "0.000001"))
         plaintext_matrix_path     = "{}/{}.{}".format(SOURCE_PATH, plaintext_matrix_filename, extension)
-        cores                     = os.cpu_count()
-        # max_workers               = Utils.get_workers(num_chunks=num_chunks)
-
         MAX_ITERATIONS            = int(request_headers.get("Max-Iterations",current_app.config.get("MAX_ITERATIONS",10)))
         WORKER_TIMEOUT            = int(current_app.config.get("WORKER_TIMEOUT",300))
         MICTLANX_TIMEOUT          = int(current_app.config.get("MICTLANX_TIMEOUT",3600))
-        MICTLANX_DELAY            = int(current_app.config.get("MICTLANX_DELAY","2"))
-        MICTLANX_BACKOFF_FACTOR   = float(current_app.config.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-        MICTLANX_MAX_RETRIES      = int(current_app.config.get("MICTLANX_MAX_RETRIES","10")) 
         
-        local_read_dataset_start_time = time.time()
+        liu_params = LiuParams(
+            _round         = liu.round,
+            decimals       = liu.decimals,
+            secure_random  = liu.secure_random,
+            seed           = liu.seed,
+            use_np_random  = liu.use_np_random,
+            security_level = security_level
+        )
+
+        storage_backend = (
+            StorageBuilder(storage_client = STORAGE_CLIENT, scheme=Scheme.LIU)
+            .with_liu_params(liu_params=liu_params)
+            .with_storage_params(StorageParams(num_chunks=num_chunks, timeout=MICTLANX_TIMEOUT))
+            .build()
+        )
+
         plaintext_matrix_result  = await RoryCommon.read_numpy_from(
             path      = plaintext_matrix_path,
             extension = extension,
         )
-        if plaintext_matrix_result.is_ok:
-            plaintext_matrix = plaintext_matrix_result.unwrap()
-        else:
-            raise plaintext_matrix_result.unwrap_err()
-        
-        r = plaintext_matrix.shape[0]
-        a = plaintext_matrix.shape[1]
 
-        local_read_entry = ExperimentLogEntry(
-            event          = "LOCAL.READ",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = local_read_dataset_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers, 
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(local_read_entry.model_dump())
-        
-        n = a*r*m
+        if plaintext_matrix_result.is_err:
+            logger.error("Failed to process dataset: {}".format(plaintext_matrix_result.unwrap_err()))
+            return Response(status=500, response="Failed to process dataset")
+        plaintext_matrix = plaintext_matrix_result.unwrap()
 
-        encryption_start_time = time.time()
-        encrypted_ptm_chunks = RoryCommon.segment_and_encrypt_liu_with_executor( #Encrypt 
-            executor         = executor,
-            key              = encrypted_matrix_id,
-            plaintext_matrix = plaintext_matrix,
-            dataowner        = dataowner,
-            n                = n,
-            num_chunks       = num_chunks,
-            np_random        = np_random
-        )
-
-        segment_encrypt_entry = ExperimentLogEntry(
-            event          = "SEGMENT.ENCRYPT",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = encryption_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers, 
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(segment_encrypt_entry.model_dump())
+        # logger.debug({
+        #     "event"         : "LOCAL.READ",
+        #     "experiment_id" : experiment_id,
+        #     "algorithm"     : algorithm,
+        #     "id"            : plaintext_matrix_id,
+        #     "worker_id"     : "",
+        #     "num_chunks"    : num_chunks,
+        #     "k"             : k,
+        #     "workers"       : max_workers,
+        #     "security_level": security_level,
+        #     "m"             : m,
+        #     # "plaintext_matrix":str(plaintext_matrix)
+        # })
         
-        put_ptm_start_time = time.time()
-        put_ptm_chunks_results = await RoryCommon.put_chunks(
-            client    = STORAGE_CLIENT,
+        logger.debug({
+            "_________________":"________________",
+            "PLAINTEXT MATRIX":str(plaintext_matrix),
+        })
+
+        plaintext_matrix_result_2  = await storage_backend.put(
             bucket_id = BUCKET_ID,
-            key       = encrypted_matrix_id,
-            chunks    = encrypted_ptm_chunks,
-            tags      = {
-                "full_shape": str((r,a,m)),
-                "full_dtype":"float32"
-            }
+            ball_id   = encrypted_matrix_id,
+            data      = plaintext_matrix,
+            scheme    = Scheme.LIU,
+            segment   = True,
+            encrypt   = True,
+            delete    = True
         )
-        if put_ptm_chunks_results.is_err:
-            return Response(status=500, response = "Put encrypted matrix failed")
-        
-        put_encrypted_ptm_entry = ExperimentLogEntry(
-            event          = "PUT",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = put_ptm_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers,
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(put_encrypted_ptm_entry.model_dump())
+
+        if plaintext_matrix_result_2.is_err:
+            logger.error("Failed to process dataset: {}".format(plaintext_matrix_result_2.unwrap_err()))
+            return Response(status=500, response="Failed to process dataset")
+        plaintext_matrix_response = plaintext_matrix_result_2.unwrap()
+
+        # logger.debug({
+        #     "event"        : "PUT",
+        #     "experiment_id": experiment_id,
+        #     "bucket_id"    : BUCKET_ID,
+        #     "ball_id"      : encrypted_matrix_id,
+        #     "matrix_id"    : encrypted_matrix_id,
+        #     "shape"        : str(plaintext_matrix_response.shape),
+        #     "dtype"        : str(plaintext_matrix_response.dtype),
+        #     "read_time"    : plaintext_matrix_response.read_time,
+        #     "segment_time" : plaintext_matrix_response.segment_time,
+        #     "encrypt_time" : getattr(plaintext_matrix_response, "encrypt_time", 0.0),
+        #     "upload_time"  : plaintext_matrix_response.upload_time,
+        # })
 
         udm_start_time = time.time()
         udm            = dataowner.get_U(
             plaintext_matrix = plaintext_matrix,
             algorithm        = algorithm
         )
+
+        # logger.debug({
+        #         "event"        : "GET.UDM",
+        #         "experiment_id": experiment_id,
+        #         "shape"        : str(udm.shape),
+        #         "type"         : str(udm.dtype),
+        #         "udm_id"       : udm_id,
+        #         "udm_time"     : time.time() - udm_start_time,
+        #         # "udm" : str(udm)
+        #     })
         
-        udm_gen_entry = ExperimentLogEntry(
-            event          = "UDM.GENERATION",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = udm_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers,
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(udm_gen_entry.model_dump())
-    
-        udm_put_start_time = time.time()
-        maybe_udm_matrix_chunks = Chunks.from_ndarray(
-            ndarray      = udm,
-            group_id     = udm_id,
-            chunk_prefix = Some(udm_id),
-            num_chunks   = num_chunks,
-        )
+        logger.debug({
+            "_________________":"________________",
+            "UDM 1":str(udm),
+        })
 
-        if maybe_udm_matrix_chunks.is_none:
-            raise "something went wrong creating the chunks"
-
-        udm_put_result = await RoryCommon.put_chunks(
-            client    = STORAGE_CLIENT,
+        # time.sleep(1000)
+        udm_put_result = await storage_backend.put(
             bucket_id = BUCKET_ID,
-            key       = udm_id,
-            chunks    = maybe_udm_matrix_chunks.unwrap(),
-            tags      = {
-                "full_shape": str(udm.shape),
-                "full_dtype": str(udm.dtype)
-            }
+            data      = udm,
+            ball_id   = udm_id,
+            segment   = True,
+            encrypt   = False,
+            scheme    = Scheme.LIU,
+            delete    = True
         )
-
-        if udm_put_result.is_err:
-            e= udm_put_result.unwrap_err()
-            raise Exception(f"Put UDM failed: {str(e)}")
         
-        service_time_client = time.time() - arrivalTime
-        udm_put_entry = ExperimentLogEntry(
-            event          = "PUT",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = udm_put_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = "",
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers,
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(udm_put_entry.model_dump())
+        if udm_put_result.is_err:
+            logger.error("Failed to process udm: {}".format(udm_put_result.unwrap_err()))
+            return Response(status=500, response="Failed to process udm")
+        udm_response = udm_put_result.unwrap()
 
+        # logger.debug({
+        #     "event"        : "PUT",
+        #     "experiment_id": experiment_id,
+        #     "bucket_id"    : BUCKET_ID,
+        #     "ball_id"      : udm_id,
+        #     "matrix_id"    : udm_id,
+        #     "shape"        : str(udm_response.shape),
+        #     "dtype"        : str(udm_response.dtype),
+        #     "read_time"    : udm_response.read_time,
+        #     "segment_time" : udm_response.segment_time,
+        #     "encrypt_time" : getattr(udm_response, "encrypt_time", 0.0),
+        #     "upload_time"  : udm_response.upload_time,
+        # })
+
+        
+        service_time_client   = time.time() - arrivalTime
         get_worker_start_time = time.time()
         manager:RoryManager   = current_app.config.get("manager") # Communicates with the manager
         get_worker_result     = manager.getWorker( #Gets the worker from the manager
@@ -515,27 +481,18 @@ async def skmeans():
             error = get_worker_result.unwrap_err()
             logger.error(str(error))
             return Response(str(error), status=500)
-        (worker_id,port) = get_worker_result.unwrap()
+        (_worker_id,port) = get_worker_result.unwrap()
+
+        logger.debug({
+            "event":"GET.WORKER",
+            "worker_id":_worker_id,
+            "port":port,
+            "is_local": TESTING
+        })
 
         get_worker_end_time     = time.time() 
         get_worker_service_time = get_worker_end_time - get_worker_start_time
         worker_id               =  "localhost" if TESTING else worker_id
-
-        get_worker_entry = ExperimentLogEntry(
-            event          = "GET.WORKER",
-            experiment_id  = experiment_id,
-            algorithm      = algorithm,
-            start_time     = get_worker_start_time,
-            end_time       = time.time(),
-            id             = plaintext_matrix_id,
-            worker_id      = worker_id,
-            num_chunks     = num_chunks,
-            k              = k,
-            workers        = max_workers,
-            security_level = security_level,
-            m              = m
-        )
-        logger.info(get_worker_entry.model_dump())
         
         worker_start_time = time.time()
         worker = RoryWorker( #Allows to establish the connection with the worker
@@ -549,8 +506,14 @@ async def skmeans():
         iterations   = 0
         label_vector = None
         endTime      = 0 
+
         while (status != Constants.ClusteringStatus.COMPLETED): #While the status is not completed
             
+            logger.debug({
+                "_________________":"________________",
+                "CURRENT ITERATION":str(iterations),
+            }) 
+                        
             inner_interaction_arrival_time = time.time()
             run1_headers  = {
                 "Step-Index"             : "1",
@@ -558,7 +521,7 @@ async def skmeans():
                 "Plaintext-Matrix-Id"    : plaintext_matrix_id,
                 "Request-Id"             : requestId,
                 "Encrypted-Matrix-Id"    : encrypted_matrix_id,
-                "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
+                "Encrypted-Matrix-Shape" : str(plaintext_matrix.shape),
                 "Encrypted-Matrix-Dtype" : "float32",
                 "Encrypted-Udm-Dtype"    : "float32",
                 "Num-Chunks"             : str(num_chunks),
@@ -569,7 +532,21 @@ async def skmeans():
                 "Max-Iterations"         : str(MAX_ITERATIONS),
                 "Experiment-Id"          : experiment_id
             }
-                        
+            # logger.debug({
+            #     "event"               : "WORKER.RUN",
+            #     "worker_id"           : _worker_id,
+            #     "status"              : str(status),
+            #     "experiment_id"       : experiment_id,
+            #     "plaintext_matrix_id" : plaintext_matrix_id,
+            #     "num_chunks"          : str(num_chunks),
+            #     "iterations"          : str(iterations),
+            #     "k"                   : str(k),
+            #     "m"                   : str(m),
+            #     "experiment_iteration": str(experiment_iteration),
+            #     "max_iterations"      : str(MAX_ITERATIONS),
+            #     "status"              : status
+            # })
+
             worker_run1_response = worker.run(
                 timeout = WORKER_TIMEOUT, 
                 headers = run1_headers
@@ -586,173 +563,192 @@ async def skmeans():
             run1_n_iterations         = jsonWorkerResponse["n_iterations"]
             label_vector              = jsonWorkerResponse["label_vector"]
 
-            run1_worker_entry = ExperimentLogEntry(
-                event          = "RUN1",
-                experiment_id  = experiment_id,
-                algorithm      = algorithm,
-                start_time     = inner_interaction_arrival_time,
-                end_time       = time.time(),
-                id             = plaintext_matrix_id,
-                worker_id      = worker_id,
-                num_chunks     = num_chunks,
-                k              = k,
-                workers        = max_workers,
-                security_level = security_level,
-                m              = m,
-                iterations     = run1_n_iterations
+            # logger.debug({
+            #     "event"             : "WORKER.RUN.COMPLETED",
+            #     "run_1_service_time": run1_service_time,
+            #     "n_iterations"      : run1_n_iterations,
+            #     "label_vector":str(label_vector)
+            # })
+            # time.sleep(1000)
+            encrypted_shift_matrix_result = await storage_backend.get(
+                bucket_id = BUCKET_ID,
+                ball_id   = encrypted_shift_matrix_id,
+                segment   = True,
+                encrypt   = True,
+                scheme    = Scheme.LIU
             )
-            logger.info(run1_worker_entry.model_dump())
-       
-            encrypted_shift_matrix_start_time = time.time()
-            encrypted_shift_matrix = await RoryCommon.get_and_merge(
-                client         = STORAGE_CLIENT, 
-                key            = encrypted_shift_matrix_id,
-                bucket_id      = BUCKET_ID,
-                backoff_factor = MICTLANX_BACKOFF_FACTOR,
-                max_retries    = MICTLANX_MAX_RETRIES,
-                delay          = MICTLANX_DELAY,
-                timeout        = MICTLANX_TIMEOUT
-            )
+            if encrypted_shift_matrix_result.is_err:
+                logger.error(f"Failed to get shift matrix: {encrypted_shift_matrix_result.unwrap_err()}")
+                return Response(status=500, response="Failed to get shift matrix")
+            encrypted_shift_matrix_get_result = encrypted_shift_matrix_result.unwrap()
+            encrypted_shift_matrix = encrypted_shift_matrix_get_result.raw_value
 
-            get_encrypted_sm_entry = ExperimentLogEntry(
-                event          = "GET",
-                experiment_id  = experiment_id,
-                algorithm      = algorithm,
-                start_time     = encrypted_shift_matrix_start_time,
-                end_time       = time.time(),
-                id             = plaintext_matrix_id,
-                worker_id      = worker_id,
-                num_chunks     = num_chunks,
-                k              = k,
-                workers        = max_workers,
-                security_level = security_level,
-                m              = m,
-                iterations     = run1_n_iterations
-            )
-            logger.info(get_encrypted_sm_entry.model_dump())
+            # logger.debug({
+            #     "event"        : "GET",
+            #     "experiment_id": experiment_id,
+            #     "bucket_id"    : BUCKET_ID,
+            #     "ball_id"      : encrypted_shift_matrix_id,
+            #     "matrix_id"    : encrypted_shift_matrix_id,
+            #     "shape"        : str(encrypted_shift_matrix.shape if hasattr(encrypted_shift_matrix, 'shape') else (1,)),
+            #     "dtype"        : "float32",
+            #     "read_time"    : encrypted_shift_matrix_get_result.read_time,
+            # })
 
             decrypt_start_time = time.time()
             shiftMatrix_chipher_schema_res = liu.decryptMatrix( #Shift Matrix is decrypted
-                ciphertext_matrix = encrypted_shift_matrix.tolist(),
+                ciphertext_matrix = encrypted_shift_matrix,
                 secret_key        = dataowner.sk,
             )
+            end_time_decryption   = time.time() - decrypt_start_time
 
-            decrypt_entry = ExperimentLogEntry(
-                event          = "DECRYPT",
-                experiment_id  = experiment_id,
-                algorithm      = algorithm,
-                start_time     = decrypt_start_time,
-                end_time       = time.time(),
-                id             = plaintext_matrix_id,
-                worker_id      = worker_id,
-                num_chunks     = num_chunks,
-                k              = k,
-                workers        = max_workers,
-                security_level = security_level,
-                m              = m,
-                iterations     = run1_n_iterations
-            )
-            logger.info(decrypt_entry.model_dump())
+            # logger.debug({
+            #     "event"        : "DECRYPT.SHIFTMATRIX",
+            #     "experiment_id": experiment_id,
+            #     "encrypted_shift_matrix_id": encrypted_shift_matrix_id,
+            #     "decrypt_time" : end_time_decryption,
+            # })
 
             shift_matrix    = shiftMatrix_chipher_schema_res.matrix
-            shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id) # The id of the Shift matrix is formed
-            put_shift_matrix_start_time = time.time()
+            mean_shift_matrix = np.mean(np.abs(shift_matrix))
+            # logger.debug({
+            #     "Shift_matrix": str(shift_matrix),
+            #     "Mean Shift": str(mean_shift_matrix),
+            #     "fMS": float(mean_shift_matrix)
+            # })
 
-            maybe_shift_matrix_chunks = Chunks.from_ndarray(
-                ndarray      = shift_matrix,
-                group_id     = shift_matrix_id,
-                chunk_prefix = Some(shift_matrix_id),
-                num_chunks   = num_chunks,
+            logger.debug({
+                "_________________":"________________",
+                "ENCRYPTED SHIFT MATRIX":str(encrypted_shift_matrix),
+                "DECRYPTED SHIFT MATRIX":str(shift_matrix)
+            }) 
+
+            shift_matrix_id = "{}shiftmatrix".format(plaintext_matrix_id)
+
+            is_converged = float( mean_shift_matrix) <= convergence_threshold
+
+            # logger.debug({
+            #     "event"              : "CONVERGENCE.CHECK",
+            #     "experiment_id"      : experiment_id,
+            #     "mean_shift"         : mean_shift_matrix,
+            #     "threshold"          : convergence_threshold,
+            #     "is_converged"       : is_converged,
+            # })
+
+            if not is_converged:
+                put_shift_matrix_start_time = time.time()
+
+                encrypted_shift_matrix_result = await storage_backend.put(
+                    bucket_id = BUCKET_ID,
+                    data      = shift_matrix,
+                    ball_id   = shift_matrix_id,
+                    segment   = True,
+                    encrypt   = False,
+                    scheme    = Scheme.LIU,
+                    delete    = True
                 )
 
-            if maybe_shift_matrix_chunks.is_none:
-                raise "something went wrong creating the chunks"
+                if encrypted_shift_matrix_result.is_err:
+                    logger.error("Failed to put encrypted shift matrix in cloud storage: {}".format(encrypted_shift_matrix_result.unwrap_err()))
+                    return Response(status=500, response="Failed to put encrypted shift matrix in cloud storage")
+                encrypted_shift_matrix_response = encrypted_shift_matrix_result.unwrap()
+                
+                # logger.debug({
+                #     "event"        : "PUT",
+                #     "experiment_id": experiment_id,
+                #     "bucket_id"    : BUCKET_ID,
+                #     "ball_id"      : shift_matrix_id,
+                #     "matrix_id"    : shift_matrix_id,
+                #     "shape"        : str(shift_matrix.shape),
+                #     "dtype"        : str(shift_matrix.dtype),
+                #     "read_time"    : encrypted_shift_matrix_response.read_time,
+                #     "segment_time" : encrypted_shift_matrix_response.segment_time,
+                #     "encrypt_time" : getattr(encrypted_shift_matrix_response, "encrypt_time", 0.0),
+                #     "upload_time"  : encrypted_shift_matrix_response.upload_time,
+                # })
             
-            put_shift_matrix_result = await RoryCommon.delete_and_put_chunks(
-                client    = STORAGE_CLIENT,
-                bucket_id = BUCKET_ID,
-                key       = shift_matrix_id,
-                chunks    = maybe_shift_matrix_chunks.unwrap(),
-                timeout   = MICTLANX_TIMEOUT,
-                max_tries = MICTLANX_MAX_RETRIES,
-                tags      = {
-                    "full_shape": str(shift_matrix.shape),
-                    "full_dtype": str(shift_matrix.dtype)
+
+            if is_converged:
+                status = Constants.ClusteringStatus.COMPLETED
+            else:
+                status  = Constants.ClusteringStatus.WORK_IN_PROGRESS
+                run2_headers = {
+                    "Step-Index"             : "2",
+                    "Clustering-Status"      : str(status),
+                    "Is-Zero"                : "0",
+                    "Shift-Matrix-Id"        : shift_matrix_id,
+                    "Plaintext-Matrix-Id"    : plaintext_matrix_id,
+                    "Encrypted-Matrix-Id"    : encrypted_matrix_id,
+                    "Encrypted-Matrix-Shape" : str(plaintext_matrix.shape),
+                    "Encrypted-Matrix-Dtype" : "float32",
+                    "Num-Chunks"             : str(num_chunks),
+                    "Iterations"             : str(iterations),
+                    "K"                      : str(k),
+                    "M"                      : str(m),
+                    "Experiment-Iteration"   : str(experiment_iteration),
+                    "Max-Iterations"         : str(MAX_ITERATIONS),
+                    "Experiment-Id"          : experiment_id
                 }
-            )
+                
+                # logger.debug({
+                #     "event"               : "WORKER.RUN.2",
+                #     "worker_id"           : _worker_id,
+                #     "status"              : str(status),
+                #     "experiment_id"       : experiment_id,
+                #     "plaintext_matrix_id" : plaintext_matrix_id,
+                #     "num_chunks"          : str(num_chunks),
+                #     "iterations"          : str(iterations),
+                #     "k"                   : str(k),
+                #     "m"                   : str(m),
+                #     "experiment_iteration": str(experiment_iteration),
+                #     "max_iterations"      : str(MAX_ITERATIONS),
+                #     "status"              : status
+                # })
 
-            put_sm_entry = ExperimentLogEntry(
-                event          = "PUT",
-                experiment_id  = experiment_id,
-                algorithm      = algorithm,
-                start_time     = put_shift_matrix_start_time,
-                end_time       = time.time(),
-                id             = plaintext_matrix_id,
-                worker_id      = worker_id,
-                num_chunks     = num_chunks,
-                k              = k,
-                workers        = max_workers,
-                security_level = security_level,
-                m              = m,
-                iterations     = run1_n_iterations
-            )
-            logger.info(put_sm_entry.model_dump())
 
-            status       = Constants.ClusteringStatus.WORK_IN_PROGRESS #Status is updated
-            run2_headers = {
-                "Step-Index"             : "2",
-                "Clustering-Status"      : str(status),
-                "Shift-Matrix-Id"        : shift_matrix_id,
-                "Plaintext-Matrix-Id"    : plaintext_matrix_id,
-                "Encrypted-Matrix-Id"    : encrypted_matrix_id,
-                "Encrypted-Matrix-Shape" : "({},{},{})".format(r,a,m),
-                "Encrypted-Matrix-Dtype" : "float32",
-                "Num-Chunks"             : str(num_chunks),
-                "Iterations"             : str(iterations),
-                "K"                      : str(k),
-                "M"                      : str(m), 
-                "Experiment-Iteration"   : str(experiment_iteration), 
-                "Max-Iterations"         : str(MAX_ITERATIONS),
-                "Experiment-Id"          : experiment_id
-            }
+                worker_run2_response = worker.run(
+                    timeout = WORKER_TIMEOUT,
+                    headers = run2_headers
+                )
+
+                worker_run2_response.raise_for_status()
+                service_time_worker = worker_run2_response.headers.get("Service-Time",0)
+
+            iterations += 1
+            if iterations >= MAX_ITERATIONS:
+                status = Constants.ClusteringStatus.COMPLETED
+                startTime = float(s.headers.get("Start-Time",0))
+                service_time_worker = time.time() - startTime
+                # logger.debug({
+                #     "event":"NO.CONVERGED.MAX_ITERATION_REACHED",
+                #     "experiment_id":experiment_id,
+                #     "algorithm":algorithm,
+                #     "iterations":iterations,
+                #     "max_iterations":MAX_ITERATIONS
+                # })
+            elif not is_converged:
+                status = int(worker_run2_response.headers.get("Clustering-Status", Constants.ClusteringStatus.WORK_IN_PROGRESS))
+            endTime    = time.time()
             
-            worker_run2_response = worker.run(
-                timeout = WORKER_TIMEOUT,
-                headers = run2_headers
-            ) #Start run 2
-
-            worker_run2_response.raise_for_status()
-            service_time_worker = worker_run2_response.headers.get("Service-Time",0) 
-            iterations+=1
-            if (iterations >= MAX_ITERATIONS): #If the number of iterations is equal to the maximum
-                status              = Constants.ClusteringStatus.COMPLETED #Change the status to complete
-                startTime           = float(s.headers.get("Start-Time",0))
-                service_time_worker = time.time() - startTime #The service time is calculated
-            else: 
-                status = int(worker_run2_response.headers.get("Clustering-Status",Constants.ClusteringStatus.WORK_IN_PROGRESS)) #Status is maintained
-            endTime    = time.time() # Get the time when it ends
-            
-            skmeans_iteration_completed_entry = ExperimentLogEntry(
-                event          = "ITERATION.COMPLETED",
-                experiment_id  = experiment_id,
-                algorithm      = algorithm,
-                start_time     = inner_interaction_arrival_time,
-                end_time       = time.time(),
-                id             = plaintext_matrix_id,
-                worker_id      = worker_id,
-                num_chunks     = num_chunks,
-                k              = k,
-                workers        = max_workers,
-                security_level = security_level,
-                m              = m,
-                iterations     = run1_n_iterations
-            )
-            logger.info(skmeans_iteration_completed_entry.model_dump())
+            # logger.debug({
+            #     "event"         : "ITERATION.COMPLETED",
+            #     "experiment_id" : experiment_id,
+            #     "algorithm"     : algorithm,
+            #     "start_time"    : arrivalTime,
+            #     "end_time"      : time.time(),
+            #     "id"            : plaintext_matrix_id,
+            #     "worker_id"     : worker_id,
+            #     "num_chunks"    : num_chunks,
+            #     "k"             : k,
+            #     "workers"       : max_workers,
+            #     "security_level": security_level,
+            #     "m"             : m,
+            #     "iterations"    : run1_n_iterations
+            # })
 
         worker_response_time = endTime - worker_start_time
         response_time        = endTime - arrivalTime 
 
-        clustering_completed_entry = ExperimentLogEntry(
+        logger.info(ExperimentLogEntry(
             event          = "COMPLETED",
             experiment_id  = experiment_id,
             algorithm      = algorithm,
@@ -769,8 +765,7 @@ async def skmeans():
             client_time    = service_time_client,
             manager_time   = get_worker_service_time,
             worker_time    = worker_response_time,
-        )
-        logger.info(clustering_completed_entry.model_dump())
+        ).model_dump())
 
         return Response(
             response = json.dumps({

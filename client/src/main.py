@@ -11,7 +11,7 @@ from routes.machinelearning import machinelearning
 from mictlanx.logger.log import Log
 from mictlanx import AsyncClient
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
-
+from mictlanx.logger.log import JsonFormatter
 app = Flask(__name__)
 
 
@@ -35,7 +35,8 @@ MAX_ITERATIONS       = int(os.environ.get("MAX_ITERATIONS",10))
 
 LIU_SECURITY_LEVEL = int(os.environ.get("LIU_SECURITY_LEVEL","128")) #128, 192, 256
 LIU_SECURE_RANDOM  = bool(int(os.environ.get("LIU_SECURE_RANDOM","0")))
-LIU_SEED           = int(os.environ.get("LIU_SEED","123"))
+LIU_SEED_STR       = os.environ.get("LIU_SEED","None")
+LIU_SEED           = int(LIU_SEED_STR) if LIU_SEED_STR.isdigit() else None
 LIU_USE_NP_RANDOM  = bool(int(os.environ.get("LIU_USE_NP_RANDOM","1")))
 LIU_ROUND          = bool(int(os.environ.get("LIU_ROUND","0")))
 LIU_DECIMALS       = int(os.environ.get("LIU_DECIMALS",6))
@@ -101,14 +102,6 @@ MANAGER = RoryManager(
     port     = RORY_MANAGER_PORT,
 )
 
-# def console_handler_filter(record:logging.LogRecord):
-#     if DEBUG:
-#         return True
-#     elif not DEBUG and (record.levelno == logging.INFO or record.levelno == logging.ERROR):
-#         return True
-#     else:
-#         return False
-from mictlanx.logger.log import JsonFormatter
 # Intervalo en la se generan los archivos de logs (default = cada 24 horas)
 RORY_CLIENT_LOG_INTERVAL              = int(os.environ.get("RORY_CLIENT_LOG_INTERVAL",24))
 RORY_CLIENT_LOG_WHEN                  = os.environ.get("RORY_CLIENT_LOG_WHEN","h")
@@ -239,7 +232,15 @@ if __name__ == 'main' or __name__ == "__main__":
             "mictlanx_timeout":MICTLANX_TIMEOUT,
             "worker_timeout":WORKER_TIMEOUT,
             "log_disabled":RORY_CLIENT_LOG_DISABLED,
-            "mictlanx_log_disable": MICTLANX_LOG_DISABLE
+            "mictlanx_log_disable": MICTLANX_LOG_DISABLE,
+            "liu_params":{
+                "security_level":LIU_SECURITY_LEVEL,
+                "secure_random": LIU_SECURE_RANDOM,
+                "seed":LIU_SEED,
+                "use_np_random":LIU_USE_NP_RANDOM,
+                "round":LIU_ROUND,
+                "decimals":LIU_DECIMALS,
+            }
         })
         create_app()
     except Exception as e:

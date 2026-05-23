@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from retry.api import retry_call
 from mictlanx.logger.log import Log
 from rory.core.security.cryptosystem.pqc.ckks import Ckks
+from mictlanx.logger.log import JsonFormatter
 app = Flask(__name__)
 
 RORY_WORKER_ENV_FILE_PATH = os.environ.get("RORY_WORKER_ENV_FILE_PATH",".env")
@@ -99,7 +100,6 @@ ASYNC_STORAGE_CLIENT = AsyncClient(
     enable_logging   = not MICTLANX_LOG_DISABLE
 )
 
-from mictlanx.logger.log import JsonFormatter
 # LOGGER_NAME                           = os.environ.get("LOGGER_NAME","rory-worker")
 RORY_WORKER_LOG_INTERVAL              = int(os.environ.get("RORY_WORKER_LOG_INTERVAL",24))
 RORY_WORKER_LOG_WHEN                  = os.environ.get("RORY_WORKER_LOG_WHEN","h")
@@ -126,6 +126,7 @@ LOGGER = Log(
     to_file                = RORY_WORKER_LOG_TO_FILE,
     use_rich               = RORY_WORKER_LOG_USE_RICH
 )
+# print("A")
 
 
 """

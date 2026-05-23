@@ -14,9 +14,16 @@ import logging
 import time
 
 app = Flask(__name__)
+# if DEBUG:
+    # load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
+# from dotenv import load_dotenv
+
+x = os.environ.get("RORY_MANAGER_ENV_FILE_PATH",".env")
+if os.path.exists(x):
+    print("Load env from",x)
+    load_dotenv(x)
 DEBUG              = bool(int(os.environ.get("RORY_DEBUG",0)))
-if DEBUG:
-    load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.manager.env"))
+
 
 NODE_ID            = os.environ.get("NODE_ID","rory-manager-0")
 IP_ADDR            = os.environ.get("NODE_IP_ADDR",NODE_ID)

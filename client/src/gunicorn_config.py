@@ -1,5 +1,5 @@
 import os
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH",".env.dev")
+ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH",".env")
 if os.path.exists(ENV_FILE_PATH):
     from dotenv import load_dotenv
     load_dotenv(ENV_FILE_PATH)
