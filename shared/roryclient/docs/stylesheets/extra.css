@@ -1,0 +1,71 @@
+/* 1. PALETA DRÁCULA PARA MODO OSCURO (SLATE) */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #282a36;
+  --md-default-fg-color: #f8f8f2;
+  --md-default-fg-color--light: #f8f8f2;
+  --md-default-fg-color--lighter: #6272a4;
+  
+  /* Colores de acento */
+  --md-primary-fg-color: #bd93f9; /* Morado Drácula */
+  --md-accent-fg-color: #ff79c6;  /* Rosa Drácula */
+  
+  /* Bloques de código */
+  --md-code-bg-color: #44475a;
+  
+  /* Resaltado de Sintaxis (Syntax Highlighting) */
+  --md-code-hl-function-color: #50fa7b;    /* Verde */
+  --md-code-hl-keyword-color: #ff79c6;     /* Rosa */
+  --md-code-hl-string-color: #f1fa8c;      /* Amarillo */
+  --md-code-hl-comment-color: #6272a4;     /* Gris/Azul */
+  --md-code-hl-number-color: #bd93f9;      /* Morado */
+  --md-code-hl-variable-color: #50fa7b;    /* Verde */
+}
+
+/* OCULTAR EL NOMBRE DEL SITIO EN EL MENÚ LATERAL */
+.md-nav--primary .md-nav__title {
+    font-size: 0 !important;
+    line-height: 0 !important;
+    padding: 0 !important;
+}
+
+/* MOSTRAR SOLO EL LOGO Y AJUSTAR SU TAMAÑO */
+.md-nav__button.md-logo img {
+    height: 3.5rem !important;
+    width: auto !important;
+    display: block !important;
+    margin: 10px auto !important;
+}
+
+/* CAMBIAR EL COLOR DE LOS ICONOS DEL MENÚ AL PASAR EL MOUSE (Opcional Drácula) */
+.md-nav__link:hover {
+    color: #bd93f9 !important; /* Morado Drácula */
+}
+
+
+/* 3. AJUSTE DEL LOGO EN EL MENÚ */
+.md-nav__button.md-logo img {
+  height: 3.5rem !important;
+  width: auto !important;
+  display: block !important;
+  margin: 15px auto !important;
+}
+
+/* 4. MEJORAS VISUALES PARA TÍTULOS CON EMOJIS */
+h1, h2, h3 {
+  color: var(--md-primary-fg-color);
+}
+
+/* CENTRAR EL CONTENEDOR DE LAS INSIGNIAS (BADGES) */
+.badge-container {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 15px !important; /* Espacio entre insignias */
+  margin: 2rem auto !important; /* Espacio arriba y abajo */
+}
+
+/* Opcional: Aumentar un poco el tamaño para que se vean mejor */
+.badge-container img {
+  height: 25px !important;
+  width: auto !important;
+}

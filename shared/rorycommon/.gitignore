@@ -1,0 +1,12 @@
+dist/
+*.ipynb
+**/__pycache__/
+*.lock
+.coverage
+site/
+htmlcov/
+.vscode/
+CLAUDE.md
+.claude
+.cache
+*.log

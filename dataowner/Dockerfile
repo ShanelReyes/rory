@@ -1,21 +1,14 @@
-FROM python:3.10-slim
-WORKDIR /app
-RUN apt update
-RUN apt-get update && apt-get install -y \
-    git \ 
-    g++ \
-    gcc \
-    cmake \
-    make \
-    python3-dev \
-    gfortran \
-    musl-dev \
-    libssl-dev \
-    libgmp-dev \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.11-bullseye
 
-RUN python -m pip install --upgrade pip
-COPY ./requirements.txt .
-RUN pip install --default-timeout=1800 -r requirements.txt
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+
+COPY pyproject.toml poetry.lock* ./
+RUN pip install poetry && poetry config virtualenvs.create false && poetry install --no-root
+
+COPY .env .
 COPY ./src .
-CMD [ "python","-u","/app/main.py"]
+
+CMD ["uvicorn","main:app","--host","0.0.0.0","--port","3000","--timeout-keep-alive","3600","--workers","1"]

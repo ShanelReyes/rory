@@ -4,12 +4,12 @@ icon: material/xml
 
 # API Reference
 
-Comprehensive technical documentation for the Rory platform, detailing the endpoints for the Client, Manager, Worker, and Dataowner components. This reference covers secure data mining protocols using homomorphic (Liu, CKKS) and order-preserving (FDHOPE) encryption schemes.
+Comprehensive technical documentation for the Rory platform, detailing the endpoints for the Dataowner, Manager, Worker, and Experiment Runner components. This reference covers secure data mining protocols using homomorphic (Liu, CKKS) and order-preserving (FDHOPE) encryption schemes.
 
 ---
 
-## Rory Client
-The **Client** acts as the **Data Owner (DO)** and the primary **Decryption Authority**. It is responsible for local data preparation, cryptographic key management, and participating as a secure decryption authority in interactive privacy-preserving protocols.
+## Rory Dataowner
+The **Dataowner** acts as the **Data Owner (DO)** and the primary **Decryption Authority**. It is responsible for local data preparation, cryptographic key management, and participating as a secure decryption authority in interactive privacy-preserving protocols.
 
 ### Route Summary
 
@@ -34,18 +34,18 @@ The **Client** acts as the **Data Owner (DO)** and the primary **Decryption Auth
 | `POST` | `/classification/sknn_pqc_train` | `sknn_pqc_train` | Post-Quantum Secure KNN training. |
 | `POST` | `/classification/sknn_pqc_predict` | `sknn_pqc_predict` | Post-Quantum Secure KNN prediction. |
 
-### Clustering (Client-side)
+### Clustering (Dataowner-side)
 Endpoints to initiate secure data grouping. These routes handle local encryption and the externalization of datasets to the CSS.
-::: client.src.routes.clustering
+::: dataowner.src.routes.clustering
     options:
       show_root_heading: false
       show_root_toc_entry: false
       heading_level: 4
 
 
-### Classification (Client-side)
+### Classification (Dataowner-side)
 Endpoints for secure K-Nearest Neighbors (KNN) operations, managing the transformation between different encryption domains.
-::: client.src.routes.classification
+::: dataowner.src.routes.classification
     options:
       show_root_heading: false
       show_root_toc_entry: false
@@ -75,11 +75,11 @@ Endpoints for task status tracking, worker registration, and resource allocation
 
 ## Rory Dataowner
 
-The **Dataowner** module is a **batch experiment runner** — not a web service. It processes a trace CSV file and submits experiments concurrently to the Client service using the `roryclient` library. It has no HTTP endpoints of its own.
+The **Dataowner** module is a **batch experiment runner** — not a web service. It processes a trace CSV file and submits experiments concurrently to the Dataowner service using the `roryclient` library. It has no HTTP endpoints of its own.
 
 | Component | Type | Communication |
 |:---|:---|:---|
-| `dataowner/src/main.py` | CLI/Batch Script | `roryclient` → Client (port 3000) |
+| `dataowner/src/main.py` | CLI/Batch Script | `roryclient` → Dataowner (port 3000) |
 
 See the [Dataowner](/dataowner) documentation for configuration, trace file format, and deployment instructions.
 

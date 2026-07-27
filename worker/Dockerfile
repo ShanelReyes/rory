@@ -1,15 +1,12 @@
 FROM python:3.11-bullseye
-#FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV FLASK_APP="main"
-ENV FLASK_ENV="production"
 
 WORKDIR /app
 
-COPY ./requirements.txt .
-RUN pip install --default-timeout=1800 -r requirements.txt
-COPY .env .
+COPY pyproject.toml poetry.lock* ./
+RUN pip install poetry && poetry config virtualenvs.create false && poetry install --no-root
 
 COPY ./src .
-CMD ["gunicorn","--config","/app/gunicorn_config.py","main:app"]
+
+CMD ["uvicorn","main:app","--host","0.0.0.0","--port","9000","--timeout-keep-alive","3600","--workers","1"]

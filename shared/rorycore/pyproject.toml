@@ -1,0 +1,48 @@
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+# [build-system]
+# requires = ["setuptools>=60.9"]
+# build-backend = "setuptools.build_meta"
+
+[tool.poetry]
+name = "rory"
+version = "0.1.14"
+description = "Core modules of Secure Rory"
+authors=["Shanel Reyes <sreyes@cinvestav.mx>"]
+readme = "README.md"
+packages = [
+    {include = "rory"},
+    {include = "rory/core"},
+    {include = "rory/core/enums"},
+]
+
+# [[tool.poetry.source]]
+# name = "test"
+# url = "https://test.pypi.org/simple/"
+# secondary = true
+[tool.poetry.extras]
+pqc=["pyfhel"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4"
+option = "^2.1.0"
+phe = "^1.5.0"
+pyfhel = "^3.5.0"
+scikit-learn = "1.4.2"
+numpy = ">=1.21.0,<=2.2.4"
+requests = "^2.34.2"
+coverage = "^7.14.0"
+
+[tool.poetry.group.dev.dependencies]
+pandas = "^2.2.3"
+pytest = "^9.0.2"
+python-dotenv = "^1.2.2"
+zensical = "^0.0.42"
+mkdocstrings-python = "^2.0.3"
+
+[[tool.poetry.source]]
+name = "test"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"

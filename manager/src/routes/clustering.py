@@ -1,209 +1,185 @@
 import time
-import json
-from option import Result
 from threading import Semaphore
-from flask import Blueprint,current_app,request,Response
-from mictlanx.services.summoner.summoner import Summoner,SummonContainerPayload
+from fastapi import APIRouter, Depends, HTTPException, Request
+from mictlanx.services.summoner.summoner import Summoner, SummonContainerPayload
 from utils.utils import Utils
 from rory.core.interfaces.worker import Worker
+from option import Result
 
-clustering = Blueprint("clustering",__name__,  url_prefix = "/clustering")
-sem        = Semaphore(1)
+from models.requests import SecureWorkerRequest
+from models.responses import HealthCheckResponse, SecureWorkerResponse
+
+from dependencies import get_logger, get_replicator, get_lb, get_workers, get_settings
+
+router = APIRouter(prefix="/clustering", tags=["Clustering"])
+sem = Semaphore(1)
 
 
-@clustering.route("/test",methods=["GET","POST"])
+@router.api_route(
+    "/test",
+    methods=["GET", "POST"],
+    response_model=HealthCheckResponse,
+    summary="Health check and component identification",
+    description="Verify the availability of the Manager component and confirm its role within the Rory platform architecture.",
+)
 def test():
-    return Response(
-        response = json.dumps({
-            "component_type":"manager"
-        }),
-        status   = 200,
-        headers  = {
-            "Component-Type":"manager"
-        }
-    )
+    return {"component_type": "manager"}
 
-# GET clustering/secure
-@clustering.route("/secure", methods = ["POST","GET"])
-def test_secure():
+
+@router.api_route(
+    "/secure",
+    methods=["GET", "POST"],
+    response_model=SecureWorkerResponse,
+    summary="Load-balanced worker allocation",
+    description="""Securely allocate a worker node for distributed computation.
+
+If no workers are available, a new Docker container is automatically deployed via the Summoner.
+Otherwise, the configured load-balancing algorithm selects an existing worker.
+
+**GET**: Returns an available worker (auto-deploys if none exist).  
+**POST**: Rejected with HTTP 403 (only GET is supported for secure operations).""",
+)
+def secure(
+    request: Request,
+    body: SecureWorkerRequest = Depends(),
+    logger=Depends(get_logger),
+    lb=Depends(get_lb),
+    replicator: Summoner = Depends(get_replicator),
+    settings=Depends(get_settings),
+):
     global sem
     try:
         sem.acquire()
-        arrival_time                 = time.time()        
-        logger                       = current_app.config["logger"]
-        lb                           = current_app.config["lb"] # Get the load balancing 
-        workers                      = current_app.config.get("workers",{}) # Get the current bins (skmeans / dbskmeans nodes)
-        workers                      = list( filter( lambda x: x[1].isStarted, workers.items()))
-        replicator:Summoner          = current_app.config["replicator"]
-        NODE_ID                      = current_app.config["NODE_ID"]
-        PORT                         = current_app.config["NODE_PORT"]
-        DOCKER_IMAGE                 = current_app.config["DOCKER_IMAGE"]
-        DOCKER_NETWORK_ID            = current_app.config["DOCKER_NETWORK_ID"]
-        INIT_PORT                    = int(current_app.config["INIT_WORKER_PORT"])
-        logger                       = current_app.config["logger"]
-        current_workers              = current_app.config["workers"]
-        n_workers                    = len(current_workers)
-        worker_port                  = str(n_workers+INIT_PORT)
-        headers                      = request.headers
-        algorithm                    = headers.get("Algorithm")
-        startRequestTime             = headers.get("Start-Request-Time",0)
-        getWorkerStartTime           = headers.get("Get-Worker-Start-Time",0)
-        latency                      = arrival_time - getWorkerStartTime
-        HOST_PORT                    = headers.get("Host-Port",worker_port)
-        container_id                 = headers.get("Container-Id","worker-{}".format(n_workers))
-        CONTAINER_PORT               = headers.get("Container-Port", worker_port)
-        WORKER_MEMORY                = headers.get("Worker-Memory","1000000000")
-        WORKER_CPU                   = headers.get("Worker-Cpu","1")
-        DEBUG                        = headers.get("Debug","0")
-        RELOAD                       = headers.get("Reload","0")
-        LIU_ROUND                    = headers.get("Liu-Round","1")
-        SINK_PATH                    = headers.get("Sink-Path","/rory/sink")
-        SOURCE_PATH                  = headers.get("Source-Path","/rory/source")
-        LOG_PATH                     = headers.get("Log-Path","/rory/log")
-        TESTING                      = headers.get("Testing","0")
-        MAX_ITERATIONS               = headers.get("Max-Iterations","10")
-        M                            = headers.get("M","3")
-        WORKER_MAX_THREADS           = headers.get("Max-Threads","4")
-        WORKER_MICTLANX_PEERS        = headers.get("Mictlanx-Peers","mictlanx-router-0:localhost:60666")
-        MICTLANX_CLIENT_LB_ALGORITHM = headers.get("Mictlanx-Lb-Algorithm","2CHOICES_UF")
-        MICTLANX_DEBUG               = headers.get("Mictlanx-Debug","0")
-        MICTLANX_DAEMON              = headers.get("Mictlanx-Daemon","0")
-        MICTLANX_SHOW_METRICS        = headers.get("Mictlanx-Show-Metrics","0")
-        MICTLANX_MAX_WORKERS         = headers.get("Mictlanx-Max-Workers","4")
-        MICTLANX_DISABLED_LOG        = headers.get("Mictlanx-Disabled-Log","1")
-        matrix_id                    = headers.get("Matrix-id","matrix0")
+        arrival_time = time.time()
+        workers_dict = get_workers()
+        active_workers = list(filter(lambda x: x[1].isStarted, workers_dict.items()))
+        n_workers = len(workers_dict)
+        worker_port = str(n_workers + settings.init_port)
 
-        OPERATION_NAME = "BALANCING"
-        if(request.method == "GET"):
-            if(len(workers) == 0):
+        host_port = body.host_port or worker_port
+        container_id = body.container_id or f"worker-{n_workers}"
+        container_port = body.container_port or worker_port
+
+        if request.method == "GET":
+            if len(active_workers) == 0:
                 logger.debug({
-                    "event":"NO.WORKER",
-                    "algorithm":algorithm,
-                    "docker_image":DOCKER_IMAGE,
-                    "docker_network_id":DOCKER_NETWORK_ID,
-                    "init_port":INIT_PORT,
-                    "host_port":HOST_PORT,
-                    "container_id":container_id,
-                    "container_port":CONTAINER_PORT,
-                    "worker_memory":WORKER_MEMORY,
-                    "worker_cpu":WORKER_CPU,
-                    "debug":DEBUG,
-                    "reload":RELOAD,
-                    "liu_round":LIU_ROUND,
-                    "sink_path":SINK_PATH,
-                    "log_path":LOG_PATH,
-                    "testing":TESTING,
-                    "max_iterations":MAX_ITERATIONS,
-                    "m":M,
-                    "worker_max_threads":WORKER_MAX_THREADS,
-                    "worker_mictlanx_peers":WORKER_MICTLANX_PEERS,
-                    "mictlanx_client_lb_algorithm":MICTLANX_CLIENT_LB_ALGORITHM,
-                    "mictlanx_debug":MICTLANX_DEBUG,
-                    "mictlanx_daemon":MICTLANX_DAEMON,
-                    "mictlanx_show_metrics":MICTLANX_SHOW_METRICS,
-                    "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
-                    "mictlanx_disabled_log":MICTLANX_DISABLED_LOG
-
+                    "event": "NO.WORKER",
+                    "algorithm": body.algorithm,
+                    "docker_image": settings.docker_image,
+                    "docker_network_id": settings.docker_network_id,
+                    "init_port": settings.init_port,
+                    "host_port": host_port,
+                    "container_id": container_id,
+                    "container_port": container_port,
+                    "worker_memory": body.worker_memory,
+                    "worker_cpu": body.worker_cpu,
+                    "debug": body.debug,
+                    "reload": body.reload,
+                    "liu_round": body.liu_round,
+                    "sink_path": body.sink_path,
+                    "log_path": body.log_path,
+                    "testing": body.testing,
+                    "max_iterations": body.max_iterations,
+                    "m": body.m,
+                    "worker_max_threads": body.max_threads,
+                    "worker_mictlanx_peers": body.mictlanx_peers,
+                    "mictlanx_client_lb_algorithm": body.mictlanx_lb_algorithm,
+                    "mictlanx_debug": body.mictlanx_debug,
+                    "mictlanx_daemon": body.mictlanx_daemon,
+                    "mictlanx_show_metrics": body.mictlanx_show_metrics,
+                    "mictlanx_max_workers": body.mictlanx_max_workers,
+                    "mictlanx_disabled_log": body.mictlanx_disabled_log,
                 })
-                result:Result[SummonContainerPayload,Exception] = Utils.deploy_worker(
+
+                result: Result[SummonContainerPayload, Exception] = Utils.deploy_worker(
                     replicator=replicator,
                     node_index=n_workers,
                     container_id=container_id,
-                    container_port=CONTAINER_PORT,
-                    manager_ip_addr=NODE_ID,
-                    manager_port= PORT,
-                    debug=DEBUG,
-                    _reload=RELOAD,
-                    liu_round=LIU_ROUND,
-                    source_path=SOURCE_PATH,
-                    sink_path=SINK_PATH,
-                    log_path=LOG_PATH,
-                    max_iterations=MAX_ITERATIONS,
-                    testing=TESTING,
-                    m=M,
-                    worker_max_threads=WORKER_MAX_THREADS,
-                    worker_mictlanx_peers=WORKER_MICTLANX_PEERS,
-                    mictlanx_client_lb_algorithm= MICTLANX_CLIENT_LB_ALGORITHM,
-                    mictlanx_debug=MICTLANX_DEBUG,
-                    mictlanx_daemon=MICTLANX_DAEMON,
-                    mictlanx_show_metrics=MICTLANX_SHOW_METRICS,
-                    mictlanx_max_workers=MICTLANX_MAX_WORKERS,
-                    mictlanx_disabled_log=MICTLANX_DISABLED_LOG,
-                    docker_image=DOCKER_IMAGE,
-                    host_port=HOST_PORT,
-                    worker_memory=WORKER_MEMORY,
-                    worker_cpu=WORKER_CPU,
-                    docker_network_id=DOCKER_NETWORK_ID
+                    container_port=container_port,
+                    manager_ip_addr=settings.node_id,
+                    manager_port=settings.node_port,
+                    debug=body.debug,
+                    _reload=body.reload,
+                    liu_round=body.liu_round,
+                    source_path=body.source_path,
+                    sink_path=body.sink_path,
+                    log_path=body.log_path,
+                    max_iterations=body.max_iterations,
+                    testing=body.testing,
+                    m=body.m,
+                    worker_max_threads=body.max_threads,
+                    worker_mictlanx_peers=body.mictlanx_peers,
+                    mictlanx_client_lb_algorithm=body.mictlanx_lb_algorithm,
+                    mictlanx_debug=body.mictlanx_debug,
+                    mictlanx_daemon=body.mictlanx_daemon,
+                    mictlanx_show_metrics=body.mictlanx_show_metrics,
+                    mictlanx_max_workers=body.mictlanx_max_workers,
+                    mictlanx_disabled_log=body.mictlanx_disabled_log,
+                    docker_image=settings.docker_image,
+                    host_port=host_port,
+                    worker_memory=body.worker_memory,
+                    worker_cpu=body.worker_cpu,
+                    docker_network_id=settings.docker_network_id,
                 )
+
                 if result.is_err:
                     error = result.unwrap_err()
                     logger.error(str(error))
-                    return Response(str(error), status=500)
+                    sem.release()
+                    raise HTTPException(status_code=500, detail=str(error))
+
                 response = result.unwrap()
                 _worker = Worker(
-                    workerId  = container_id,
-                    port      = CONTAINER_PORT,
-                    isStarted = True
+                    workerId=container_id,
+                    port=container_port,
+                    isStarted=True,
                 )
-                workers = current_app.config["workers"]
-                current_app.config["workers"] = {**workers, **{container_id:_worker} }
+                workers_dict[container_id] = _worker
 
                 service_time = time.time() - arrival_time
+                worker_id = response.container_id
                 sem.release()
+
                 logger.info({
-                    "event":OPERATION_NAME,
-                    "service_time":service_time,
-                    "algorithm":algorithm,
-                    "worker_id":worker_id
+                    "event": "BALANCING",
+                    "service_time": service_time,
+                    "algorithm": body.algorithm,
+                    "worker_id": worker_id,
                 })
-                return Response(
-                    response = json.dumps({
-                        "worker_id":response.container_id,
-                        "worker_port": worker_port,
-                        "service_time":service_time
-                    }),
-                    status   = 200,
-                    headers  = {
-                        "Service-Time": str(service_time),
-                    }
-                )
+
+                return {
+                    "worker_id": worker_id,
+                    "worker_port": worker_port,
+                    "service_time": service_time,
+                }
             else:
-                headers      = request.headers
-                worker_id    = lb.balance()
-                workers      = current_app.config["workers"]
-                worker       = workers[worker_id]
-                worker_port  = worker.port
-                end_time     = time.time()
+                worker_id = lb.balance()
+                worker = workers_dict[worker_id]
+                worker_port = str(worker.port)
+                end_time = time.time()
                 service_time = end_time - arrival_time
-                
+
                 logger.info({
-                    "event":OPERATION_NAME,
-                    "service_time":service_time,
-                    "matrix_id":matrix_id,
-                    "algorithm":algorithm,
-                    "worker_id":worker_id
+                    "event": "BALANCING",
+                    "service_time": service_time,
+                    "matrix_id": body.matrix_id,
+                    "algorithm": body.algorithm,
+                    "worker_id": worker_id,
                 })
 
                 sem.release()
-                return Response(
-                    response = json.dumps({
-                        "worker_id":worker_id,
-                        "worker_port": worker_port,
-                        "service_time":service_time
-                    }),
-                    status   = 200,
-                    headers  = {
-                        "Service-Time": str(service_time),
-                    }
-                )
+                return {
+                    "worker_id": worker_id,
+                    "worker_port": worker_port,
+                    "service_time": service_time,
+                }
         else:
             sem.release()
-            return Response(
-                response = None,
-                status   = 403
-            )
+            raise HTTPException(status_code=403, detail="Only GET method is supported for secure operations")
+    except HTTPException:
+        sem.release()
+        raise
     except Exception as e:
         sem.release()
         logger.error(str(e))
-        return ("SERVER_ERROR",500)
-    
+        raise HTTPException(status_code=500, detail=str(e))

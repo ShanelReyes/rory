@@ -1,220 +1,112 @@
-import os, logging, requests, sys
+from contextlib import asynccontextmanager
 from threading import Thread
-from flask import Flask,current_app
-from routes.clustering import clustering
-from routes.classification import classification
-from routes.machinelearning import machinelearning
-from mictlanx import AsyncClient
-from dotenv import load_dotenv
+import requests
 from retry.api import retry_call
-from mictlanx.logger.log import Log
-from rory.core.security.cryptosystem.pqc.ckks import Ckks
-from mictlanx.logger.log import JsonFormatter
-app = Flask(__name__)
+from fastapi import FastAPI
 
-RORY_WORKER_ENV_FILE_PATH = os.environ.get("RORY_WORKER_ENV_FILE_PATH",".env")
-print("RORY_WORKER_ENV_FILE_PATH",RORY_WORKER_ENV_FILE_PATH)
-
-
-if os.path.exists(RORY_WORKER_ENV_FILE_PATH):
-    load_dotenv(RORY_WORKER_ENV_FILE_PATH)
-    # load_dotenv(os.environ.get("ENV_FILE_PATH","/rory/envs/.worker.env"))
-
-NODE_ID              = os.environ.get("NODE_ID","rory-worker-0") 
-PORT                 = int(os.environ.get("NODE_PORT",9000))
-NODE_INDEX           = int(os.environ.get("NODE_INDEX",0))
-HOST_PORT            = os.environ.get("HOST_PORT",PORT + NODE_INDEX)
-MAX_RETRIES          = int(os.environ.get("MAX_RETRIES",100))
-RORY_MANAGER_PORT    = int(os.environ.get("RORY_MANAGER_PORT",6000))
-RELOAD               = bool(int(os.environ.get("RELOAD",0)))
-RORY_MANAGER_IP_ADDR = os.environ.get("RORY_MANAGER_IP_ADDR","localhost")
-IP_ADDR              = os.environ.get("NODE_IP_ADDR",NODE_ID)
-SERVER_IP_ADDR       = os.environ.get("SERVER_IP_ADDR","0.0.0.0")
-DISTANCE             = os.environ.get("DISTANCE","MANHATHAN")
-MIN_ERROR            = float(os.environ.get("MIN_ERROR",0.015))
-
-CKKS_ROUND          = bool(int(os.environ.get("CKKS_ROUND",0)))
-CKKS_DECIMALS       = int(os.environ.get("CKKS_DECIMALS",2))
-CTX_FILENAME        = os.environ.get("CTX_FILENAME","ctx")
-PUBKEY_FILENAME     = os.environ.get("PUBKEY_FILENAME","pubkey")
-SECRET_KEY_FILENAME = os.environ.get("SECRET_KEY_FILENAME","secretkey")
-RELINKEY_FILENAME   = os.environ.get("RELINKEY_FILENAME","relinkey")
-ROTATEKEY_FILENAME   = os.environ.get("ROTATEKEY_FILENAME","rotatekey")
-
-#CREAR FOLDERS
-SOURCE_PATH      = os.environ.get("SOURCE_PATH","/rory/source")
-SINK_PATH        = os.environ.get("SINK_PATH","/rory/sink")
-LOG_PATH         = os.environ.get("LOG_PATH","/rory/log")
-KEYS_PATH        = os.environ.get("KEYS_PATH","/rory/keys")
-
-try:
-    os.makedirs(SOURCE_PATH,exist_ok = True)
-    os.makedirs(SINK_PATH,  exist_ok = True)
-    os.makedirs(LOG_PATH,   exist_ok = True)
-except Exception as e:
-    print("MAKE_FOLDER_ERROR",e)
-
-# NUM_CHUNKS                 = int(os.environ.get("NUM_CHUNKS",4)) #Chunks for mixtlanx
-DEBUG                      = bool(int(os.environ.get("RORY_DEBUG",1)))
-MICTLANX_TIMEOUT           = int(os.environ.get("MICTLANX_TIMEOUT",120))
-MICTLANX_CLIENT_ID         = os.environ.get("MICTLANX_CLIENT_ID","{}_mictlanx".format(NODE_ID))
-MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","3"))
-MICTLANX_ROUTERS           = os.environ.get("MICTLANX_ROUTERS", "mictlanx-router-0:localhost:60666")
-MICTLANX_DEBUG             = bool(int(os.environ.get("MICTLANX_DEBUG",0)))
-MICTLANX_MAX_WORKERS       = int(os.environ.get("MICTLANX_MAX_WORKERS","4"))
-MICTLANX_LOG_PATH          = os.environ.get("MICTLANX_LOG_PATH","/rory/mictlanx")
-MICTLANX_LOG_INTERVAL      = int(os.environ.get("MICTLANX_LOG_INTERVAL","24"))
-MICTLANX_LOG_WHEN          = os.environ.get("MICTLANX_LOG_WHEN","h") 
-MICTLANX_BUCKET_ID         = os.environ.get("MICTLANX_BUCKET_ID","rory") 
-MICTLANX_DELAY             = int(os.environ.get("MICTLANX_DELAY","2"))
-MICTLANX_BACKOFF_FACTOR    = float(os.environ.get("MICTLANX_BACKOFF_FACTOR","0.5"))
-MICTLANX_MAX_RETRIES       = int(os.environ.get("MICTLANX_MAX_RETRIES","10")) 
-MICTLANX_CHUNK_SIZE        = os.environ.get("MICTLANX_CHUNK_SIZE","256kb")
-MICTLANX_MAX_PARALELL_GETS = int(os.environ.get("MICTLANX_MAX_PARALELL_GETS","2")) 
-MICTLANX_PROTOCOL          = os.environ.get("MICTLANX_PROTOCOL","http")
-MICTLANX_API_VERSION       = int(os.environ.get("MICTLANX_API_VERSION","4"))
-MICTLANX_LOG_DISABLE       = bool(int(os.environ.get("MICTLANX_LOG_DISABLE","1")))
-MICTLANX_URI            = os.environ.get("MICTLANX_URI",f"mictlanx://mictlanx-router-0@localhost:63666?api_version={MICTLANX_API_VERSION}&protocol={MICTLANX_PROTOCOL}")
-
-CKKS = Ckks.from_pyfhel_server(
-    _round             = CKKS_ROUND,
-    decimals           = CKKS_DECIMALS,
-    path               = KEYS_PATH,
-    ctx_filename       = CTX_FILENAME,
-    pubkey_filename    = PUBKEY_FILENAME,
-    relinkey_filename  = RELINKEY_FILENAME,
-    rotatekey_filename = ROTATEKEY_FILENAME,
+from dependencies import (
+    get_settings,
+    LOGGER,
+    ASYNC_STORAGE_CLIENT,
+    CKKS,
+    _settings,
 )
-
-ASYNC_STORAGE_CLIENT = AsyncClient(
-    client_id        = MICTLANX_CLIENT_ID,
-    uri              = MICTLANX_URI,
-    capacity_storage = "200mb",
-    debug            = False,
-    eviction_policy  = "LRU",
-    max_workers      = MICTLANX_MAX_WORKERS,
-    verify           = False,
-    log_output_path  = MICTLANX_LOG_PATH,
-    log_interval     = MICTLANX_LOG_INTERVAL,
-    log_when         = MICTLANX_LOG_WHEN,
-    enable_logging   = not MICTLANX_LOG_DISABLE
-)
-
-# LOGGER_NAME                           = os.environ.get("LOGGER_NAME","rory-worker")
-RORY_WORKER_LOG_INTERVAL              = int(os.environ.get("RORY_WORKER_LOG_INTERVAL",24))
-RORY_WORKER_LOG_WHEN                  = os.environ.get("RORY_WORKER_LOG_WHEN","h")
-RORY_WORKER_LOG_JSON_FORMATTER_INDENT = os.environ.get("RORY_WORKER_LOG_JSON_FORMATTER_INDENT",4)
-RORY_WORKER_LOG_DISABLED              = bool(int(os.environ.get("RORY_WORKER_LOG_DISABLED","1")))
-RORY_WORKER_LOG_ERROR_TO_FILE         = bool(int(os.environ.get("RORY_WORKER_LOG_ERROR_TO_FILE","1")))
-RORY_WORKER_LOG_FILE_HANDLER_LEVEL    = int(os.environ.get("RORY_WORKER_LOG_FILE_HANDLER_LEVEL",logging.INFO))
-RORY_WORKER_LOG_LEVEL                 = int(os.environ.get("RORY_WORKER_LOG_LEVEL",logging.DEBUG))
-RORY_WORKER_LOG_TO_FILE               = bool(int(os.environ.get("RORY_WORKER_LOG_TO_FILE","1")))
-RORY_WORKER_LOG_USE_RICH              = bool( int(os.environ.get("RORY_WORKER_LOG_USE_RICH","0") ) )
+from routes.clustering import router as clustering_router
+from routes.classification import router as classification_router
+from routes.machinelearning import router as machinelearning_router
 
 
-LOGGER = Log(
-    name                   = NODE_ID,
-    path                   = LOG_PATH,
-    interval               = RORY_WORKER_LOG_INTERVAL,
-    when                   = RORY_WORKER_LOG_WHEN,
-    console_formatter      = JsonFormatter(indent=int(RORY_WORKER_LOG_JSON_FORMATTER_INDENT) if RORY_WORKER_LOG_JSON_FORMATTER_INDENT is not None else None),
-    console_handler_level  = RORY_WORKER_LOG_LEVEL,
-    disabled               = RORY_WORKER_LOG_DISABLED,
-    error_log              = RORY_WORKER_LOG_ERROR_TO_FILE,
-    file_handler_level     = RORY_WORKER_LOG_FILE_HANDLER_LEVEL,
-    log_level              = RORY_WORKER_LOG_LEVEL,
-    to_file                = RORY_WORKER_LOG_TO_FILE,
-    use_rich               = RORY_WORKER_LOG_USE_RICH
-)
-# print("A")
-
-
-"""
-Description:
-  Function that create a context using Flask. Establishes the connection between client, manager and worker. 
-"""
-def create_app():
-    # Register blueprints
-    app.register_blueprint(clustering) # SkMeans routes / DBSkmeans routes
-    app.register_blueprint(classification)
-    app.register_blueprint(machinelearning)
-    with app.app_context():
-        current_app.config["request_counter"]         = 0
-        current_app.config["logger"]                  = LOGGER
-        current_app.config["NODE_PORT"]               = PORT
-        current_app.config["SINK_PATH"]               = SINK_PATH
-        current_app.config["SOURCE_PATH"]             = SOURCE_PATH
-        current_app.config["NODE_ID"]                 = NODE_ID
-        current_app.config["events"]                  = {}
-        current_app.config["LOG_PATH"]                = LOG_PATH
-        current_app.config["ASYNC_STORAGE_CLIENT"]    = ASYNC_STORAGE_CLIENT
-        current_app.config["DISTANCE"]                = DISTANCE
-        current_app.config["MIN_ERROR"]               = MIN_ERROR
-        current_app.config["BUCKET_ID"]               = MICTLANX_BUCKET_ID
-        current_app.config["MICTLANX_TIMEOUT"]        = MICTLANX_TIMEOUT
-        current_app.config["MICTLANX_DELAY"]          = MICTLANX_DELAY
-        current_app.config["MICTLANX_BACKOFF_FACTOR"] = MICTLANX_BACKOFF_FACTOR
-        current_app.config["MICTLANX_MAX_RETRIES"]    = MICTLANX_MAX_RETRIES
-        current_app.config["_round"]                  = CKKS_ROUND
-        current_app.config["DECIMALS"]                = CKKS_DECIMALS
-        current_app.config["KEYS_PATH"]               = KEYS_PATH
-        current_app.config["CTX_FILENAME"]            = CTX_FILENAME
-        current_app.config["PUBKEY_FILENAME"]         = PUBKEY_FILENAME
-        current_app.config["SECRET_KEY_FILENAME"]     = SECRET_KEY_FILENAME
-        current_app.config["RELINKEY_FILENAME"]       = RELINKEY_FILENAME
-        current_app.config["ROTATEKEY_FILENAME"]      = ROTATEKEY_FILENAME
-        current_app.config["ckks"]                    = CKKS
-"""
-Description:
-  Initialize worker
-"""
-def started_completed():
-  def __inner():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
-      url = "http://{}:{}/workers/started".format(RORY_MANAGER_IP_ADDR,RORY_MANAGER_PORT)
-      LOGGER.debug({
-          "event":"MANAGER.STARTED_STARTED",
-          "manager_ip_addr":RORY_MANAGER_IP_ADDR,
-          "manager_port":RORY_MANAGER_PORT,
-          "node_id":NODE_ID,
-          "port":PORT
-      })
-      response = requests.post(
-            url,
-            headers = {"Worker-Id":NODE_ID,"Worker-Port":str(PORT)},
-            timeout = 300
-      )
-      response.raise_for_status()
-      LOGGER.debug({
-         "event":"MANAGER.STARTED_COMPLETED",
-         "manager_ip_addr":RORY_MANAGER_IP_ADDR,
-         "manager_port":RORY_MANAGER_PORT,
-         "node_id":NODE_ID,
-         "port":PORT
-      })
-      return response
-    except Exception as e:
-      LOGGER.error({
-         "msg":str(e)
-      })
-      raise e
-  result = retry_call(__inner, tries=MAX_RETRIES, delay=1,backoff=1)
-
-if __name__ == 'main' or __name__ == "__main__":
-  try:
-    LOGGER.debug({
-        "event":"WORKER_STARTED",
-        "node_id":NODE_ID,
-        "port":PORT,
-        "debug":DEBUG,
-        "mictlanx_max_workers":MICTLANX_MAX_WORKERS,
-        "mictlanx_timeout":MICTLANX_TIMEOUT,
-        "log_disabled":RORY_WORKER_LOG_DISABLED,
-        "mictlanx_log_disable": MICTLANX_LOG_DISABLE
+        LOGGER.debug({
+        "event": "WORKER_STARTED",
+        "node_id": _settings.node_id,
+        "port": _settings.node_port,
+        "debug": _settings.debug,
+        "mictlanx_max_workers": _settings.mictlanx_max_workers,
+        "mictlanx_timeout": _settings.mictlanx_timeout,
+        "log_disabled": _settings.rory_worker_log_disabled,
+        "mictlanx_log_disable": _settings.mictlanx_log_disable,
     })
-    create_app()
-    t1 = Thread(target= started_completed, daemon= True, args = () )
+
+    except Exception as e:
+        LOGGER.error({"event": "WORKER_STARTUP_ERROR", "msg": str(e)})
+        print(f"WORKER STARTUP ERROR: {e}", flush=True)
+        raise
+
+    t1 = Thread(target=started_completed, daemon=True, args=())
     t1.start()
-  except Exception as e:
-    print(e)
-    sys.exit(1)
+
+    yield
+    LOGGER.info({"event": "WORKER_SHUTDOWN"})
+
+
+app = FastAPI(
+    title="Rory Worker API",
+    description="""Privacy-preserving computation worker for the Rory platform.
+
+Executes clustering, classification, and machine learning algorithms on encrypted data
+using homomorphic encryption schemes (Liu, CKKS) with distributed storage via MictlanX.
+
+## Components
+
+- **Clustering**: K-Means, Secure K-Means, Double-Blind K-Means, NNC, DBSNNC (plaintext and PQC variants)
+- **Classification**: KNN, Secure KNN, PQC KNN (predict only)
+- **Machine Learning**: Logistic Regression, Privacy-Preserving Logistic Regression (train and predict)
+""",
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Clustering", "description": "Clustering algorithm execution (K-Means, SK-Means, NNC, DBSNNC)"},
+        {"name": "Classification", "description": "Classification algorithm execution (KNN, SKNN, PQC-SKNN)"},
+        {"name": "Machine Learning", "description": "ML algorithm execution (Logistic Regression, PPLR)"},
+    ],
+)
+
+app.include_router(clustering_router)
+app.include_router(classification_router)
+app.include_router(machinelearning_router)
+
+
+def started_completed():
+    def __inner():
+        url = f"http://{_settings.rory_manager_ip_addr}:{_settings.rory_manager_port}/workers/started"
+        LOGGER.debug({
+            "event": "MANAGER.STARTED_STARTED",
+            "manager_ip_addr": _settings.rory_manager_ip_addr,
+            "manager_port": _settings.rory_manager_port,
+            "node_id": _settings.node_id,
+            "port": _settings.node_port,
+        })
+        response = requests.post(
+            url,
+            json={"worker_id": _settings.node_id, "worker_port": _settings.node_port},
+            timeout=300,
+        )
+        response.raise_for_status()
+        LOGGER.debug({
+            "event": "MANAGER.STARTED_COMPLETED",
+            "manager_ip_addr": _settings.rory_manager_ip_addr,
+            "manager_port": _settings.rory_manager_port,
+            "node_id": _settings.node_id,
+            "port": _settings.node_port,
+        })
+        return response
+
+    retry_call(__inner, tries=_settings.max_retries, delay=1, backoff=1)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=_settings.server_ip_addr,
+        port=_settings.node_port,
+        reload=_settings.reload_flag,
+        log_level="debug" if _settings.debug else "info",
+        timeout_keep_alive=3600,
+        workers=1,
+    )

@@ -1,0 +1,60 @@
+[project]
+site_name = "Rory_core"
+site_description = "Privacy-preserving machine learning library using homomorphic encryption \u2014 CKKS, Paillier, Liu, and FD-HOPE"
+site_url = "https://shanelreyes.github.io/rory_core/"
+repo_url = "https://github.com/ShanelReyes/rory_core"
+repo_name = "ShanelReyes/rory_core"
+
+nav = [
+  {"Introduction" = "index.md"},
+  {"Basic Usage" = "basic-usage.md"},
+  {"API Reference" = [
+    "api-reference/index.md",
+    {"Security" = "api-reference/security.md"},
+    {"Clustering" = "api-reference/clustering.md"},
+    {"Classification" = "api-reference/classification.md"},
+    {"Utils" = "api-reference/utils.md"}
+  ]},
+  {"Contributing" = "contributing.md"}
+]
+
+[project.theme]
+logo = "images/logo_rory.svg"
+favicon = "images/logo_rory.svg"
+features = [
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.instant",
+  "navigation.tracking",
+  "navigation.top",
+  "search.suggest",
+  "search.highlight",
+  "content.code.copy"
+]
+
+extra_css = ["stylesheets/extra.css"]
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/weather-sunny"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "deep purple"
+accent = "pink"
+toggle.icon = "material/weather-night"
+toggle.name = "Switch to light mode"
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["."]
+inventories = ["https://docs.python.org/3/objects.inv"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+show_source = false
+heading_level = 3
+show_root_heading = true
+show_root_full_path = false

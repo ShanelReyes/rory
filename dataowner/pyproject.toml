@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "rory-dataowner"
+version = "2.0.0"
+description = "Rory Dataowner Service (FastAPI)"
+# python = "^3.11"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+pyfhel = "3.5.0"
+numpy = "*"
+pydantic = "*"
+pydantic-settings = "^2.0"
+python-dotenv = "*"
+requests = "*"
+option = "*"
+rorycommon = { version = "1.0.0a4", source = "testpypi" }
+mictlanx = { version = "0.1.0a7", extras = ["rich"], source = "testpypi" }
+rory = { version = "0.1.10", source = "testpypi" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4"
+httpx = "^0.28.0"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

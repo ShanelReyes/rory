@@ -2,6 +2,13 @@
 
 export BASE_PATH=${1:-/home/sreyes/rory}
 export WORKER_PATH=$BASE_PATH/worker
-export WORKER_GUNICORN_CONFIG_FILE=$WORKER_PATH/src/gunicorn_config.py
+export RORY_WORKER_ENV_FILE_PATH=$WORKER_PATH/.env.dev
 
-gunicorn --chdir "$WORKER_PATH/src" --reload --config $WORKER_GUNICORN_CONFIG_FILE main:app
+uvicorn main:app \
+  --host 0.0.0.0 \
+  --port ${NODE_PORT:-9000} \
+  --workers ${GUNICORN_WORKERS:-1} \
+  --timeout-keep-alive ${GUNICORN_WORKER_TIMEOUT:-3600} \
+  --reload \
+  --log-level debug \
+  --app-dir "$WORKER_PATH/src"

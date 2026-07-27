@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "rory-manager"
+version = "2.0.0"
+description = "Rory Manager Service (FastAPI)"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+pydantic = "*"
+pydantic-settings = "^2.0"
+python-dotenv = "*"
+option = "*"
+mictlanx = { version = "0.1.0a7", source = "testpypi" }
+rory = { version = "0.1.10", source = "testpypi" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4"
+httpx = "^0.28.0"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

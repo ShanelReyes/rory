@@ -1,236 +1,198 @@
 import time
-import json
-from flask import Blueprint,current_app,request,abort,Response
 from threading import Lock
+from fastapi import APIRouter, Depends, HTTPException, Request
 from rory.core.interfaces.worker import Worker
 from rory.core.interfaces.logger_metrics import LoggerMetrics
-from mictlanx.services.summoner.summoner import Summoner,SummonContainerPayload
+from mictlanx.services.summoner.summoner import Summoner, SummonContainerPayload
 from utils.utils import Utils
 from option import Result
 
+from models.requests import WorkerStartedRequest, DeployWorkerRequest
+from models.responses import DeployWorkerResponse, WorkerInfo
+
+from dependencies import get_logger, get_replicator, get_workers, get_settings
+
 lock = Lock()
-workers =   Blueprint("workers",__name__,url_prefix = "/workers")
-@workers.route("/started", methods = ["POST","GET"])
-def started():
-    """Endpoint to register a new Worker node in the Manager's global registry once its service becomes active.
-    This method performs a thread-safe update to the internal worker collection, capturing the node's network 
-    identity to make it available for upcoming privacy-preserving data mining tasks within the PPDMaaS ecosystem.
+router = APIRouter(prefix="/workers", tags=["Workers"])
 
-    Note:
-        **Registration Parameters**: All attributes listed below must be passed exclusively via **HTTP Headers**.
-        
-    Attributes:
-        Worker-Id (str): Unique identifier for the registering worker node.
-        Worker-Port (int): The network port where the worker service is listening for instructions.
 
-    Returns:
-        Object with a 204 status code indicating the worker was successfully added to the registry.
+@router.api_route(
+    "/started",
+    methods=["GET", "POST"],
+    status_code=204,
+    summary="Register a new worker node",
+    description="""Thread-safe registration of a new Worker node in the Manager's global registry.
 
-    Raises:
-        KeyError: If mandatory headers (Worker-Id or Worker-Port) are missing from the request.
-        Exception: If an error occurs during the concurrent update of the global worker configuration.
-    """
+The worker calls this endpoint on startup to register itself.
+**POST**: Registers the worker, returns 204 No Content.  
+**GET**: Returns 404 Not Found.""",
+)
+async def started(
+    request: Request,
+    logger=Depends(get_logger),
+):
+    if request.method != "POST":
+        raise HTTPException(status_code=404)
+
+    body = await request.json()
+    from pydantic import ValidationError
+    try:
+        req = WorkerStartedRequest.model_validate(body)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid request body")
+
     lock.acquire()
-    logger      = current_app.config["logger"]
-    arrivalTime = time.time()
-    headers     = request.headers
-    workerId    = headers["Worker-Id"]
-    port        = int(headers["Worker-Port"])
-    _worker     = Worker(
-        workerId  = workerId,
-        port      = port,
-        isStarted = True
-    )
-    workers      = current_app.config["workers"]
-    current_app.config["workers"] = {**workers, **{workerId:_worker} }
-    end_time     = time.time() 
-    service_time = end_time - arrivalTime 
-
-    lock.release()
-    if(request.method == "POST"):
-        logger.info({
-            "event":"WORKER.STARTED",
-            "worker_id":workerId,
-            "num_workers":len(current_app.config["workers"]),
-            "service_time":service_time,
-        })
-        return ('',204)
-    else: abort(404)
-
-#GET /workers/
-@workers.route("", methods = ["GET"])
-def getAll():
-    """
-    Endpoint to retrieve a complete snapshot of all Worker nodes currently registered and active within the 
-    Manager orchestrator.  This method facilitates monitoring of the entire system by returning metadata 
-    for the entire distributed pool, while also logging internal performance metrics to track the Manager's 
-    response efficiency  during administrative queries.
-
-    Note:
-        **Query Execution**: This endpoint does not require specific execution headers but logs the arrival 
-        and service time for auditing purposes.
-
-    Attributes:
-        None: This request does not currently extract parameters from HTTP headers.
-
-    Returns:
-        workerId (str): The unique identifier of the node.
-        port (int): The network port assigned to the worker service.
-        isStarted (bool): Current operational status of the worker.
-
-    Raises:
-        Exception: If the internal registry is inaccessible or an error occurs during the dictionary serialization process.
-    """
-    
-    arrivalTime    = time.time()
-    logger         = current_app.config["logger"]
-    workers        = current_app.config["workers"]
-    logger.debug(str(workers))
-    workers        = dict([(k,v.__dict__) for k,v in workers.items()]) 
-    end_time       = time.time()
-    service_time   = end_time - arrivalTime
-    logger_metrics = LoggerMetrics(
-            operation_type = "GET_ALL_WORKERS",
-            arrival_time   = arrivalTime, 
-            end_time       = end_time,
-            service_time   = service_time 
+    try:
+        arrivalTime = time.time()
+        _worker = Worker(
+            workerId=req.worker_id,
+            port=req.worker_port,
+            isStarted=True,
         )
+        workers_dict = get_workers()
+        workers_dict[req.worker_id] = _worker
+
+        end_time = time.time()
+        service_time = end_time - arrivalTime
+
+        logger.info({
+            "event": "WORKER.STARTED",
+            "worker_id": req.worker_id,
+            "num_workers": len(workers_dict),
+            "service_time": service_time,
+        })
+    finally:
+        lock.release()
+
+    return None
+
+
+@router.get(
+    "",
+    summary="List all registered workers",
+    description="""Retrieve a complete snapshot of all Worker nodes currently registered and active.
+
+Returns metadata for the entire distributed worker pool including worker IDs, ports, and operational status.""",
+)
+def get_all(
+    logger=Depends(get_logger),
+):
+    arrivalTime = time.time()
+    workers_dict = get_workers()
+    logger.debug(str(workers_dict))
+    result = {k: WorkerInfo(workerId=v.workerId, port=v.port, isStarted=v.isStarted).model_dump(by_alias=True) for k, v in workers_dict.items()}
+
+    end_time = time.time()
+    service_time = end_time - arrivalTime
+    logger_metrics = LoggerMetrics(
+        operation_type="GET_ALL_WORKERS",
+        arrival_time=arrivalTime,
+        end_time=end_time,
+        service_time=service_time,
+    )
     logger.info(str(logger_metrics))
-    return json.dumps(workers)
+    return result
 
-@workers.route("/deploy", methods = ["POST"])
-def deploy_worker():
-    """Orchestrates the dynamic deployment of a new Worker container within the Rory platform's infrastructure, 
-    facilitating on-demand scaling for privacy-preserving computations. This method utilizes the Replicator 
-    to spawn a containerized node, configuring its network identity, resource limits, and environment 
-    variables—including MictlanX and Liu scheme parameters—to ensure seamless integration into the 
-    distributed cluster. 
 
-    Attributes:
-        Host-Port (str): The network port on the host machine assigned to the worker.
-        Container-Id (str): The unique name or identifier for the Docker container.
-        Container-Port (str): The internal port where the worker service resides.
-        Worker-Memory (str): Memory resource limit for the container in bytes.
-        Worker-Cpu (str): CPU resource quota assigned to the worker.
-        Source-Path (str): Local path for dataset access within the container.
-        Max-Iterations (str): Limit for iterative mining algorithms like K-Means.
-        Max-Threads (str): Maximum concurrent threads for worker internal processing.
+@router.post(
+    "/deploy",
+    response_model=DeployWorkerResponse,
+    summary="Manual on-demand worker deployment",
+    description="""Orchestrates the dynamic deployment of a new Worker container.
 
-    Returns:
-        container_id (str): The unique identifier of the deployed container.
-        port (str): The assigned host port for the new service.
+Facilitates on-demand scaling for privacy-preserving computations by spawning a containerized 
+node with configured network identity, resource limits, and environment variables.""",
+)
+def deploy_worker(
+    body: DeployWorkerRequest = Depends(),
+    replicator: Summoner = Depends(get_replicator),
+    logger=Depends(get_logger),
+    settings=Depends(get_settings),
+):
+    workers_dict = get_workers()
+    n_workers = len(workers_dict)
+    worker_port = str(n_workers + settings.init_port)
 
-    Raises:
-        Exception: If the Replicator fails to summon the container or an internal configuration error occurs.
-    """
-    arrival_time                 = time.time()
-    headers                      = request.headers
-    replicator:Summoner          = current_app.config["replicator"]
-    NODE_ID                      = current_app.config["NODE_ID"]
-    PORT                         = current_app.config["NODE_PORT"]
-    DOCKER_IMAGE                 = current_app.config["DOCKER_IMAGE"]
-    DOCKER_NETWORK_ID            = current_app.config["DOCKER_NETWORK_ID"]
-    INIT_PORT                    = int(current_app.config["INIT_WORKER_PORT"])
-    logger                       = current_app.config["logger"]
-    current_workers              = current_app.config["workers"]
-    n_workers                    = len(current_workers)
-    worker_port                  = str(n_workers+INIT_PORT)
-    HOST_PORT                    = headers.get("Host-Port",worker_port)
-    container_id                 = headers.get("Container-Id","worker-{}".format(n_workers))
-    CONTAINER_PORT               = headers.get("Container-Port", worker_port)
-    WORKER_MEMORY                = headers.get("Worker-Memory","1000000000")
-    WORKER_CPU                   = headers.get("Worker-Cpu","1")
-    DEBUG                        = headers.get("Debug","0")
-    RELOAD                       = headers.get("Reload","0")
-    LIU_ROUND                    = headers.get("Liu-Round","1")
-    SINK_PATH                    = headers.get("Sink-Path","/sink")
-    SOURCE_PATH                  = headers.get("Source-Path","/source")
-    LOG_PATH                     = headers.get("Log-Path","/log")
-    TESTING                      = headers.get("Testing","0")
-    MAX_ITERATIONS               = headers.get("Max-Iterations","10")
-    M                            = headers.get("M","3")
-    WORKER_MAX_THREADS           = headers.get("Max-Threads","4")
-    WORKER_MICTLANX_PEERS        = headers.get("Mictlanx-Peers","mictlanx-peer-0:mictlanx-peer-0:7000")
-    MICTLANX_CLIENT_LB_ALGORITHM = headers.get("Mictlanx-Lb-Algorithm","2CHOICES_UF")
-    MICTLANX_DEBUG               = headers.get("Mictlanx-Debug","0")
-    MICTLANX_DAEMON              = headers.get("Mictlanx-Daemon","0")
-    MICTLANX_SHOW_METRICS        = headers.get("Mictlanx-Show-Metrics","0")
-    MICTLANX_MAX_WORKERS         = headers.get("Mictlanx-Max-Workers","4")
-    MICTLANX_DISABLED_LOG        = headers.get("Mictlanx-Disabled-Log","1")
+    host_port = body.host_port or worker_port
+    container_id = body.container_id or f"worker-{n_workers}"
+    container_port = body.container_port or worker_port
 
-    envs =     {
-            "NODE_INDEX"           : str(n_workers),
-            "NODE_IP_ADDR"         : container_id,
-            "NODE_PORT"            : CONTAINER_PORT,
-            "RORY_MANAGER_IP_ADDR" : NODE_ID,
-            "RORY_MANAGER_PORT"    : str(PORT),
-            "DEBUG"                : DEBUG,
-            "RELOAD"               : RELOAD,
-            "LIU_ROUND"            : LIU_ROUND,
-            "SOURCE_PATH"          : SOURCE_PATH,
-            "SINK_PATH"            : SINK_PATH, 
-            "LOG_PATH"             : LOG_PATH,
-            "MAX_ITERATIONS"       : MAX_ITERATIONS,
-            "TESTING"              : TESTING,
-            "M"                    : M,
-            "MAX_THREADS":WORKER_MAX_THREADS,
-            "MICTLANX_PEERS":WORKER_MICTLANX_PEERS,
-            "MICTLANX_CLIENT_LB_ALGORITHM":MICTLANX_CLIENT_LB_ALGORITHM,
-            "MICTLANX_DEBUG":MICTLANX_DEBUG,
-            "MICTLANX_DAEMON":MICTLANX_DAEMON,
-            "MICTLANX_SHOW_METRICS":MICTLANX_SHOW_METRICS,
-            "MICTLANX_MAX_WORKERS":MICTLANX_MAX_WORKERS,
-            "MICTLANX_DISABLED_LOG":MICTLANX_DISABLED_LOG
+    envs = {
+        "NODE_INDEX": str(n_workers),
+        "NODE_IP_ADDR": container_id,
+        "NODE_PORT": container_port,
+        "RORY_MANAGER_IP_ADDR": settings.node_id,
+        "RORY_MANAGER_PORT": str(settings.node_port),
+        "DEBUG": body.debug,
+        "RELOAD": body.reload,
+        "LIU_ROUND": body.liu_round,
+        "SOURCE_PATH": body.source_path,
+        "SINK_PATH": body.sink_path,
+        "LOG_PATH": body.log_path,
+        "MAX_ITERATIONS": body.max_iterations,
+        "TESTING": body.testing,
+        "M": body.m,
+        "MAX_THREADS": body.max_threads,
+        "MICTLANX_PEERS": body.mictlanx_peers,
+        "MICTLANX_CLIENT_LB_ALGORITHM": body.mictlanx_lb_algorithm,
+        "MICTLANX_DEBUG": body.mictlanx_debug,
+        "MICTLANX_DAEMON": body.mictlanx_daemon,
+        "MICTLANX_SHOW_METRICS": body.mictlanx_show_metrics,
+        "MICTLANX_MAX_WORKERS": body.mictlanx_max_workers,
+        "MICTLANX_DISABLED_LOG": body.mictlanx_disabled_log,
     }
 
     logger.debug({
-        "event":"WORKER.DEPLOY.ENVS",
-        **envs
+        "event": "WORKER.DEPLOY.ENVS",
+        **envs,
     })
 
-    result:Result[SummonContainerPayload,Exception] = Utils.deploy_worker(
-        replicator=replicator,
-        node_index=n_workers,
-        container_id=container_id,
-        container_port=CONTAINER_PORT,
-        manager_ip_addr=NODE_ID,
-        manager_port= PORT,
-        debug=DEBUG,
-        _reload=RELOAD,
-        liu_round=LIU_ROUND,
-        source_path=SOURCE_PATH,
-        sink_path=SINK_PATH,
-        log_path=LOG_PATH,
-        max_iterations=MAX_ITERATIONS,
-        testing=TESTING,
-        m = M,
-        worker_max_threads=WORKER_MAX_THREADS,
-        worker_mictlanx_peers=WORKER_MICTLANX_PEERS,
-        mictlanx_client_lb_algorithm= MICTLANX_CLIENT_LB_ALGORITHM,
-        mictlanx_debug=MICTLANX_DEBUG,
-        mictlanx_daemon=MICTLANX_DAEMON,
-        mictlanx_show_metrics=MICTLANX_SHOW_METRICS,
-        mictlanx_max_workers=MICTLANX_MAX_WORKERS,
-        mictlanx_disabled_log=MICTLANX_DISABLED_LOG,
-        docker_image=DOCKER_IMAGE,
-        host_port=HOST_PORT,
-        worker_memory=WORKER_MEMORY,
-        worker_cpu=WORKER_CPU,
-        docker_network_id=DOCKER_NETWORK_ID
-    )
+    try:
+        result: Result[SummonContainerPayload, Exception] = Utils.deploy_worker(
+            replicator=replicator,
+            node_index=n_workers,
+            container_id=container_id,
+            container_port=container_port,
+            manager_ip_addr=settings.node_id,
+            manager_port=settings.node_port,
+            debug=body.debug,
+            _reload=body.reload,
+            liu_round=body.liu_round,
+            source_path=body.source_path,
+            sink_path=body.sink_path,
+            log_path=body.log_path,
+            max_iterations=body.max_iterations,
+            testing=body.testing,
+            m=body.m,
+            worker_max_threads=body.max_threads,
+            worker_mictlanx_peers=body.mictlanx_peers,
+            mictlanx_client_lb_algorithm=body.mictlanx_lb_algorithm,
+            mictlanx_debug=body.mictlanx_debug,
+            mictlanx_daemon=body.mictlanx_daemon,
+            mictlanx_show_metrics=body.mictlanx_show_metrics,
+            mictlanx_max_workers=body.mictlanx_max_workers,
+            mictlanx_disabled_log=body.mictlanx_disabled_log,
+            docker_image=settings.docker_image,
+            host_port=host_port,
+            worker_memory=body.worker_memory,
+            worker_cpu=body.worker_cpu,
+            docker_network_id=settings.docker_network_id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
     if result.is_err:
-        return Response(str(result.unwrap_err()), status=500)
-    
+        raise HTTPException(status_code=500, detail=str(result.unwrap_err()))
 
     response = result.unwrap()
     logger.info({
-        "event":"WORKER.DEPLOY",
-        "container_id":response.container_id,
-        "cpu_count":response.cpu_count,
-        "memory":response.memory,
+        "event": "WORKER.DEPLOY",
+        "container_id": response.container_id,
+        "cpu_count": response.cpu_count,
+        "memory": response.memory,
     })
-    response = json.dumps({
-      "container_id":container_id,
-      "port":worker_port
-    })
-    return Response(response, status=200)
+
+    return {
+        "container_id": container_id,
+        "port": worker_port,
+    }

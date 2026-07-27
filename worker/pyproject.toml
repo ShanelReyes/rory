@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "rory-worker"
+version = "2.0.0"
+description = "Rory Worker Service (FastAPI)"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+pyfhel = "3.5.0"
+numpy = "*"
+pydantic = "*"
+pydantic-settings = "^2.0"
+python-dotenv = "*"
+requests = "*"
+option = "*"
+retry = "*"
+rorycommon = { version = "1.0.0a4", source = "testpypi" }
+mictlanx = { version = "0.1.0a7", source = "testpypi" }
+rory = { version = "0.1.10", source = "testpypi" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4"
+httpx = "^0.28.0"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

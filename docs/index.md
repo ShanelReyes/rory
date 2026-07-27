@@ -20,17 +20,19 @@ Rory is a distributed and privacy-preserving data mining system designed to exec
 
 The system follows a decentralized orchestration model composed of five primary layers:
 
-* **Dataowner Layer**: A batch runner that automates experiment execution by processing trace CSV files and submitting concurrent workloads to the Client.
+* **Dataowner Layer**: A batch runner that automates experiment execution by processing trace CSV files and submitting concurrent workloads to the Dataowner.
 * **Orchestration Layer (Manager)**: Acts as the brain of the system, managing worker registration, load balancing, and task distribution.
 * **Computational Layer (Workers)**: High-performance nodes that execute the data mining algorithms (SKMeans, DBSKMeans, SKNN) on encrypted data.
 * **Storage Layer (CSS/Mictlanx):** A distributed and asynchronous storage service that handles data fragmentation and persistence.
-* **Interaction Layer (Client)**: The entry point for users to upload datasets, configure mining parameters, and retrieve results.
+* **Interaction Layer (Dataowner)**: The entry point for users to upload datasets, configure mining parameters, and retrieve results.
 
 ## Quick Start
 
 Follow these steps to deploy the complete ecosystem (Storage + Rory Nodes) using Docker.
 
 1. **Initialize the Storage Layer (Mictlanx)**
+
+    <small>Skip this step if using `deploy.sh` — it starts MictlanX automatically.</small>
 
     Navigate to the Mictlanx directory and start the CSS routers:
 
@@ -44,14 +46,23 @@ Follow these steps to deploy the complete ecosystem (Storage + Rory Nodes) using
     ./run.sh .env.mictlanx.dev 64666
     ```
 
-2. **Deploy Rory Ecosystem**
+2. **Deploy Rory Ecosystem (deploy.sh)**
 
-    Return to the project root and launch the Client, Manager, and Worker nodes:
+    From the project root, use the `deploy.sh` script:
 
     ```bash
     cd /Rory
-    docker compose -f ./docker-compose.yml up --build
+    ./deploy.sh up --build   # builds images, starts MictlanX, launches Rory
     ```
+
+    | Command | Description |
+    |---------|-------------|
+    | `./deploy.sh up` | Start MictlanX + Rory (skip build) |
+    | `./deploy.sh up --build` | Build images, then start everything |
+    | `./deploy.sh restart` | Restart containers in-place |
+    | `./deploy.sh restart --build` | Rebuild images and recreate containers |
+    | `./deploy.sh down` | Stop Rory services only |
+    | `./deploy.sh down --mictlanx` | Stop Rory + MictlanX |
 
 3. **Run Experiments (Dataowner)**
 
@@ -85,10 +96,10 @@ The interaction between components follows a structured protocol to ensure effic
 
 **Interaction Steps:**
 
-* **Worker Request**: The `Client` sends a request to the `Manager` to assign an available `Worker` for a specific task.
-* **Worker Assignment**: The `Manager` identifies a suitable `Worker` based on load-balancing algorithms and returns the `Worker ID/Address` to the `Client`.
-* **Direct Communication**: The `Client` establishes a direct link with the assigned `Worker` to transmit encrypted task parameters or data references.
-* **Iterative Processing**: For algorithms requiring multiple steps (like SKMeans), the `Worker` processes data and returns partial results to the `Client`. This loop repeats for `n` iterations until convergence or task completion.
+* **Worker Request**: The `Dataowner` sends a request to the `Manager` to assign an available `Worker` for a specific task.
+* **Worker Assignment**: The `Manager` identifies a suitable `Worker` based on load-balancing algorithms and returns the `Worker ID/Address` to the `Dataowner`.
+* **Direct Communication**: The `Dataowner` establishes a direct link with the assigned `Worker` to transmit encrypted task parameters or data references.
+* **Iterative Processing**: For algorithms requiring multiple steps (like SKMeans), the `Worker` processes data and returns partial results to the `Dataowner`. This loop repeats for `n` iterations until convergence or task completion.
 
 
 ## Technology Stack

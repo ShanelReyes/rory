@@ -1,383 +1,101 @@
-import sys
-import os
-import pandas as pd
-import logging
-import time
-import numpy as np
-import numpy.typing as npt
-from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor,as_completed
-from typing import Tuple,List 
-import requests as R
-from option import Result,Ok,Err
-from log import Log
-from roryclient.client import RoryClient
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 
-RORY_CLIENT_HOSTNAME = os.environ.get("CLIENT_IP_ADDR","localhost")
-RORY_CLIENT_PORT     = int(os.environ.get("RORY_CLIENT_PORT","3000"))
-RORY_CLIENT_TIMEOUT  = int(os.environ.get("RORY_CLIENT_TIMEOUT","120"))
-client               = RoryClient(hostname=RORY_CLIENT_HOSTNAME,port=RORY_CLIENT_PORT,timeout=RORY_CLIENT_TIMEOUT)
-
-ENV_FILE_PATH = os.environ.get("ENV_FILE_PATH","/home/sreyes/rory/dataowner/envs/.env-pplr") 
-if os.path.exists(ENV_FILE_PATH):
-    load_dotenv(ENV_FILE_PATH)
-
-NODE_ID                   = os.environ.get("NODE_ID","rory-dataowner-0") 
-TRACE_ID                  = os.environ.get("TRACE_ID","KMEANS")
-MAX_EXPERIMENT_ITERATIONS = int(os.environ.get("EXPERIMENT_ITERATION",31))
-LOGGER_NAME               = NODE_ID
-MAX_RETRIES               = int(os.environ.get("MAX_RETRIES","10"))
-MAX_THREADS               = int(os.environ.get("MAX_THREADS",1))
-TRACE_EXTENSION           = os.environ.get("TRACE_EXTENSION","csv")
-SOURCE_PATH               = os.environ.get("SOURCE_PATH","/rory/source")
-SINK_PATH                 = os.environ.get("SINK_PATH","/rory/sink")
-LOG_PATH                  = os.environ.get("LOG_PATH","/rory/log")
-TRACE_PATH                = os.environ.get("TRACE_PATH","{}/{}.{}".format(SOURCE_PATH,TRACE_ID,TRACE_EXTENSION))
-CLIENT_TIMEOUT            = int(os.environ.get("CLIENT_TIMEOUT",300))
-
-ALGORITHM_MAP = {
-    "KMEANS":"CLUSTERING",
-    "SKMEANS":"CLUSTERING",
-    "DBSKMEANS":"CLUSTERING",
-    "SKMEANSPQC":"CLUSTERING",
-    "DBSKMEANSPQC":"CLUSTERING",
-    "NNC":"CLUSTERING",
-    "DBSNNC":"CLUSTERING",
-    "KNN":"CLASSIFICATION",
-    "SKNN":"CLASSIFICATION",
-    "SKNNPQC":"CLASSIFICATION",
-    "LOGISTICREGRESSION":"MACHINELEARNING",
-    "PPLR":"MACHINELEARNING",
-}
-# TASK_ID                   = os.environ.get("TASK_ID","CLUSTERING")
+from dependencies import (
+    get_settings,
+    get_logger,
+    get_manager,
+    get_liu,
+    get_dataowner,
+    get_executor,
+    get_ckks,
+    get_storage_client,
+    ASYNC_STORAGE_CLIENT,
+    EXECUTOR,
+    CKKS,
+    DATAOWNER,
+    LIU,
+    LOGGER,
+    MANAGER,
+    _settings,
+)
+from routes.clustering import router as clustering_router
+from routes.classification import router as classification_router
+from routes.machinelearning import router as machinelearning_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        LOGGER.debug({
+        "event": "DATAOWNER_STARTED",
+        "source_path": _settings.source_path,
+        "sink_path": _settings.sink_path,
+        "node_id": _settings.node_id,
+        "log_path": _settings.log_path,
+        "debug": _settings.debug,
+        "max_iterations": _settings.max_iterations,
+        "testing": _settings.testing,
+        "num_chunks": _settings.num_chunks,
+        "mictlanx_timeout": _settings.mictlanx_timeout,
+        "worker_timeout": _settings.worker_timeout,
+        "log_disabled": _settings.rory_dataowner_log_disabled,
+        "mictlanx_log_disable": _settings.mictlanx_log_disable,
+        "liu_params": {
+            "security_level": _settings.liu_security_level,
+            "secure_random": _settings.liu_secure_random,
+            "seed": _settings.liu_seed,
+            "use_np_random": _settings.liu_use_np_random,
+            "round": _settings.liu_round,
+            "decimals": _settings.liu_decimals,
+        },
+        })
+    except Exception as e:
+        LOGGER.error({"event": "DATAOWNER_STARTUP_ERROR", "msg": str(e)})
+        print(f"DATAOWNER STARTUP ERROR: {e}", flush=True)
+        raise
 
-try:
-    os.makedirs(SOURCE_PATH,exist_ok = True)
-    os.makedirs(SINK_PATH,  exist_ok = True)
-    os.makedirs(LOG_PATH,   exist_ok = True)
-except Exception as e:
-    print("MAKE_FOLDER_ERROR",e)
+    yield
+    EXECUTOR.shutdown()
+    LOGGER.info({"event": "DATAOWNER_SHUTDOWN"})
 
-LOGGER = Log(
-    name                   = LOGGER_NAME,
-    path                   = LOG_PATH,
-    console_handler_filter = lambda record: record.levelno == logging.DEBUG or record.levelno == logging.INFO or record.levelno == logging.ERROR,
-    interval               = 24,
-    when                   = "h"
+
+app = FastAPI(
+    title="Rory Dataowner API",
+    description="""Privacy-preserving clustering, classification, and machine learning API.
+
+Part of the Rory platform architecture for secure distributed computation using homomorphic encryption (Liu, CKKS) and Cloud Storage System (MictlanX).
+
+## Components
+
+- **Clustering**: K-Means, Secure K-Means, Double-Blind K-Means, NNC, DBSNNC (plaintext and PQC variants)
+- **Classification**: KNN, Secure KNN, PQC KNN (train and predict)
+- **Machine Learning**: Logistic Regression, Privacy-Preserving Logistic Regression (train and predict)
+""",
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Clustering", "description": "Privacy-preserving clustering algorithms (K-Means, SK-Means, NNC, DBSNNC)"},
+        {"name": "Classification", "description": "Privacy-preserving classification algorithms (KNN, SKNN, PQC-SKNN)"},
+        {"name": "Machine Learning", "description": "Privacy-preserving machine learning algorithms (Logistic Regression, PPLR)"},
+    ],
 )
 
-def write_to_file(filename:str, lv:npt.NDArray):
-    path = "{}/{}.npy".format(SINK_PATH,filename)
-    try:
-        with open(path, "wb") as f:
-            np.save(f,lv)
-        
-    except Exception as e:
-        LOGGER.error(str(e))
+app.include_router(clustering_router)
+app.include_router(classification_router)
+app.include_router(machinelearning_router)
 
-def run_experiment(row:pd.Series,current_experiment_iteration:int)->Result[Tuple[pd.Series,R.Response,int],Tuple[pd.Series,R.Response, int]]:
-    arrival_time        = time.time()
-    algorithm           = row["ALGORITHM"]
-    TASK_ID             = ALGORITHM_MAP.get(algorithm,"")
-    if TASK_ID == "":
-        raise Exception("TASK_ID is empty...")
-    
-    # os.environ.get("TASK_ID","CLUSTERING")
-    dataset_id = row.get("DATASET_ID","")
-    model_id = row.get("MODEL_ID","")
-    plaintext_matrix_id = f"{dataset_id}-{current_experiment_iteration}"
-    model_id            = f"{model_id}-{current_experiment_iteration}"
-    label_vector_id     = "{}{}{}".format( plaintext_matrix_id if TASK_ID == "CLUSTERING" else (model_id if TASK_ID == "CLASSIFICATION" else row.get("DATASET_TEST","")),algorithm,current_experiment_iteration)
 
-    if algorithm == "KMEANS":
-        result = client.kmeans(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            k                         = int(row["K"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),   
-        )
-    elif algorithm == "SKMEANS":
-        result = client.skmeans(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            k                         = int(row["K"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),
-            max_iterations            = int(row["MAX_ITERATIONS"]),
-            experiment_iteration      = current_experiment_iteration,            
-        )
-    elif algorithm == "DBSKMEANS":
-        result = client.dbskmeans(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            k                         = int(row["K"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),
-            max_iterations            = int(row["MAX_ITERATIONS"]),
-            sens                      = float(row["SENS"]),
-            experiment_iteration      = current_experiment_iteration,            
-        )
-    elif algorithm == "SKMEANSPQC":
-        result = client.skmeans_pqc(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            k                         = int(row["K"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),
-            max_iterations            = int(row["MAX_ITERATIONS"]),
-            experiment_iteration      = current_experiment_iteration,            
-        )
-    elif algorithm == "DBSKMEANSPQC":
-        result = client.dbskmeans_pqc(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            k                         = int(row["K"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),
-            max_iterations            = int(row["MAX_ITERATIONS"]),
-            sens                      = float(row["SENS"]),
-            experiment_iteration      = current_experiment_iteration,            
-        )
-    elif algorithm == "NNC":
-        result = client.nnc(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            threshold                 = row["THRESHOLD"]          
-        )
-    elif algorithm == "DBSNNC":
-        result = client.dbsnnc(
-            plaintext_matrix_id       = plaintext_matrix_id,
-            plaintext_matrix_filename = row["DATASET_FILENAME"],
-            extension                 = row["EXTENSION"],
-            threshold                 = float(row["THRESHOLD"]),
-            # num_chunks                = int(row["NUM_CHUNKS"]),
-            sens                      = float(row["SENS"]),        
-        )
-    elif algorithm == "KNN":
-        result = client.knn(
-            model_id              = model_id,
-            model_filename        = row["MODEL_FILENAME"],
-            model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["RECORD_TEST_ID"],
-            record_test_filename  = row["RECORD_TEST_FILENAME"],
-            extension             = row["EXTENSION"],
-        )
-    elif algorithm == "SKNN":
-        result = client.sknn(
-            model_id              = model_id,
-            model_filename        = row["MODEL_FILENAME"],
-            model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["RECORD_TEST_ID"],
-            record_test_filename  = row["RECORD_TEST_FILENAME"],
-            # num_chunks            = int(row["NUM_CHUNKS"]),
-            extension             = row["EXTENSION"],
-        )
-    elif algorithm == "SKNNPQC":
-        result = client.sknn_pqc(
-            model_id              = model_id,
-            model_filename        = row["MODEL_FILENAME"],
-            model_labels_filename = row["MODEL_LABELS_FILENAME"],
-            record_test_id        = row["RECORD_TEST_ID"],
-            record_test_filename  = row["RECORD_TEST_FILENAME"],
-            # num_chunks            = int(row["NUM_CHUNKS"]),
-            extension             = row["EXTENSION"],
-        )
-    elif algorithm == "LOGISTICREGRESSION":
-        # print(row.get("DATASET_TRAIN"),row.get("DATASET TRAIN"))
-        result = client.logistic_regression(
-            plaintext_matrix_train_id       = f"{row['DATASET_ID']}-{current_experiment_iteration}",
-            plaintext_matrix_train_filename = row["DATASET_ID"],
-            plaintext_label_vector_train_id = f"{row['LABEL_VECTOR_TRAIN']}-{current_experiment_iteration}",
-            plaintext_label_vector_train_filename = row["LABEL_VECTOR_TRAIN"],
-            plaintext_matrix_test_id        = f"{row['DATASET_TEST']}-{current_experiment_iteration}",
-            plaintext_matrix_test_filename  = row["DATASET_TEST"],
-            extension                       = row["EXTENSION"],
-            epochs                          = int(row["EPOCHS"]),
-            learning_rate                   = float(row["LEARNING_RATE"]),
-        )
-    elif algorithm == "PPLR":
-        result = client.pplr(
-            plaintext_matrix_train_id       = f"{row['DATASET_ID']}-{current_experiment_iteration}",
-            plaintext_matrix_train_filename = row["DATASET_ID"],
-            plaintext_label_vector_train_id = f"{row['LABEL_VECTOR_TRAIN']}-{current_experiment_iteration}",
-            plaintext_label_vector_train_filename = row["LABEL_VECTOR_TRAIN"],
-            plaintext_matrix_test_id        = f"{row['DATASET_TEST']}-{current_experiment_iteration}",
-            plaintext_matrix_test_filename  = row["DATASET_TEST"],
-            extension                       = row["EXTENSION"],
-            epochs                          = int(row["EPOCHS"]),
-            learning_rate                   = float(row["LEARNING_RATE"]),
-        )
-    else:
-        print("UNKNOWN ALGORITM", algorithm)
-        return Err((row, Exception("Unknown algorithm"), current_experiment_iteration))
-    
-    if result.is_err:
-        return Err((row, result.unwrap_err(), current_experiment_iteration))
-    
-    response    = result.unwrap()
-    labelVector = response.label_vector
-    write_to_file(label_vector_id,labelVector)
-    response_time = time.time() - arrival_time
-
-    if TASK_ID=="CLUSTERING":
-        LOGGER.info({
-            "event":"COMPLETED",
-            "matrix_id":plaintext_matrix_id,
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "response_time":response_time,
-            "worker_id":response.worker_id,
-            "current_iteration":current_experiment_iteration,
-            "service_time_manager":response.service_time_manager,
-            "service_time_worker":response.service_time_worker,
-            "service_time_client":response.service_time_client,
-            "response_time_clustering":response.response_time_clustering
-        })
-    elif TASK_ID=="CLASSIFICATION":
-        LOGGER.info({
-            "event":"COMPLETED",
-            "matrix_id":plaintext_matrix_id,
-            "model_id":model_id,
-            "algorithm":algorithm,
-            "response_time":response_time,
-            "worker_id":response.worker_id,
-            "current_iteration":current_experiment_iteration,
-            "service_time_manager":response.service_time_manager,
-            "service_time_worker":response.service_time_worker,
-            "service_time_client":response.service_time_client,
-            "service_time_predict":response.service_time_predict
-        })
-    elif TASK_ID=="MACHINELEARNING":
-        LOGGER.info({
-            "event":"COMPLETED",
-            "algorithm":algorithm,
-            "response_time":response_time,
-            "worker_id":response.worker_id,
-            "current_iteration":current_experiment_iteration,
-            "service_time_manager":response.service_time_manager,
-            "service_time_worker":response.service_time_worker,
-            "service_time_client":response.service_time_client,
-            "service_time_predict":response.service_time_predict,
-            "service_time_train":response.service_time_train,
-        })
-    return Ok((row, current_experiment_iteration))
-
-def main(trace_df:pd.DataFrame,max_experiment_iterations:int= 31)->Result[int, pd.DataFrame]:
-
-    failed_operations:List[pd.Series]  = [] # Lista de operaciones fallidas
-    try:
-        with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor: # Configuracion de la THREADPOOL. 
-            start_time = time.time() # Tiempo de inicio de la experimentacion.
-            for index,row in trace_df.iterrows(): # Iteracion de los registros de la traza.
-                futures = [] # Lista de futuros (operaciones asincronas/no bloqueantes)
-                
-                for experiment_iteration in range(max_experiment_iterations): # Cada registro se repetira EXPERIMENT_ITERATION veces
-                    fut = executor.submit(run_experiment,row,experiment_iteration) # Lanzar la operacion a un thread utilizando la Thread Pool. 
-                    LOGGER.debug({
-                        "event":"SUBMITTED",
-                        "index":index,
-                        "dataset_id":row.get("DATASET_ID", ""),
-                        "experiment_iteration":experiment_iteration
-
-                    })
-                    futures.append(fut) # Añadir a la lista de futuros el nuevo futuro.
-                    time.sleep(float(row["INTERARRIVAL_TIME"])) # Duerme el thread para esperar INTERARRIVAL_TIME
-                
-                for fut in as_completed(futures): # Espera para completar todos los EXPERIMENT_ITERATIONS 
-                    result:Result[Tuple[pd.Series, int], Tuple[pd.Series, Exception, int]] = fut.result() # Saca el resultado del futuro
-                    
-                    if result.is_err: # Si falla                         
-                        (failed_row, error_response, experiment_iteration) = result.unwrap_err() # Sacamos la parte derecha con el método unwrap_err() del Result[T,Error] <- extraemos la Error.
-                        datasetId = failed_row.get("DATASET_ID", "") # Sacamos el DatasetID
-                        LOGGER.error({
-                            "dataset_id":datasetId,
-                            "msg":str(error_response),
-                            "experiment_iteration":experiment_iteration,
-                            "failed_operations":len(failed_operations)+1
-                        })
-                        print("_"*40)
-                        failed_operations.append(failed_row) # Añadimos la fila a la lista de operaciones fallidas
-                    else:
-                        (_row, experiment_iteration) = result.unwrap() # Extrae la parte buena con unwrap()
-                        datasetId = _row.get("DATASET_ID","") # Mostramos informacion de la operacion exitosa.
-                        LOGGER.debug({
-                            "event":"DATASET.COMPLETED",
-                            "dataset_id": datasetId,
-                            "current_iteration":experiment_iteration,
-                        })    
-                        print("_"*40)
-            end_time = time.time()
-            total_time = end_time - start_time
-            failed_operations_len = len(failed_operations)
-            LOGGER.info({
-                "event":"EXPERIMENT.COMPLETED",
-                "failed_operations":failed_operations_len,
-                "total_time":total_time 
-            })
-            if failed_operations_len == 0:
-                return Ok(0)
-            else:
-                return Err(pd.DataFrame(failed_operations))
-    except Exception as e:
-        LOGGER.error({
-            "msg":str(e),
-            "failed_operations":len(failed_operations),
-        })
-        return Err(pd.DataFrame(failed_operations))
-
-if __name__ =="__main__":
-    # 1. Traza.
-    trace_df      = pd.read_csv(TRACE_PATH)
-    n_trace_records = trace_df.shape[0]
-    total_estimated_operations = n_trace_records * MAX_EXPERIMENT_ITERATIONS
-    LOGGER.debug({
-        "event":"DATAOWNER.STARTED",
-        "client_id":NODE_ID,
-        "max_threads":MAX_THREADS,
-        "max_iterations":MAX_EXPERIMENT_ITERATIONS,
-        "trace_path":TRACE_PATH,
-        "n_trace_records": n_trace_records,
-        "total_estimated_operations": total_estimated_operations,
-        "sink_path":SINK_PATH,
-        "source_path":SOURCE_PATH,
-        "log_path":LOG_PATH,
-        "client_timeout":CLIENT_TIMEOUT,
-    })
-    # 2. Experimentos (programa principal).
-    result        = main(trace_df=trace_df,max_experiment_iterations=MAX_EXPERIMENT_ITERATIONS)
-    # 3. Reintento de experimentos fallidos. 
-    current_tries = 0
-    start_time = time.time()
-    while result.is_err and current_tries < MAX_RETRIES:
-        failed_rows       = result.unwrap_err()
-        failed_rows_n = failed_rows.shape[0]
-        sucess_percentage = ((n_trace_records - failed_rows_n ) / n_trace_records )*100
-        error_percentage  = 100 - sucess_percentage
-        event_name = "COMPLETED.WITH.ERRORS"if failed_rows_n >0 else "COMPLETED.SUCCESSFULLY" 
-        LOGGER.debug({
-            "event":event_name,
-            # "completed": TASK_ID,
-            "failed": failed_rows.shape[0],
-            "sucess_percentage":sucess_percentage,
-            "failed_percentage":error_percentage
-        })
-        current_tries += 1
-        result =  main(
-            trace_df             = failed_rows,
-            max_experiment_iterations = 1
-        )
-    if result.is_ok:
-        end_time = time.time()
-        total_time = end_time - start_time
-        LOGGER.debug({
-            "event":"SUCCESSFULLY.COMPLETED",
-            "response_time":total_time
-        })
-        sys.exit(0)
-    else:
-        LOGGER.error("MAX_RETRIES_REACHED")
-        sys.exit(1)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=_settings.server_ip_addr,
+        port=_settings.node_port,
+        reload=_settings.reload,
+        log_level="debug" if _settings.debug else "info",
+        timeout_keep_alive=3600,
+        workers=1,
+    )

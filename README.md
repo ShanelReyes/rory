@@ -65,13 +65,13 @@ The following prerequisites must be met in order to use the software correctly.
     export ROOT_BASE_PATH=/rory
     export BASE_PATH=/home/sreyes/rory
     export MANAGER_PATH=$BASE_PATH/manager
-    export CLIENT_PATH=$BASE_PATH/client
+    export DATAOWNER_PATH=$BASE_PATH/dataowner
     export WORKER_PATH=$BASE_PATH/worker
     export MICTLANX_PATH=$BASE_PATH/mictlanx
 
     export MANAGER_GUNICORN_CONFIG_FILE=$MANAGER_PATH/src/gunicorn_config.py
     export WORKER_GUNICORN_CONFIG_FILE=$WORKER_PATH/src/gunicorn_config.py
-    export CLIENT_GUNICORN_CONFIG_FILE=$CLIENT_PATH/src/gunicorn_config.py
+    export DATAOWNER_GUNICORN_CONFIG_FILE=$DATAOWNER_PATH/src/gunicorn_config.py
   ```
 
 2. Folder creation
@@ -85,7 +85,7 @@ The following prerequisites must be met in order to use the software correctly.
   
   ```sh
     pip3 install -r /rory/manager/requirements.txt
-    pip3 install -r /rory/cliente/requirements.txt
+    pip3 install -r /rory/dataowner/requirements.txt
     pip3 install -r /rory/worker/requirements.txt
   ```
 
@@ -130,19 +130,19 @@ The following prerequisites must be met in order to use the software correctly.
         gunicorn --config $WORKER_GUNICORN_CONFIG_FILE main:app
       ```
 
-    - **CLIENT**
+    - **DATAOWNER**
       
-      Locate in `$CLIENT_PATH/src` and and type in the terminal:
+      Locate in `$DATAOWNER_PATH/src` and and type in the terminal:
 
       ```sh
-        gunicorn --config $CLIENT_GUNICORN_CONFIG_FILE main:app
+        gunicorn --config $DATAOWNER_GUNICORN_CONFIG_FILE main:app
       ```
 
 5. Send a request, for example:
    
   - **Manager** `curl -X GET http://localhost:6000/clustering/test`
   - **Worker** `curl -X GET http://localhost:9000/clustering/test`
-  - **Client** `curl -X GET http://localhost:3000/clustering/test`
+  - **Dataowner** `curl -X GET http://localhost:3000/clustering/test`
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -150,9 +150,9 @@ The following prerequisites must be met in order to use the software correctly.
 gunicorn --config ./gunicorn_config.py main:app --reload
 
 ## Use of the system with docker
-docker run -p 3001:3001 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-client  -d  shanelreyes/rory:client
-docker run -p 6000:6000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-manager  -d  shanelreyes/rory:manager
-docker run -p 9000:9000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mictlanx/client --network mictlanx --name rory-worker -d  shanelreyes/rory:worker
+docker run -p 3001:3001 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/dataowner:/mictlanx/dataowner --network mictlanx --name rory-dataowner  -d  shanelreyes/rory:dataowner
+docker run -p 6000:6000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/dataowner:/mictlanx/dataowner --network mictlanx --name rory-manager  -d  shanelreyes/rory:manager
+docker run -p 9000:9000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/dataowner:/mictlanx/dataowner --network mictlanx --name rory-worker -d  shanelreyes/rory:worker
 
 ## Use of the system in servers
 1. Hacer la construccion de la imagen de contenedor de los componentes del sistema con `build_all.sh`
@@ -168,9 +168,9 @@ docker run -p 9000:9000 -v /rory/mictlanx:/rory/mictlanx -v /mictlanx/client:/mi
    - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-dataowner-0``` y ```rory-dataowner-0-error```
    - Crear la carpeta ```/rory/source``` y colocar dentro las trazas necesarias para cada algoritmo.
 
-6. Configurar el server para el componente _client_:
+6. Configurar el server para el componente _dataowner_:
    - Crear la carpeta ```/rory/sink```  
-   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-client-0.csv``` y ```rory-client-0-error.log```
+   - Crear la carpeta ```/rory/log``` y dentro colocar los archivos: ```rory-dataowner-0.csv``` y ```rory-dataowner-0-error.log```
    - Crear la carpeta ```/rory/source``` y colocar dentro los datasets a evaluar.
 
 7. Configurar el server para el componente _manager_:

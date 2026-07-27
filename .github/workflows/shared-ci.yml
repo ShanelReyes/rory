@@ -1,0 +1,91 @@
+name: Shared Libraries CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'shared/**'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'shared/**'
+  workflow_dispatch:
+
+jobs:
+  rory-tests:
+    name: Rory Core Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shared/rorycore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: abatilo/actions-poetry@v3
+      - name: Install dependencies
+        run: |
+          poetry lock
+          poetry install --no-interaction
+          poetry install --extras pqc --no-interaction
+      - name: Lint with Ruff
+        uses: chartboost/ruff-action@v1
+        continue-on-error: true
+      - name: Test with pytest
+        run: poetry run pytest -v
+      - name: Generate coverage
+        run: poetry run coverage run -m pytest && poetry run coverage report -m
+
+  roryclient-tests:
+    name: Rory Client Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shared/roryclient
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: abatilo/actions-poetry@v3
+      - name: Install dependencies
+        run: poetry install --no-interaction
+      - name: Test with pytest
+        run: poetry run pytest -v
+
+  rorycommon-tests:
+    name: Rory Common Tests
+    runs-on: ubuntu-latest
+    env:
+      RORY_COMMON_LOG_PATH: ${{ github.workspace }}/log
+      MICTLANX_LOG_PATH: ${{ github.workspace }}/log
+      RORY_KEYS_PATH: ${{ github.workspace }}/keys
+      RORY_SOURCE_PATH: ${{ github.workspace }}/source
+    defaults:
+      run:
+        working-directory: shared/rorycommon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: abatilo/actions-poetry@v3
+      - name: Prepare directories
+        run: |
+          mkdir -p "${RORY_COMMON_LOG_PATH}"
+          mkdir -p "${MICTLANX_LOG_PATH}"
+          mkdir -p "${RORY_KEYS_PATH}"
+          mkdir -p "${RORY_SOURCE_PATH}"
+      - name: Start MictlanX Service
+        run: |
+          chmod +x deploy_storage.sh && ./deploy_storage.sh
+      - name: Install dependencies
+        run: poetry install --no-interaction
+      - name: Generate CKKS Keys
+        run: |
+          poetry run python3 scripts/keygen.py --scheme=CKKS --mode=default --output-path="${RORY_KEYS_PATH}" --security-level=128 --decimals=2 --enable-relinearize --enable-rotate
+      - name: Test with pytest
+        run: poetry run coverage run -m pytest -v -s
+      - name: Generate coverage report
+        run: poetry run coverage report -m

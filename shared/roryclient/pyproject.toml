@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "roryclient"
+version = "0.1.14"
+description = ""
+authors = ["ShanelReyes <shanelreyesp@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.32.3"
+option = "^2.1.0"
+
+
+# mictlanx = "^0.0.161"
+pydantic = "^2.11.7"
+zensical = "^0.0.24"
+mkdocstrings-python = "^2.0.3"
+[tool.poetry.group.test.dependencies]
+pytest = "^8.3.4"
+
+
+[tool.poetry.group.dev.dependencies]
+mkdocs-material = "^9.7.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
